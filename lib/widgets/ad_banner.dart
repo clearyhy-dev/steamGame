@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
+import '../core/services/analytics_service.dart';
 
 /// 底部 Banner 广告（Android 已用正式广告位）
 class AdBanner extends StatefulWidget {
@@ -14,6 +15,7 @@ class _AdBannerState extends State<AdBanner> {
   BannerAd? _bannerAd;
   bool _isLoaded = false;
   bool _isLoading = false;
+  static const String _placement = 'bottom_banner';
 
   static String get _bannerAdUnitId {
     if (Platform.isAndroid) {
@@ -52,10 +54,32 @@ class _AdBannerState extends State<AdBanner> {
               _bannerAd = ad as BannerAd;
               _isLoaded = true;
             });
+            _isLoading = false;
           },
           onAdFailedToLoad: (ad, err) {
             debugPrint('AdBanner failed: $err');
+            AnalyticsService.instance.logAdLoadFailed(
+              adUnitId: _bannerAdUnitId,
+              adFormat: 'banner',
+              placement: _placement,
+              errorCode: err.code.toString(),
+            );
             ad.dispose();
+            _isLoading = false;
+          },
+          onAdImpression: (ad) {
+            AnalyticsService.instance.logAdImpression(
+              adUnitId: _bannerAdUnitId,
+              adFormat: 'banner',
+              placement: _placement,
+            );
+          },
+          onAdClicked: (ad) {
+            AnalyticsService.instance.logAdClick(
+              adUnitId: _bannerAdUnitId,
+              adFormat: 'banner',
+              placement: _placement,
+            );
           },
         ),
       );

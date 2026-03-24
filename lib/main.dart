@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:workmanager/workmanager.dart';
 import 'package:app_links/app_links.dart';
@@ -19,6 +20,12 @@ import 'l10n/app_localizations.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  try {
+    await Firebase.initializeApp();
+  } catch (e, stack) {
+    debugPrint('Firebase.init: $e\n$stack');
+  }
 
   // 全局捕获 Flutter 框架错误与异步未捕获异常，避免启动白屏/闪退无日志
   FlutterError.onError = (FlutterErrorDetails details) {

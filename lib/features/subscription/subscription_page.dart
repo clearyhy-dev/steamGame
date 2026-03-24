@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
 import '../../core/services/billing_service.dart';
+import '../../core/services/analytics_service.dart';
 import '../../core/theme/colors.dart';
 import '../../l10n/app_localizations.dart';
 import 'subscription_viewmodel.dart';
@@ -19,6 +20,7 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
   @override
   void initState() {
     super.initState();
+    AnalyticsService.instance.logPaywallView(source: 'subscription_page');
     _vm = SubscriptionViewModel();
     _vm.onNotify = () {
       if (mounted) setState(() {});
@@ -100,7 +102,13 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
                       child: ElevatedButton(
                         onPressed: () {
                           final p = _productById(_selectedProductId) ?? vm.products.firstOrNull;
-                          if (p != null) vm.buy(p);
+                          if (p != null) {
+                            AnalyticsService.instance.logSubscriptionPlanSelect(
+                              productId: p.id,
+                              source: 'cta_start_trial',
+                            );
+                            vm.buy(p);
+                          }
                         },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.itadOrange,
@@ -113,7 +121,15 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
                     ),
                   const SizedBox(height: 16),
                   TextButton(
-                    onPressed: vm.loading ? null : () => vm.restore(),
+                    onPressed: vm.loading
+                        ? null
+                        : () {
+                            AnalyticsService.instance.logRestore(
+                              success: true,
+                              source: 'restore_button_tap',
+                            );
+                            vm.restore();
+                          },
                     child: Text(l10n.get('restore'), style: TextStyle(color: AppColors.textSecondary)),
                   ),
                   const SizedBox(height: 8),
@@ -197,12 +213,20 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
     return Material(
       color: Colors.transparent,
       child: InkWell(
-        onTap: vm.loading ? null : onTap,
+        onTap: vm.loading
+            ? null
+            : () {
+                AnalyticsService.instance.logSubscriptionPlanSelect(
+                  productId: productId,
+                  source: 'subscription_page',
+                );
+                onTap();
+              },
         borderRadius: BorderRadius.circular(16),
         child: Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: isSelected ? AppColors.itadOrange.withOpacity(0.2) : AppColors.cardDark,
+            color: isSelected ? AppColors.itadOrange.withValues(alpha: 0.2) : AppColors.cardDark,
             borderRadius: BorderRadius.circular(16),
             border: isSelected ? Border.all(color: AppColors.itadOrange, width: 2) : null,
           ),
