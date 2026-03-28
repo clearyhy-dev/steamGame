@@ -13,6 +13,7 @@ import '../core/utils/score_calculator.dart';
 import '../models/game_model.dart';
 import '../models/wishlist_model.dart';
 import '../services/steam_api_service.dart';
+import '../services/steam_backend_service.dart';
 import '../widgets/discount_badge.dart';
 import '../widgets/ad_banner.dart';
 
@@ -75,13 +76,36 @@ class _DetailScreenState extends State<DetailScreen> {
   Future<void> _toggleWishlist() async {
     final game = _game;
     if (game == null) return;
+    final token = await StorageService.instance.getSteamBackendToken();
+    final backend = SteamBackendService();
+    const source = 'manual';
+
     if (_inWishlist) {
+      // 先尝试后端同步；失败则回退到原本的本地逻辑
+      try {
+        if (token != null && token.isNotEmpty) {
+          await backend.deleteFavorite(token: token, appid: game.appId);
+        }
+      } catch (_) {}
       await _storage.removeFromWishlist(game.appId);
     } else {
+      // 先尝试后端同步；失败则回退到原本的本地逻辑
+      try {
+        if (token != null && token.isNotEmpty) {
+          await backend.addFavorite(
+            token: token,
+            appid: game.appId,
+            name: game.name,
+            headerImage: game.image,
+            source: source,
+          );
+        }
+      } catch (_) {}
       await _storage.addToWishlist(WishlistItem.fromGame(game));
       await NotificationPermissionHelper.maybeRequestWithRationale(context);
     }
-    setState(() => _inWishlist = !_inWishlist);
+
+    if (mounted) setState(() => _inWishlist = !_inWishlist);
   }
 
   Widget _sectionCard(String title, String value, String subtitle) {

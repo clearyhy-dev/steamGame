@@ -1,0 +1,63 @@
+{
+  "project_info": {
+    "project_number": "803425642695",
+    "project_id": "steamdeal",
+    "storage_bucket": "steamdeal.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:803425642695:android:620ab3f5bf9063894e36e2",
+        "android_client_info": {
+          "package_name": "com.steamdeal.alert"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "803425642695-eqf9jp9gfu98g57uh1r878gkagepv28d.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.steamdeal.alert",
+            "certificate_hash": "d8edc55ef59aca3f39c0801f52b42a97fbd7d129"
+          }
+        },
+        {
+          "client_id": "803425642695-lik2lj5keuv5ab6biun7s8lke62shcrd.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.steamdeal.alert",
+            "certificate_hash": "2df3cf5c6da41c1fcc0ea7b067d5d3caadd4abe3"
+          }
+        },
+        {
+          "client_id": "803425642695-mnibo1lfm7i3q2007jq8t9gh6vq7mv3j.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.steamdeal.alert",
+            "certificate_hash": "2beb139cf5aebb76ab27e0eb502753999a845a5d"
+          }
+        },
+        {
+          "client_id": "803425642695-iab5dhn0recggqnotmlldlthoj5sldua.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDSaWPK0kiqlPWO4ey3CdLxmmOUiV2lUdM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "803425642695-iab5dhn0recggqnotmlldlthoj5sldua.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -397,6 +397,52 @@ class StorageService {
     await _prefs.remove(AppConstants.keyAuthPhotoUrl);
   }
 
+  // --- 后端（Steam OpenID）JWT 登录态 ---
+  Future<void> setSteamBackendToken(String token) async {
+    if (!_inited) return;
+    await _prefs.setString(AppConstants.keySteamBackendToken, token);
+  }
+
+  Future<String?> getSteamBackendToken() async {
+    if (!_inited) return null;
+    final token = _prefs.getString(AppConstants.keySteamBackendToken);
+    if (token == null || token.isEmpty) return null;
+    return token;
+  }
+
+  Future<void> clearSteamBackendToken() async {
+    if (!_inited) return;
+    await _prefs.remove(AppConstants.keySteamBackendToken);
+    await _prefs.remove(AppConstants.keySteamId);
+    await _prefs.remove(AppConstants.keySteamPersonaName);
+    await _prefs.remove(AppConstants.keySteamAvatar);
+    await _prefs.remove(AppConstants.keySteamProfileUrl);
+  }
+
+  // --- Steam 绑定资料缓存 ---
+  Future<void> setSteamProfileCache({
+    required String steamId,
+    required String personaName,
+    required String avatar,
+    required String profileUrl,
+  }) async {
+    if (!_inited) return;
+    await _prefs.setString(AppConstants.keySteamId, steamId);
+    await _prefs.setString(AppConstants.keySteamPersonaName, personaName);
+    await _prefs.setString(AppConstants.keySteamAvatar, avatar);
+    await _prefs.setString(AppConstants.keySteamProfileUrl, profileUrl);
+  }
+
+  Future<Map<String, String>> getSteamProfileCache() async {
+    if (!_inited) return {};
+    return {
+      'steamId': _prefs.getString(AppConstants.keySteamId) ?? '',
+      'personaName': _prefs.getString(AppConstants.keySteamPersonaName) ?? '',
+      'avatar': _prefs.getString(AppConstants.keySteamAvatar) ?? '',
+      'profileUrl': _prefs.getString(AppConstants.keySteamProfileUrl) ?? '',
+    };
+  }
+
   // --- Free 每日查询次数 ---
   Future<int> getQueryCountToday() async {
     if (!_inited) return 0;

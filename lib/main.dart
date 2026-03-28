@@ -8,6 +8,7 @@ import 'package:workmanager/workmanager.dart';
 import 'package:app_links/app_links.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'app.dart';
+import 'core/steam_auth_events.dart';
 import 'core/background_task.dart';
 import 'core/constants.dart';
 import 'core/services/billing_service.dart';
@@ -17,6 +18,109 @@ import 'data/services/cache_service.dart';
 import 'core/notification_service.dart';
 import 'core/schedule_config.dart';
 import 'l10n/app_localizations.dart';
+import 'services/steam_backend_service.dart';
+
+/// 后端 `deepLink()` 生成的是 `myapp://auth/steam/success`（`auth` 为 [Uri.host]，路径为 `/steam/success`），
+/// 此时 [Uri.pathSegments] 为 `steam,success`，不能按 `/auth/steam/...` 三段路径解析。
+bool _steamDeepLinkIsSuccess(Uri uri) {
+  if (uri.scheme != 'myapp') return false;
+  if (uri.host == 'auth' &&
+      uri.pathSegments.length >= 2 &&
+      uri.pathSegments[0] == 'steam' &&
+      uri.pathSegments[1] == 'success') {
+    return true;
+  }
+  if (uri.pathSegments.length >= 3 &&
+      uri.pathSegments[0] == 'auth' &&
+      uri.pathSegments[1] == 'steam' &&
+      uri.pathSegments[2] == 'success') {
+    return true;
+  }
+  return false;
+}
+
+bool _steamDeepLinkIsFail(Uri uri) {
+  if (uri.scheme != 'myapp') return false;
+  if (uri.host == 'auth' &&
+      uri.pathSegments.length >= 2 &&
+      uri.pathSegments[0] == 'steam' &&
+      uri.pathSegments[1] == 'fail') {
+    return true;
+  }
+  if (uri.pathSegments.length >= 3 &&
+      uri.pathSegments[0] == 'auth' &&
+      uri.pathSegments[1] == 'steam' &&
+      uri.pathSegments[2] == 'fail') {
+    return true;
+  }
+  return false;
+}
+
+Future<void> _handleSteamAuthDeepLink(Uri? uri) async {
+  if (uri == null) return;
+
+  if (_steamDeepLinkIsSuccess(uri)) {
+    final token = uri.queryParameters['token'];
+    if (token == null || token.isEmpty) return;
+    try {
+      await StorageService.instance.setSteamBackendToken(token);
+      final backend = SteamBackendService();
+      await backend.getMe(token);
+      final profile = await backend.getSteamProfile(token);
+
+      await StorageService.instance.setSteamProfileCache(
+        steamId: profile['steamId']?.toString() ?? '',
+        personaName: profile['personaName']?.toString() ?? '',
+        avatar: profile['avatar']?.toString() ?? '',
+        profileUrl: profile['profileUrl']?.toString() ?? '',
+      );
+
+      SteamAuthEvents.instance.emitSuccess(
+        SteamAuthSuccessPayload(
+          token: token,
+          steamId: profile['steamId']?.toString() ?? '',
+          personaName: profile['personaName']?.toString() ?? '',
+          avatar: profile['avatar']?.toString() ?? '',
+          profileUrl: profile['profileUrl']?.toString() ?? '',
+        ),
+      );
+      void showBar() {
+        final ctx = navigatorKey.currentContext;
+        if (ctx != null) {
+          ScaffoldMessenger.of(ctx).showSnackBar(
+            const SnackBar(content: Text('Steam account linked successfully')),
+          );
+        }
+      }
+
+      showBar();
+      WidgetsBinding.instance.addPostFrameCallback((_) => showBar());
+      // _init 在 runApp 之前执行时尚无 Navigator，延迟再试
+      Future<void>.delayed(const Duration(milliseconds: 1500), showBar);
+    } catch (e) {
+      debugPrint('DeepLink steam success handle error: $e');
+    }
+    return;
+  }
+
+  if (_steamDeepLinkIsFail(uri)) {
+    final reason = uri.queryParameters['reason'] ?? 'Unknown error';
+    try {
+      void showBar() {
+        final ctx = navigatorKey.currentContext;
+        if (ctx != null) {
+          ScaffoldMessenger.of(ctx).showSnackBar(
+            SnackBar(content: Text('Steam 登录失败：$reason'), duration: const Duration(seconds: 5)),
+          );
+        }
+      }
+
+      showBar();
+      WidgetsBinding.instance.addPostFrameCallback((_) => showBar());
+      Future<void>.delayed(const Duration(milliseconds: 1500), showBar);
+    } catch (_) {}
+  }
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -105,13 +209,20 @@ Future<void> _init() async {
 
   try {
     final appLinks = AppLinks();
-    final uri = await appLinks.getInitialLink();
-    if (uri != null) {
-      final ref = uri.queryParameters['ref'];
+    final initialUri = await appLinks.getInitialLink();
+    if (initialUri != null) {
+      final ref = initialUri.queryParameters['ref'];
       if (ref != null && ref.isNotEmpty) {
         await StorageService.instance.setReferrerId(ref);
       }
+      // 冷启动若由 Steam 回跳拉起，需处理 initial link（仅 uriLinkStream 会漏掉）
+      await _handleSteamAuthDeepLink(initialUri);
     }
+
+    // 深链路监听：Steam OpenID 回跳（应用已在后台/前台时）
+    appLinks.uriLinkStream.listen((uri) async {
+      await _handleSteamAuthDeepLink(uri);
+    });
   } catch (e) {
     debugPrint('AppLinks.getInitialLink: $e');
   }

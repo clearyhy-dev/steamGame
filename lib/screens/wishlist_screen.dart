@@ -6,6 +6,7 @@ import '../l10n/app_localizations.dart';
 import '../models/game_model.dart';
 import '../models/wishlist_model.dart';
 import '../services/steam_api_service.dart';
+import '../services/steam_backend_service.dart';
 import '../widgets/game_card.dart';
 import '../features/subscription/subscription_page.dart';
 import 'detail_screen.dart';
@@ -40,9 +41,15 @@ class _WishlistScreenState extends State<WishlistScreen> {
   }
 
   Future<void> _checkAuthAndLoad() async {
-    final loggedIn = await AuthService().isLoggedIn();
-    if (mounted) setState(() => _isLoggedIn = loggedIn);
-    if (loggedIn) await _load();
+    final googleLoggedIn = await AuthService().isLoggedIn();
+    String? steamToken;
+    try {
+      steamToken = await StorageService.instance.getSteamBackendToken();
+    } catch (_) {}
+    final hasSteam = steamToken != null && steamToken.isNotEmpty;
+    final ok = googleLoggedIn || hasSteam;
+    if (mounted) setState(() => _isLoggedIn = ok);
+    if (ok) await _load();
   }
 
   @override
@@ -61,9 +68,55 @@ class _WishlistScreenState extends State<WishlistScreen> {
 
   Future<void> _load() async {
     if (!StorageService.instance.isInitialized) await StorageService.instance.init();
-    final items = await _storage.getWishlistItems();
+    List<WishlistItem> items = await _storage.getWishlistItems();
     final deals = await _api.fetchDeals(pageSize: 100);
     final lastDiscounts = await _storage.getLastKnownDiscounts();
+
+    // 当用户完成 Steam 登录后：优先以后端 favorites 为准，进行远程同步到本地。
+    final token = await StorageService.instance.getSteamBackendToken();
+    if (token != null && token.isNotEmpty) {
+      try {
+        final backend = SteamBackendService();
+        final remote = await backend.listFavorites(token);
+        final remoteSet = <String>{};
+        for (final f in remote) {
+          final appid = f is Map ? f['appid']?.toString() : null;
+          if (appid != null && appid.trim().isNotEmpty) remoteSet.add(appid.trim());
+        }
+
+        final localSet = items.map((e) => e.appId).toSet();
+        for (final item in items) {
+          if (!remoteSet.contains(item.appId)) {
+            await _storage.removeFromWishlist(item.appId);
+            localSet.remove(item.appId);
+          }
+        }
+
+        for (final f in remote) {
+          if (f is! Map) continue;
+          final appid = f['appid']?.toString().trim();
+          if (appid == null || appid.isEmpty) continue;
+          if (localSet.contains(appid)) continue;
+          final name = f['name']?.toString() ?? '';
+          final headerImage = f['headerImage']?.toString() ?? '';
+          if (name.isEmpty) continue;
+          await _storage.addToWishlist(
+            WishlistItem(
+              appId: appid,
+              name: name,
+              image: headerImage,
+              targetDiscount: 0,
+            ),
+          );
+          localSet.add(appid);
+        }
+
+        items = await _storage.getWishlistItems();
+      } catch (_) {
+        // 远程同步失败则回退本地 wishlist
+      }
+    }
+
     if (mounted) {
       setState(() {
         _items = items;
@@ -134,6 +187,12 @@ class _WishlistScreenState extends State<WishlistScreen> {
                 trailing: IconButton(
                   icon: const Icon(Icons.delete_outline),
                   onPressed: () async {
+                    final token = await StorageService.instance.getSteamBackendToken();
+                    if (token != null && token.isNotEmpty) {
+                      try {
+                        await SteamBackendService().deleteFavorite(token: token, appid: item.appId);
+                      } catch (_) {}
+                    }
                     await _storage.removeFromWishlist(item.appId);
                     _load();
                   },
@@ -176,6 +235,12 @@ class _WishlistScreenState extends State<WishlistScreen> {
                   ),
                 ),
                 onWishlistToggle: () async {
+                  final token = await StorageService.instance.getSteamBackendToken();
+                  if (token != null && token.isNotEmpty) {
+                    try {
+                      await SteamBackendService().deleteFavorite(token: token, appid: item.appId);
+                    } catch (_) {}
+                  }
                   await _storage.removeFromWishlist(item.appId);
                   _load();
                 },

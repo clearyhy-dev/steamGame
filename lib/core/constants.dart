@@ -71,6 +71,15 @@ class AppConstants {
   static const String keyAuthEmail = 'auth_email';
   static const String keyAuthPhotoUrl = 'auth_photo_url';
 
+  /// 后端 Steam 登录态（由 /auth/steam/callback deep link 返回）
+  static const String keySteamBackendToken = 'steam_backend_jwt';
+
+  /// Steam 绑定资料缓存（用于快速刷新 UI）
+  static const String keySteamId = 'steam_id';
+  static const String keySteamPersonaName = 'steam_persona_name';
+  static const String keySteamAvatar = 'steam_avatar';
+  static const String keySteamProfileUrl = 'steam_profile_url';
+
   /// Google OAuth Web 客户端 ID（serverClientId），须与 Cloud 同一项目下的 Web 应用客户端一致
   static const String googleSignInClientId = '803425642695-iab5dhn0recggqnotmlldlthoj5sldua.apps.googleusercontent.com';
 

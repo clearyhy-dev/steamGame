@@ -1,4 +1,5 @@
 import 'dart:io' show Platform;
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -13,6 +14,12 @@ import '../../core/services/review_service.dart';
 import '../../l10n/app_localizations.dart';
 import '../subscription/subscription_page.dart';
 import '../onboarding/onboarding_page.dart';
+import '../../core/constants/api_constants.dart';
+import '../../services/steam_backend_service.dart';
+import '../../core/steam_auth_events.dart';
+import 'package:url_launcher/url_launcher.dart' as url_launcher;
+import '../steam/presentation/pages/steam_account_page.dart';
+import '../steam/presentation/pages/steam_overview_page.dart';
 
 /// Profile 页：用户信息、登录/登出、Pro、分享、语言、通知等
 class ProfilePage extends StatefulWidget {
@@ -29,21 +36,133 @@ class _ProfilePageState extends State<ProfilePage> {
   Map<String, String>? _user;
   String? _currentLocaleCode;
 
+  String? _steamId;
+  String? _steamPersonaName;
+  String? _steamAvatar;
+  String? _steamProfileUrl;
+
+  /// 仅 Steam 登录态可拉取：库总时长（分钟）、好友数
+  int? _steamTotalPlaytimeMinutes;
+  int? _steamFriendCount;
+
+  /// Google 登录进行中（避免重复点击、并显示加载）
+  bool _googleSigningIn = false;
+
+  StreamSubscription<SteamAuthSuccessPayload>? _steamAuthSub;
+
   @override
   void initState() {
     super.initState();
     _load();
+
+    _steamAuthSub = SteamAuthEvents.instance.stream.listen((payload) {
+      if (!mounted) return;
+      setState(() {
+        _steamId = payload.steamId;
+        _steamPersonaName = payload.personaName;
+        _steamAvatar = payload.avatar;
+        _steamProfileUrl = payload.profileUrl;
+      });
+      _load();
+    });
+  }
+
+  @override
+  void dispose() {
+    _steamAuthSub?.cancel();
+    super.dispose();
   }
 
   Future<void> _load() async {
     final pro = await StorageService.instance.isPro();
     final user = await AuthService().getCurrentUser();
     final localeCode = await StorageService.instance.getPreferredLocale();
-    if (mounted) setState(() {
-      _isPro = pro;
-      _user = user;
-      _currentLocaleCode = localeCode;
-    });
+
+    String? steamToken;
+    try {
+      steamToken = await StorageService.instance.getSteamBackendToken();
+    } catch (_) {}
+
+    String? steamPersonaName;
+    String? steamAvatar;
+    String? steamProfileUrl;
+    String? steamId;
+    if (steamToken != null && steamToken.isNotEmpty) {
+      try {
+        final backend = SteamBackendService();
+        final profile = await backend.getSteamProfile(steamToken);
+        steamId = profile['steamId']?.toString();
+        steamPersonaName = profile['personaName']?.toString();
+        steamAvatar = profile['avatar']?.toString();
+        steamProfileUrl = profile['profileUrl']?.toString();
+      } catch (_) {
+        // fallback to cache
+        final cached = await StorageService.instance.getSteamProfileCache();
+        steamId = cached['steamId']?.toString().trim().isNotEmpty == true ? cached['steamId'] : null;
+        steamPersonaName = cached['personaName']?.toString().trim().isNotEmpty == true ? cached['personaName'] : null;
+        steamAvatar = cached['avatar']?.toString().trim().isNotEmpty == true ? cached['avatar'] : null;
+        steamProfileUrl = cached['profileUrl']?.toString().trim().isNotEmpty == true ? cached['profileUrl'] : null;
+      }
+    } else {
+      final cached = await StorageService.instance.getSteamProfileCache();
+      steamId = cached['steamId']?.toString().trim().isNotEmpty == true ? cached['steamId'] : null;
+      steamPersonaName = cached['personaName']?.toString().trim().isNotEmpty == true ? cached['personaName'] : null;
+      steamAvatar = cached['avatar']?.toString().trim().isNotEmpty == true ? cached['avatar'] : null;
+      steamProfileUrl = cached['profileUrl']?.toString().trim().isNotEmpty == true ? cached['profileUrl'] : null;
+    }
+
+    int? steamTotalPlaytimeMinutes;
+    int? steamFriendCount;
+    if (steamToken != null && steamToken.isNotEmpty) {
+      final backend = SteamBackendService();
+      try {
+        final owned = await backend.getOwnedGames(steamToken);
+        var sum = 0;
+        for (final g in owned) {
+          if (g is! Map) continue;
+          final p = g['playtimeForever'];
+          if (p is num) {
+            sum += p.round();
+          } else if (p != null) {
+            sum += int.tryParse(p.toString()) ?? 0;
+          }
+        }
+        steamTotalPlaytimeMinutes = sum;
+      } catch (_) {
+        steamTotalPlaytimeMinutes = null;
+      }
+      try {
+        final friends = await backend.getFriendsStatus(steamToken);
+        steamFriendCount = friends.length;
+      } catch (_) {
+        steamFriendCount = null;
+      }
+    } else {
+      steamTotalPlaytimeMinutes = null;
+      steamFriendCount = null;
+    }
+
+    if (mounted) {
+      setState(() {
+        _isPro = pro;
+        _user = user;
+        _currentLocaleCode = localeCode;
+        _steamId = steamId;
+        _steamPersonaName = steamPersonaName;
+        _steamAvatar = steamAvatar;
+        _steamProfileUrl = steamProfileUrl;
+        _steamTotalPlaytimeMinutes = steamTotalPlaytimeMinutes;
+        _steamFriendCount = steamFriendCount;
+      });
+    }
+  }
+
+  /// [totalMinutes] 为 Steam API playtime_forever 累加（分钟）
+  String _steamHoursLabel(AppLocalizations l10n, int totalMinutes) {
+    if (totalMinutes <= 0) return l10n.get('steam_hours_zero');
+    final h = totalMinutes / 60.0;
+    final v = h >= 100 ? h.round().toString() : h.toStringAsFixed(1);
+    return l10n.get('steam_hours_value').replaceAll('{v}', v);
   }
 
   bool _isRegionSelected(RegionEntry? region, String? stored) {
@@ -102,6 +221,129 @@ class _ProfilePageState extends State<ProfilePage> {
     if (mounted) _load();
   }
 
+  Future<void> _startSteamLogin({required bool bindMode}) async {
+    try {
+      final startPath = bindMode ? '/auth/steam/start?mode=bind' : '/auth/steam/start?mode=login';
+      final start = Uri.parse('${ApiConstants.baseUrl}$startPath');
+
+      Uri finalStart = start;
+      if (bindMode) {
+        final u = _user;
+        if (u == null) throw Exception('Google login required for bind.');
+        final token = await StorageService.instance.getSteamBackendToken();
+        finalStart = start.replace(
+          queryParameters: <String, String>{
+            'mode': 'bind',
+            if (token != null && token.isNotEmpty) 'token': token,
+            'appUserId': u['userId'] ?? '',
+            'appEmail': u['email'] ?? '',
+            'appPhotoUrl': u['photoUrl'] ?? '',
+          },
+        );
+      }
+
+      // 勿依赖 canLaunchUrl：Android 11+ 无 <queries> 时常误判为 false，导致永远打不开浏览器
+      final ok = await url_launcher.launchUrl(
+        finalStart,
+        mode: url_launcher.LaunchMode.externalApplication,
+      );
+      if (!ok) throw Exception('launchUrl returned false');
+    } catch (e) {
+      if (!mounted) return;
+      final l10n = AppLocalizations.of(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${l10n.get('steam_login_start_failed')}$e'),
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    }
+  }
+
+  Future<void> _runGoogleSignIn() async {
+    if (_googleSigningIn) return;
+    final l10n = AppLocalizations.of(context);
+    setState(() => _googleSigningIn = true);
+    try {
+      await AuthService().signInWithGoogle();
+      await _load();
+    } catch (_) {
+      await _load();
+      if (!mounted) return;
+      final msg = AuthService.lastSignInError ?? l10n.get('sign_in_failed');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(msg), duration: const Duration(seconds: 8)),
+      );
+    } finally {
+      if (mounted) setState(() => _googleSigningIn = false);
+    }
+  }
+
+  void _showLoginMethodSheet() {
+    final l10n = AppLocalizations.of(context);
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: AppColors.cardDark,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 12, 8, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                child: Text(
+                  l10n.get('choose_sign_in_method'),
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey.shade200,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.account_circle, color: AppColors.itadOrange),
+                title: Text(l10n.get('sign_in_google')),
+                subtitle: Text(l10n.get('sign_in_hint')),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  await _runGoogleSignIn();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.sports_esports, color: AppColors.itadOrange),
+                title: Text(l10n.get('use_steam_login')),
+                subtitle: Text(l10n.get('use_steam_login_sub')),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  await _startSteamLogin(bindMode: false);
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _logoutSteam() async {
+    final token = await StorageService.instance.getSteamBackendToken();
+    if (token == null || token.isEmpty) return;
+    try {
+      final backend = SteamBackendService();
+      await backend.logout(token);
+    } catch (_) {
+      // ignore
+    }
+    await StorageService.instance.clearSteamBackendToken();
+    if (mounted) setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
@@ -158,28 +400,171 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
               ),
               const SizedBox(height: 16),
-            ] else
+            ],
+            if (_user == null) ...[
+              if (_steamId == null || _steamId!.isEmpty)
+                Card(
+                  child: ListTile(
+                    leading: const Icon(Icons.login, color: AppColors.itadOrange),
+                    title: Text(l10n.get('login')),
+                    subtitle: Text(l10n.get('login_subtitle')),
+                    trailing: _googleSigningIn
+                        ? const SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.chevron_right),
+                    onTap: _googleSigningIn ? null : _showLoginMethodSheet,
+                  ),
+                )
+              else
+                Card(
+                  child: ListTile(
+                    leading: const Icon(Icons.sports_esports, color: AppColors.itadOrange),
+                    title: Text(l10n.get('steam_linked')),
+                    subtitle: Text(_steamPersonaName ?? l10n.get('steam_linked_sub')),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const SteamAccountPage()),
+                      );
+                    },
+                  ),
+                ),
+              const SizedBox(height: 16),
+            ],
+
+            // 已登录 Google：Steam 绑定 / 进入 Steam 中心
+            if (_user != null)
               Card(
                 child: ListTile(
-                  leading: const Icon(Icons.login, color: AppColors.itadOrange),
-                  title: Text(l10n.get('sign_in_google')),
-                  subtitle: Text(l10n.get('sign_in_hint')),
+                  leading: const Icon(Icons.sports_esports, color: AppColors.itadOrange),
+                  title: Text(
+                    _steamId == null || _steamId!.isEmpty
+                        ? l10n.get('steam_continue')
+                        : l10n.get('steam_linked'),
+                  ),
+                  subtitle: Text(
+                    _steamId == null || _steamId!.isEmpty
+                        ? l10n.get('steam_openid_continue')
+                        : (_steamPersonaName ?? l10n.get('steam_linked_placeholder')),
+                  ),
                   trailing: const Icon(Icons.chevron_right),
-                  onTap: () async {
-                    try {
-                      await AuthService().signInWithGoogle();
-                      _load();
-                    } catch (_) {
-                      _load();
-                      if (!mounted) return;
-                      final msg = AuthService.lastSignInError ?? l10n.get('sign_in_failed');
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text(msg), duration: const Duration(seconds: 5)),
+                  onTap: () {
+                    if (_steamId != null && _steamId!.isNotEmpty) {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const SteamAccountPage()),
                       );
+                      return;
                     }
+                    _startSteamLogin(bindMode: false);
                   },
                 ),
               ),
+
+            if (_user != null)
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.link),
+                  title: Text(l10n.get('steam_bind_google')),
+                  subtitle: Text(l10n.get('steam_bind_google_sub')),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => _startSteamLogin(bindMode: true),
+                ),
+              ),
+
+            if (_steamId != null && _steamId!.isNotEmpty)
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.logout, color: AppColors.itadOrange),
+                  title: Text(l10n.get('sign_out_steam')),
+                  subtitle: Text(l10n.get('sign_out_steam_sub')),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () async {
+                    await _logoutSteam();
+                    await _load();
+                  },
+                ),
+              ),
+
+            if (_steamId != null && _steamId!.isNotEmpty)
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.link_off, color: AppColors.itadOrange),
+                  title: Text(l10n.get('unbind_steam')),
+                  subtitle: Text(l10n.get('unbind_steam_sub')),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () async {
+                    await StorageService.instance.clearSteamBackendToken();
+                    await _load();
+                  },
+                ),
+              ),
+
+            if (_steamId != null && _steamId!.isNotEmpty) ...[
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.query_stats, color: AppColors.itadOrange, size: 22),
+                            const SizedBox(width: 8),
+                            Text(
+                              l10n.get('steam_profile_summary_title'),
+                              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          _steamTotalPlaytimeMinutes != null
+                              ? l10n
+                                  .get('steam_total_playtime_line')
+                                  .replaceAll('{v}', _steamHoursLabel(l10n, _steamTotalPlaytimeMinutes!))
+                              : l10n.get('steam_total_playtime_private'),
+                          style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          _steamFriendCount != null
+                              ? l10n.get('steam_friend_count_line').replaceAll('{n}', '${_steamFriendCount!}')
+                              : l10n.get('steam_friend_count_private'),
+                          style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          l10n.get('steam_data_from_api'),
+                          style: TextStyle(fontSize: 12, color: AppColors.textSecondary.withOpacity(0.85)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: Card(
+                  child: ListTile(
+                    leading: const Icon(Icons.dashboard_customize, color: AppColors.itadOrange),
+                    title: Text(l10n.get('steam_view_all_title')),
+                    subtitle: Text(l10n.get('steam_view_all_subtitle')),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(builder: (_) => const SteamOverviewPage()),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ],
+
             const SizedBox(height: 16),
             Container(
               padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),

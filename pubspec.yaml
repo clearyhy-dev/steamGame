@@ -1,7 +1,7 @@
 name: steam_game
 description: Steam AI Deal Alert - 愿望单折扣提醒
 publish_to: 'none'
-version: 2.0.22+29
+version: 2.0.23+30
 
 environment:
   sdk: ">=3.4.0 <4.0.0"

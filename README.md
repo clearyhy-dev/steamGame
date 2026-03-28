@@ -51,3 +51,63 @@ lib/
 - `workmanager`：后台周期任务  
 - `flutter_local_notifications`：本地通知  
 - `google_mobile_ads`：广告（当前仅占位）
+
+---
+
+## 后端部署（Cloud Run + Firestore）
+
+完整部署文档见：`docs/deployment.md`
+
+### 本地开发步骤（server）
+
+```bash
+cd server
+cp .env.example .env
+npm install
+npm run dev
+```
+
+健康检查：
+
+```bash
+curl http://localhost:8080/health
+```
+
+### Firestore 配置步骤
+
+1. 在 GCP 启用 Firestore（Native mode）  
+2. 本地开发：`GOOGLE_APPLICATION_CREDENTIALS` 指向 service account json  
+3. Cloud Run：推荐使用默认服务账号（ADC），并赋予 Firestore 权限（如 `roles/datastore.user`）
+
+### Steam API Key 配置步骤
+
+1. 申请 Steam Web API Key  
+2. 配置环境变量 `STEAM_API_KEY` 到后端  
+3. 不要把该 Key 放在 Flutter 客户端
+
+### Cloud Run 部署步骤
+
+在 `server/` 下执行（按实际值替换）：
+
+```bash
+gcloud run deploy steam-game-api \
+  --source . \
+  --region=asia-southeast1 \
+  --allow-unauthenticated \
+  --set-env-vars=PORT=8080,NODE_ENV=production,JWT_SECRET=<JWT_SECRET>,STEAM_API_KEY=<STEAM_API_KEY>,STEAM_REALM=https://<YOUR_RUN_URL>,STEAM_RETURN_URL=https://<YOUR_RUN_URL>/auth/steam/callback,APP_DEEP_LINK_SCHEME=myapp,APP_DEEP_LINK_SUCCESS_HOST=auth,APP_DEEP_LINK_FAIL_HOST=auth,FIREBASE_PROJECT_ID=<FIREBASE_PROJECT_ID>
+```
+
+### Android 深链接配置说明
+
+Steam 登录回跳使用：
+- `myapp://auth/steam/success?token=...`
+- `myapp://auth/steam/fail?reason=...`
+
+请确保 AndroidManifest / iOS Info.plist 的 scheme 与后端 `APP_DEEP_LINK_SCHEME` 一致。
+
+### Google Play 上架注意事项
+
+1. 仅使用浏览器 OpenID，不在 App 内采集 Steam 密码  
+2. 提供隐私说明，说明读取 Steam 公开资料与可见游戏数据  
+3. 正式环境替换测试广告位/测试支付配置  
+4. 上架前验证深链接登录回跳与 Firestore 权限
