@@ -1,1 +1,22 @@
-{"@locale":"de","appTitle":"Steam AI Deal Alarm","subscribe":"Jetzt abonnieren","restore":"Kauf wiederherstellen","proFeature":"Alle Funktionen freischalten","subscription_title":"Pro werden","free_label":"Kostenlos","pro_label":"Pro","profile":"Profil","share_message":"Steam-Angebote ansehen!","home":"Start","explore":"Entdecken","wishlist":"Wunschliste","add_to_wishlist":"Zur Wunschliste hinzufügen","share":"Teilen","upgrade_to_pro":"Auf Pro upgraden","profile_enabled_features":"Aktiv: Onboarding, Abo, Bewertung, Teilen, tägliche Deal-Benachrichtigungen; Pro-Nutzer erhalten zusätzlich Wunschlisten-Preissenkungsbenachrichtigungen."}
+{
+  "@locale": "de",
+  "appTitle": "Steam AI Deal Alarm",
+  "subscribe": "Jetzt abonnieren",
+  "restore": "Kauf wiederherstellen",
+  "proFeature": "Alle Funktionen freischalten",
+  "subscription_title": "Pro werden",
+  "free_label": "Kostenlos",
+  "pro_label": "Pro",
+  "profile": "Profil",
+  "share_message": "Steam-Angebote ansehen!",
+  "home": "Start",
+  "explore": "Entdecken",
+  "wishlist": "Wunschliste",
+  "add_to_wishlist": "Zur Wunschliste hinzufügen",
+  "share": "Teilen",
+  "upgrade_to_pro": "Auf Pro upgraden",
+  "profile_enabled_features": "Aktiv: Onboarding, Abo, Bewertung, Teilen, tägliche Deal-Benachrichtigungen; Pro-Nutzer erhalten zusätzlich Wunschlisten-Preissenkungsbenachrichtigungen.",
+  "companion_home_title": "Steam AI Deal Companion",
+  "stats_share_card": "Statistiken teilen",
+  "explore_tab_for_you": "Für dich"
+}

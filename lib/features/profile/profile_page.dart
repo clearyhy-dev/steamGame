@@ -1,4 +1,3 @@
-import 'dart:io' show Platform;
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
@@ -16,10 +15,10 @@ import '../subscription/subscription_page.dart';
 import '../onboarding/onboarding_page.dart';
 import '../../core/constants/api_constants.dart';
 import '../../services/steam_backend_service.dart';
+import '../../core/services/analytics_service.dart';
 import '../../core/steam_auth_events.dart';
 import 'package:url_launcher/url_launcher.dart' as url_launcher;
 import '../steam/presentation/pages/steam_account_page.dart';
-import '../steam/presentation/pages/steam_overview_page.dart';
 
 /// Profile 页：用户信息、登录/登出、Pro、分享、语言、通知等
 class ProfilePage extends StatefulWidget {
@@ -38,12 +37,10 @@ class _ProfilePageState extends State<ProfilePage> {
 
   String? _steamId;
   String? _steamPersonaName;
-  String? _steamAvatar;
-  String? _steamProfileUrl;
 
-  /// 仅 Steam 登录态可拉取：库总时长（分钟）、好友数
-  int? _steamTotalPlaytimeMinutes;
-  int? _steamFriendCount;
+  /// `/v1/stats/*` 聚合画像
+  Map<String, dynamic>? _statsSummary;
+  Map<String, dynamic>? _shareCard;
 
   /// Google 登录进行中（避免重复点击、并显示加载）
   bool _googleSigningIn = false;
@@ -60,8 +57,6 @@ class _ProfilePageState extends State<ProfilePage> {
       setState(() {
         _steamId = payload.steamId;
         _steamPersonaName = payload.personaName;
-        _steamAvatar = payload.avatar;
-        _steamProfileUrl = payload.profileUrl;
       });
       _load();
     });
@@ -84,8 +79,6 @@ class _ProfilePageState extends State<ProfilePage> {
     } catch (_) {}
 
     String? steamPersonaName;
-    String? steamAvatar;
-    String? steamProfileUrl;
     String? steamId;
     if (steamToken != null && steamToken.isNotEmpty) {
       try {
@@ -93,53 +86,26 @@ class _ProfilePageState extends State<ProfilePage> {
         final profile = await backend.getSteamProfile(steamToken);
         steamId = profile['steamId']?.toString();
         steamPersonaName = profile['personaName']?.toString();
-        steamAvatar = profile['avatar']?.toString();
-        steamProfileUrl = profile['profileUrl']?.toString();
       } catch (_) {
         // fallback to cache
         final cached = await StorageService.instance.getSteamProfileCache();
         steamId = cached['steamId']?.toString().trim().isNotEmpty == true ? cached['steamId'] : null;
         steamPersonaName = cached['personaName']?.toString().trim().isNotEmpty == true ? cached['personaName'] : null;
-        steamAvatar = cached['avatar']?.toString().trim().isNotEmpty == true ? cached['avatar'] : null;
-        steamProfileUrl = cached['profileUrl']?.toString().trim().isNotEmpty == true ? cached['profileUrl'] : null;
       }
     } else {
       final cached = await StorageService.instance.getSteamProfileCache();
       steamId = cached['steamId']?.toString().trim().isNotEmpty == true ? cached['steamId'] : null;
       steamPersonaName = cached['personaName']?.toString().trim().isNotEmpty == true ? cached['personaName'] : null;
-      steamAvatar = cached['avatar']?.toString().trim().isNotEmpty == true ? cached['avatar'] : null;
-      steamProfileUrl = cached['profileUrl']?.toString().trim().isNotEmpty == true ? cached['profileUrl'] : null;
     }
 
-    int? steamTotalPlaytimeMinutes;
-    int? steamFriendCount;
+    Map<String, dynamic>? statsSummary;
+    Map<String, dynamic>? shareCardData;
     if (steamToken != null && steamToken.isNotEmpty) {
-      final backend = SteamBackendService();
       try {
-        final owned = await backend.getOwnedGames(steamToken);
-        var sum = 0;
-        for (final g in owned) {
-          if (g is! Map) continue;
-          final p = g['playtimeForever'];
-          if (p is num) {
-            sum += p.round();
-          } else if (p != null) {
-            sum += int.tryParse(p.toString()) ?? 0;
-          }
-        }
-        steamTotalPlaytimeMinutes = sum;
-      } catch (_) {
-        steamTotalPlaytimeMinutes = null;
-      }
-      try {
-        final friends = await backend.getFriendsStatus(steamToken);
-        steamFriendCount = friends.length;
-      } catch (_) {
-        steamFriendCount = null;
-      }
-    } else {
-      steamTotalPlaytimeMinutes = null;
-      steamFriendCount = null;
+        final backend = SteamBackendService();
+        statsSummary = await backend.getStatsSummary(steamToken);
+        shareCardData = await backend.getShareCard(steamToken);
+      } catch (_) {}
     }
 
     if (mounted) {
@@ -149,20 +115,60 @@ class _ProfilePageState extends State<ProfilePage> {
         _currentLocaleCode = localeCode;
         _steamId = steamId;
         _steamPersonaName = steamPersonaName;
-        _steamAvatar = steamAvatar;
-        _steamProfileUrl = steamProfileUrl;
-        _steamTotalPlaytimeMinutes = steamTotalPlaytimeMinutes;
-        _steamFriendCount = steamFriendCount;
+        _statsSummary = statsSummary;
+        _shareCard = shareCardData;
       });
     }
   }
 
-  /// [totalMinutes] 为 Steam API playtime_forever 累加（分钟）
-  String _steamHoursLabel(AppLocalizations l10n, int totalMinutes) {
-    if (totalMinutes <= 0) return l10n.get('steam_hours_zero');
-    final h = totalMinutes / 60.0;
-    final v = h >= 100 ? h.round().toString() : h.toStringAsFixed(1);
-    return l10n.get('steam_hours_value').replaceAll('{v}', v);
+  String _localizedShareOneLiner(AppLocalizations l10n, Map<String, dynamic> s) {
+    final ratio = (s['unplayedRatio'] as num?)?.toDouble() ?? 0;
+    final topList = s['topPlayed'] as List<dynamic>?;
+    var topName = '';
+    if (topList != null && topList.isNotEmpty) {
+      final first = topList.first;
+      if (first is Map) {
+        topName = first['name']?.toString() ?? '';
+      }
+    }
+    if (ratio > 0.5) return l10n.get('stats_share_note_unplayed');
+    if (topName.isNotEmpty) {
+      return l10n.get('stats_share_note_top').replaceAll('{name}', topName);
+    }
+    return l10n.get('stats_share_fallback');
+  }
+
+  String _shareCardSubtitle(AppLocalizations l10n) {
+    if (_statsSummary != null && _statsSummary!['steamLinked'] == true) {
+      return _localizedShareOneLiner(l10n, _statsSummary!);
+    }
+    if (_shareCard != null && _shareCard!['stats'] is Map) {
+      return ((_shareCard!['stats'] as Map)['collectionNote']?.toString()) ?? '';
+    }
+    return l10n.get('stats_share_fallback');
+  }
+
+  String _shareCardFullText(AppLocalizations l10n) {
+    final title = l10n.get('stats_share_app_line');
+    if (_statsSummary != null && _statsSummary!['steamLinked'] == true) {
+      final s = _statsSummary!;
+      final n = (s['ownedCount'] as num?)?.toInt() ?? 0;
+      final min = (s['totalPlaytimeMinutes'] as num?)?.toDouble() ?? 0;
+      final hours = min / 60.0;
+      final hStr = hours >= 100 ? '${hours.round()}' : hours.toStringAsFixed(1);
+      final genres = s['favoriteGenres'] as List<dynamic>?;
+      final g = (genres != null && genres.isNotEmpty) ? genres.first.toString() : '';
+      final b = StringBuffer()
+        ..writeln(title)
+        ..writeln(l10n.get('stats_share_line_games').replaceAll('{n}', '$n'))
+        ..writeln(l10n.get('stats_share_line_hours').replaceAll('{h}', hStr));
+      if (g.isNotEmpty) {
+        b.writeln(l10n.get('stats_share_line_genre').replaceAll('{g}', g));
+      }
+      b.write(_localizedShareOneLiner(l10n, s));
+      return b.toString();
+    }
+    return '$title\n${_shareCardSubtitle(l10n)}';
   }
 
   bool _isRegionSelected(RegionEntry? region, String? stored) {
@@ -488,82 +494,53 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
               ),
 
-            if (_steamId != null && _steamId!.isNotEmpty)
+            if (_statsSummary != null && _statsSummary!['steamLinked'] == true) ...[
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        l10n.get('stats_library_summary'),
+                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        l10n.get('stats_games_owned').replaceAll('{n}', '${_statsSummary!['ownedCount'] ?? 0}'),
+                        style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
+                      ),
+                      Text(
+                        l10n.get('stats_unplayed_line').replaceAll(
+                              '{p}',
+                              '${(((_statsSummary!['unplayedRatio'] as num?)?.toDouble() ?? 0) * 100).round()}',
+                            ),
+                        style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
+
+            if (_shareCard != null || (_statsSummary != null && _statsSummary!['steamLinked'] == true))
               Card(
                 child: ListTile(
-                  leading: const Icon(Icons.link_off, color: AppColors.itadOrange),
-                  title: Text(l10n.get('unbind_steam')),
-                  subtitle: Text(l10n.get('unbind_steam_sub')),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () async {
-                    await StorageService.instance.clearSteamBackendToken();
-                    await _load();
+                  leading: const Icon(Icons.image_outlined, color: AppColors.itadOrange),
+                  title: Text(l10n.get('stats_share_card')),
+                  subtitle: Text(
+                    _shareCardSubtitle(l10n),
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: const Icon(Icons.share),
+                  onTap: () {
+                    AnalyticsService.instance.logProfileShareClick();
+                    Share.share(_shareCardFullText(l10n));
                   },
                 ),
               ),
-
-            if (_steamId != null && _steamId!.isNotEmpty) ...[
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            const Icon(Icons.query_stats, color: AppColors.itadOrange, size: 22),
-                            const SizedBox(width: 8),
-                            Text(
-                              l10n.get('steam_profile_summary_title'),
-                              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          _steamTotalPlaytimeMinutes != null
-                              ? l10n
-                                  .get('steam_total_playtime_line')
-                                  .replaceAll('{v}', _steamHoursLabel(l10n, _steamTotalPlaytimeMinutes!))
-                              : l10n.get('steam_total_playtime_private'),
-                          style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          _steamFriendCount != null
-                              ? l10n.get('steam_friend_count_line').replaceAll('{n}', '${_steamFriendCount!}')
-                              : l10n.get('steam_friend_count_private'),
-                          style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          l10n.get('steam_data_from_api'),
-                          style: TextStyle(fontSize: 12, color: AppColors.textSecondary.withOpacity(0.85)),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 16),
-                child: Card(
-                  child: ListTile(
-                    leading: const Icon(Icons.dashboard_customize, color: AppColors.itadOrange),
-                    title: Text(l10n.get('steam_view_all_title')),
-                    subtitle: Text(l10n.get('steam_view_all_subtitle')),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute<void>(builder: (_) => const SteamOverviewPage()),
-                      );
-                    },
-                  ),
-                ),
-              ),
-            ],
 
             const SizedBox(height: 16),
             Container(
@@ -609,7 +586,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () async {
                     await Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => const SubscriptionPage()),
+                      MaterialPageRoute(builder: (_) => const SubscriptionPage(paywallSource: 'profile')),
                     );
                     _load();
                   },

@@ -194,6 +194,86 @@ class SteamBackendService {
     return (data['friends'] as List<dynamic>? ?? []);
   }
 
+  Future<Map<String, dynamic>> getWishlistDecisions(String token) async {
+    final uri = _uri('/v1/wishlist/decisions');
+    final res = await _client
+        .get(
+          uri,
+          headers: {'Authorization': 'Bearer $token'},
+        )
+        .timeout(ApiConstants.receiveTimeout, onTimeout: () {
+      throw SteamBackendException(code: 'REQUEST_TIMEOUT', message: 'Request timeout');
+    });
+    return _parseData<Map<String, dynamic>>(res);
+  }
+
+  Future<Map<String, dynamic>> getStatsSummary(String token) async {
+    final uri = _uri('/v1/stats/summary');
+    final res = await _client
+        .get(
+          uri,
+          headers: {'Authorization': 'Bearer $token'},
+        )
+        .timeout(ApiConstants.receiveTimeout, onTimeout: () {
+      throw SteamBackendException(code: 'REQUEST_TIMEOUT', message: 'Request timeout');
+    });
+    return _parseData<Map<String, dynamic>>(res);
+  }
+
+  Future<Map<String, dynamic>> getShareCard(String token) async {
+    final uri = _uri('/v1/stats/share-card');
+    final res = await _client
+        .get(
+          uri,
+          headers: {'Authorization': 'Bearer $token'},
+        )
+        .timeout(ApiConstants.receiveTimeout, onTimeout: () {
+      throw SteamBackendException(code: 'REQUEST_TIMEOUT', message: 'Request timeout');
+    });
+    return _parseData<Map<String, dynamic>>(res);
+  }
+
+  Future<Map<String, dynamic>> getExploreRecommendations(String token, {required String tab}) async {
+    final uri = _uri('/v1/recommendations/explore').replace(queryParameters: {'tab': tab});
+    final res = await _client
+        .get(
+          uri,
+          headers: {'Authorization': 'Bearer $token'},
+        )
+        .timeout(ApiConstants.receiveTimeout, onTimeout: () {
+      throw SteamBackendException(code: 'REQUEST_TIMEOUT', message: 'Request timeout');
+    });
+    return _parseData<Map<String, dynamic>>(res);
+  }
+
+  Future<void> postAnalyticsEvent(String token, String path, Map<String, dynamic> body) async {
+    final uri = _uri('/v1/events/$path');
+    final res = await _client
+        .post(
+          uri,
+          headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
+          body: jsonEncode(body),
+        )
+        .timeout(ApiConstants.receiveTimeout, onTimeout: () {
+      throw SteamBackendException(code: 'REQUEST_TIMEOUT', message: 'Request timeout');
+    });
+    await _parseData<Map<String, dynamic>>(res);
+  }
+
+  /// 个性化首页推荐（规则打分 + CheapShark 池）。
+  Future<Map<String, dynamic>> getHomeRecommendations(String token) async {
+    final uri = _uri('/v1/recommendations/home');
+    final res = await _client
+        .get(
+          uri,
+          headers: {'Authorization': 'Bearer $token'},
+        )
+        .timeout(ApiConstants.receiveTimeout, onTimeout: () {
+      throw SteamBackendException(code: 'REQUEST_TIMEOUT', message: 'Request timeout');
+    });
+    return _parseData<Map<String, dynamic>>(res);
+  }
+
   /// 聚合：资料、扩展字段、拥有/最近/好友、应用内收藏（一次请求）。
   Future<Map<String, dynamic>> getSteamOverview(String token) async {
     final uri = _uri('/api/steam/overview');

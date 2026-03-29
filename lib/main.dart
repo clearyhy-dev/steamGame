@@ -84,19 +84,21 @@ Future<void> _handleSteamAuthDeepLink(Uri? uri) async {
           profileUrl: profile['profileUrl']?.toString() ?? '',
         ),
       );
-      void showBar() {
+      var steamSnackShown = false;
+      void showSuccessBar() {
+        if (steamSnackShown) return;
         final ctx = navigatorKey.currentContext;
-        if (ctx != null) {
-          ScaffoldMessenger.of(ctx).showSnackBar(
-            const SnackBar(content: Text('Steam account linked successfully')),
-          );
-        }
+        if (ctx == null) return;
+        steamSnackShown = true;
+        ScaffoldMessenger.of(ctx).showSnackBar(
+          const SnackBar(content: Text('Steam account linked successfully')),
+        );
       }
 
-      showBar();
-      WidgetsBinding.instance.addPostFrameCallback((_) => showBar());
-      // _init 在 runApp 之前执行时尚无 Navigator，延迟再试
-      Future<void>.delayed(const Duration(milliseconds: 1500), showBar);
+      showSuccessBar();
+      WidgetsBinding.instance.addPostFrameCallback((_) => showSuccessBar());
+      // runApp 前尚无 Navigator 时，仅靠上面两次；再兜底一次避免漏提示
+      Future<void>.delayed(const Duration(milliseconds: 1500), showSuccessBar);
     } catch (e) {
       debugPrint('DeepLink steam success handle error: $e');
     }
@@ -106,18 +108,20 @@ Future<void> _handleSteamAuthDeepLink(Uri? uri) async {
   if (_steamDeepLinkIsFail(uri)) {
     final reason = uri.queryParameters['reason'] ?? 'Unknown error';
     try {
-      void showBar() {
+      var failSnackShown = false;
+      void showFailBar() {
+        if (failSnackShown) return;
         final ctx = navigatorKey.currentContext;
-        if (ctx != null) {
-          ScaffoldMessenger.of(ctx).showSnackBar(
-            SnackBar(content: Text('Steam 登录失败：$reason'), duration: const Duration(seconds: 5)),
-          );
-        }
+        if (ctx == null) return;
+        failSnackShown = true;
+        ScaffoldMessenger.of(ctx).showSnackBar(
+          SnackBar(content: Text('Steam 登录失败：$reason'), duration: const Duration(seconds: 5)),
+        );
       }
 
-      showBar();
-      WidgetsBinding.instance.addPostFrameCallback((_) => showBar());
-      Future<void>.delayed(const Duration(milliseconds: 1500), showBar);
+      showFailBar();
+      WidgetsBinding.instance.addPostFrameCallback((_) => showFailBar());
+      Future<void>.delayed(const Duration(milliseconds: 1500), showFailBar);
     } catch (_) {}
   }
 }

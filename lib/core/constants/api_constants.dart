@@ -3,7 +3,7 @@
 class ApiConstants {
   static const String baseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'https://steam-game-api-r7vmg7elga-as.a.run.app',
+    defaultValue: 'https://steam-game-api-803425642695.asia-southeast1.run.app',
   );
 
   static const Duration connectTimeout = Duration(seconds: 15);

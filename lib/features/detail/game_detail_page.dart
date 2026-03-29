@@ -33,6 +33,8 @@ class _GameDetailPageState extends State<GameDetailPage> {
   int _currentImageIndex = 0;
   List<Map<String, dynamic>> _pricePoints = [];
   List<Map<String, dynamic>> _topReviews = [];
+  /// Steam `appreviews` 返回的 [query_summary]（总评文案、好评率、条数），与登录 token 无关。
+  Map<String, dynamic>? _reviewSummary;
   int? _currentPlayers;
 
   @override
@@ -69,8 +71,12 @@ class _GameDetailPageState extends State<GameDetailPage> {
 
   Future<void> _loadReviews() async {
     if (widget.game.steamAppID.isEmpty) return;
-    final list = await _steamApi.fetchSteamReviews(widget.game.steamAppID, topN: 3);
-    if (mounted) setState(() => _topReviews = list);
+    final result = await _steamApi.fetchSteamReviews(widget.game.steamAppID, latestN: 10);
+    if (!mounted) return;
+    setState(() {
+      _topReviews = result.reviews;
+      _reviewSummary = result.summary;
+    });
   }
 
   @override
@@ -515,6 +521,13 @@ class _GameDetailPageState extends State<GameDetailPage> {
     final l10n = AppLocalizations.of(context);
     final hasSteam = game.steamAppID.isNotEmpty;
     final reviewsUrl = hasSteam ? 'https://store.steampowered.com/app/${game.steamAppID}/#app_reviews_hash' : '';
+    final sm = _reviewSummary;
+    final desc = sm?['review_score_desc']?.toString() ?? '';
+    final pctVal = sm?['positive_percent'];
+    final totalVal = sm?['total_reviews'];
+    final pct = pctVal is int ? pctVal : (pctVal is num ? pctVal.toInt() : null);
+    final totalAll = totalVal is int ? totalVal : (totalVal is num ? totalVal.toInt() : null);
+    final showAggregate = sm != null && pct != null && totalAll != null && totalAll > 0;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -525,15 +538,55 @@ class _GameDetailPageState extends State<GameDetailPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            l10n.get('top_community_reviews'),
-            style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: AppColors.textSecondary,
-            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  l10n.get('top_community_reviews'),
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ),
+              if (showAggregate)
+                Flexible(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: AppColors.itadOrange.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: AppColors.itadOrange.withValues(alpha: 0.35)),
+                    ),
+                    child: Text(
+                      l10n
+                          .get('reviews_aggregate_hint')
+                          .replaceAll('{label}', desc.isNotEmpty ? desc : 'Steam')
+                          .replaceAll('{pct}', '$pct')
+                          .replaceAll('{total}', '$totalAll'),
+                      textAlign: TextAlign.right,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.itadOrange,
+                        height: 1.25,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
           ),
-          if (game.steamRatingText.isNotEmpty) ...[
+          if (_reviewSummary != null && _topReviews.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                l10n.get('reviews_showing_latest').replaceAll('{n}', '${_topReviews.length}'),
+                style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
+              ),
+            )
+          else if (game.steamRatingText.isNotEmpty) ...[
             const SizedBox(height: 4),
             Text(
               game.steamRatingText,

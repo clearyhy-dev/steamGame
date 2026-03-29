@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart' as url_launcher;
 import '../../../../core/theme/colors.dart';
@@ -6,7 +7,6 @@ import '../providers/steam_providers.dart';
 import 'steam_favorites_page.dart';
 import 'steam_friends_page.dart';
 import 'steam_owned_games_page.dart';
-import 'steam_overview_page.dart';
 import 'steam_recent_games_page.dart';
 
 class SteamAccountPage extends StatefulWidget {
@@ -14,12 +14,6 @@ class SteamAccountPage extends StatefulWidget {
 
   @override
   State<SteamAccountPage> createState() => _SteamAccountPageState();
-}
-
-String _maskSteamId(String id) {
-  final t = id.trim();
-  if (t.length <= 6) return '****';
-  return '${t.substring(0, 3)}****${t.substring(t.length - 4)}';
 }
 
 class _SteamAccountPageState extends State<SteamAccountPage> {
@@ -58,34 +52,51 @@ class _SteamAccountPageState extends State<SteamAccountPage> {
                     children: [
                       Row(
                         children: [
-                          CircleAvatar(
-                            radius: 28,
-                            backgroundImage: p.avatar.isNotEmpty ? NetworkImage(p.avatar) : null,
-                            child: p.avatar.isEmpty ? const Icon(Icons.person) : null,
+                          ClipOval(
+                            child: p.avatar.isNotEmpty
+                                ? CachedNetworkImage(
+                                    key: ValueKey<String>(p.avatar),
+                                    imageUrl: p.avatar,
+                                    width: 56,
+                                    height: 56,
+                                    fit: BoxFit.cover,
+                                    memCacheWidth: 168,
+                                    fadeInDuration: Duration.zero,
+                                    placeholder: (_, __) => Container(
+                                      width: 56,
+                                      height: 56,
+                                      color: AppColors.cardDark,
+                                      alignment: Alignment.center,
+                                      child: const SizedBox(
+                                        width: 22,
+                                        height: 22,
+                                        child: CircularProgressIndicator(strokeWidth: 2),
+                                      ),
+                                    ),
+                                    errorWidget: (_, __, ___) => Container(
+                                      width: 56,
+                                      height: 56,
+                                      color: AppColors.cardDark,
+                                      alignment: Alignment.center,
+                                      child: const Icon(Icons.person, color: AppColors.textSecondary, size: 32),
+                                    ),
+                                  )
+                                : Container(
+                                    width: 56,
+                                    height: 56,
+                                    color: AppColors.cardDark,
+                                    alignment: Alignment.center,
+                                    child: const Icon(Icons.person, color: AppColors.textSecondary, size: 32),
+                                  ),
                           ),
                           const SizedBox(width: 16),
                           Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  p.personaName,
-                                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  '${l10n.get('steam_id_label')}${_maskSteamId(p.steamId)}',
-                                  style: TextStyle(fontSize: 13, color: Colors.grey.shade400),
-                                ),
-                              ],
+                            child: Text(
+                              p.personaName,
+                              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
                             ),
                           ),
                         ],
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        l10n.get('steam_privacy_mask_hint'),
-                        style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
                       ),
                       if (p.profileUrl.isNotEmpty) ...[
                         const SizedBox(height: 12),
@@ -110,6 +121,7 @@ class _SteamAccountPageState extends State<SteamAccountPage> {
                 onPressed: () async {
                   try {
                     await SteamProviderActions.instance.sync();
+                    await SteamProviderActions.instance.loadProfile();
                     if (!mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(content: Text(l10n.get('steam_sync_success'))),
@@ -125,7 +137,6 @@ class _SteamAccountPageState extends State<SteamAccountPage> {
                 label: Text(l10n.get('steam_sync_now')),
               ),
               const SizedBox(height: 10),
-              _entry(context, l10n.get('steam_overview_aggregate'), () => const SteamOverviewPage()),
               _entry(context, l10n.get('steam_menu_friends'), () => const SteamFriendsPage()),
               _entry(context, l10n.get('steam_menu_owned'), () => const SteamOwnedGamesPage()),
               _entry(context, l10n.get('steam_menu_recent'), () => const SteamRecentGamesPage()),

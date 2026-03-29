@@ -9,6 +9,7 @@ import '../services/steam_api_service.dart';
 import '../services/steam_backend_service.dart';
 import '../widgets/game_card.dart';
 import '../features/subscription/subscription_page.dart';
+import '../core/services/analytics_service.dart';
 import 'detail_screen.dart';
 
 class WishlistScreen extends StatefulWidget {
@@ -25,7 +26,12 @@ class _WishlistScreenState extends State<WishlistScreen> {
   List<WishlistItem> _items = [];
   List<GameModel> _deals = [];
   Map<String, int> _lastDiscounts = {};
+  /// 后端 `/v1/wishlist/decisions`，key = appid
+  Map<String, Map<String, dynamic>> _decisionsByAppId = {};
   bool _loading = true;
+
+  /// 0 默认顺序 1 折扣 2 名称 3 决策优先级
+  int _sortMode = 0;
   bool _isLoggedIn = false;
   int _lastTabIndex = -1;
   String _searchQuery = '';
@@ -125,12 +131,88 @@ class _WishlistScreenState extends State<WishlistScreen> {
         _loading = false;
       });
     }
+    await _loadDecisions();
+  }
+
+  Future<void> _loadDecisions() async {
+    final token = await StorageService.instance.getSteamBackendToken();
+    if (token == null || token.isEmpty) {
+      if (mounted) setState(() => _decisionsByAppId = {});
+      return;
+    }
+    try {
+      final data = await SteamBackendService().getWishlistDecisions(token);
+      final raw = data['items'] as List<dynamic>? ?? [];
+      final m = <String, Map<String, dynamic>>{};
+      for (final x in raw) {
+        if (x is Map) {
+          final appid = x['appid']?.toString().trim() ?? '';
+          if (appid.isNotEmpty) m[appid] = Map<String, dynamic>.from(x);
+        }
+      }
+      if (mounted) setState(() => _decisionsByAppId = m);
+    } catch (_) {
+      if (mounted) setState(() => _decisionsByAppId = {});
+    }
+  }
+
+  String _decisionLabel(String? code) {
+    final l10n = AppLocalizations.of(context);
+    switch (code) {
+      case 'buy_now':
+        return l10n.get('decision_buy_now');
+      case 'wait':
+        return l10n.get('decision_wait');
+      case 'watch':
+        return l10n.get('decision_watch');
+      default:
+        return code ?? '';
+    }
+  }
+
+  Color _decisionColor(String? code) {
+    switch (code) {
+      case 'buy_now':
+        return Colors.greenAccent.shade400;
+      case 'wait':
+        return AppColors.textSecondary;
+      case 'watch':
+        return AppColors.itadOrange;
+      default:
+        return AppColors.textSecondary;
+    }
   }
 
   List<WishlistItem> get _filteredItems {
     if (_searchQuery.isEmpty) return _items;
     final q = _searchQuery.toLowerCase();
     return _items.where((item) => item.name.toLowerCase().contains(q)).toList();
+  }
+
+  int _decisionRank(String appId) {
+    final d = _decisionsByAppId[appId]?['decision']?.toString() ?? '';
+    if (d == 'buy_now') return 0;
+    if (d == 'watch') return 1;
+    if (d == 'wait') return 2;
+    return 3;
+  }
+
+  List<WishlistItem> get _displayItems {
+    final base = _filteredItems;
+    if (_sortMode == 0) return base;
+    final copy = List<WishlistItem>.from(base);
+    if (_sortMode == 1) {
+      copy.sort((a, b) {
+        final ga = _gameFor(a);
+        final gb = _gameFor(b);
+        return (gb?.discount ?? -1).compareTo(ga?.discount ?? -1);
+      });
+    } else if (_sortMode == 2) {
+      copy.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    } else if (_sortMode == 3) {
+      copy.sort((a, b) => _decisionRank(a.appId).compareTo(_decisionRank(b.appId)));
+    }
+    return copy;
   }
 
   GameModel? _gameFor(WishlistItem item) {
@@ -202,10 +284,40 @@ class _WishlistScreenState extends State<WishlistScreen> {
           }
           final lastD = _lastDiscounts[item.appId];
           final priceDropped = lastD != null && game.discount > lastD;
+          final dec = _decisionsByAppId[item.appId];
+          final decCode = dec?['decision']?.toString();
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
+              if (dec != null && decCode != null && decCode.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(left: 16, bottom: 4),
+                  child: InkWell(
+                    onTap: () {
+                      AnalyticsService.instance.logWishlistDecisionClick(
+                        decision: decCode,
+                        steamAppId: item.appId,
+                      );
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: _decisionColor(decCode).withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: _decisionColor(decCode).withOpacity(0.4)),
+                      ),
+                      child: Text(
+                        _decisionLabel(decCode),
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: _decisionColor(decCode),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               if (priceDropped)
                 Padding(
                   padding: const EdgeInsets.only(left: 16, bottom: 4),
@@ -270,12 +382,26 @@ class _WishlistScreenState extends State<WishlistScreen> {
         ),
       );
     }
-    final filtered = _filteredItems;
+    final filtered = _displayItems;
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
         backgroundColor: AppColors.background,
         title: Text(AppLocalizations.of(context).get('wishlist_tab'), style: const TextStyle(color: AppColors.textPrimary)),
+        actions: [
+          PopupMenuButton<int>(
+            icon: const Icon(Icons.sort),
+            tooltip: AppLocalizations.of(context).get('wishlist_sort_title'),
+            initialValue: _sortMode,
+            onSelected: (v) => setState(() => _sortMode = v),
+            itemBuilder: (ctx) => [
+              PopupMenuItem(value: 0, child: Text(AppLocalizations.of(ctx).get('wishlist_sort_default'))),
+              PopupMenuItem(value: 1, child: Text(AppLocalizations.of(ctx).get('wishlist_sort_discount'))),
+              PopupMenuItem(value: 2, child: Text(AppLocalizations.of(ctx).get('wishlist_sort_name'))),
+              PopupMenuItem(value: 3, child: Text(AppLocalizations.of(ctx).get('wishlist_sort_decision'))),
+            ],
+          ),
+        ],
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
@@ -291,7 +417,7 @@ class _WishlistScreenState extends State<WishlistScreen> {
                         child: InkWell(
                           onTap: () {
                             Navigator.of(context).push(
-                              MaterialPageRoute(builder: (_) => const SubscriptionPage()),
+                              MaterialPageRoute(builder: (_) => const SubscriptionPage(paywallSource: 'wishlist')),
                             );
                           },
                           borderRadius: BorderRadius.circular(20),

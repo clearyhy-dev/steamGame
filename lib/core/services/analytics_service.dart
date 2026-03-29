@@ -1,33 +1,50 @@
+import 'dart:async';
+
 import 'package:firebase_analytics/firebase_analytics.dart';
 import 'package:flutter/foundation.dart';
 
-/// Firebase Analytics 统一埋点入口。
+import '../storage_service.dart';
+import '../../services/steam_backend_service.dart';
+
+/// Firebase Analytics 统一埋点；若已登录后端则同步镜像至 `/v1/events/*`（服务端落日志，可接数仓）。
 class AnalyticsService {
   AnalyticsService._();
   static final AnalyticsService instance = AnalyticsService._();
 
   final FirebaseAnalytics _analytics = FirebaseAnalytics.instance;
+  static final SteamBackendService _backendEvents = SteamBackendService();
+
+  Future<void> _mirror(String path, String eventName, Map<String, Object> params) async {
+    try {
+      if (!StorageService.instance.isInitialized) {
+        await StorageService.instance.init();
+      }
+      final token = await StorageService.instance.getSteamBackendToken();
+      if (token == null || token.isEmpty) return;
+      final body = <String, dynamic>{'event': eventName};
+      for (final e in params.entries) {
+        body[e.key] = e.value;
+      }
+      await _backendEvents.postAnalyticsEvent(token, path, body);
+    } catch (_) {}
+  }
 
   Future<void> logPaywallView({required String source}) async {
-    await _safeLog(
-      'view_paywall',
-      <String, Object>{
-        'source': source,
-      },
-    );
+    final p = <String, Object>{'source': source};
+    await _safeLog('view_paywall', p);
+    unawaited(_mirror('exposure', 'view_paywall', p));
   }
 
   Future<void> logSubscriptionPlanSelect({
     required String productId,
     required String source,
   }) async {
-    await _safeLog(
-      'select_subscription_plan',
-      <String, Object>{
-        'product_id': productId,
-        'source': source,
-      },
-    );
+    final p = <String, Object>{
+      'product_id': productId,
+      'source': source,
+    };
+    await _safeLog('select_subscription_plan', p);
+    unawaited(_mirror('click', 'select_subscription_plan', p));
   }
 
   Future<void> logBeginCheckout({
@@ -36,15 +53,14 @@ class AnalyticsService {
     required String currency,
     required String source,
   }) async {
-    await _safeLog(
-      'begin_checkout',
-      <String, Object>{
-        'product_id': productId,
-        'value': value,
-        'currency': currency,
-        'source': source,
-      },
-    );
+    final p = <String, Object>{
+      'product_id': productId,
+      'value': value,
+      'currency': currency,
+      'source': source,
+    };
+    await _safeLog('begin_checkout', p);
+    unawaited(_mirror('click', 'begin_checkout', p));
   }
 
   Future<void> logPurchase({
@@ -54,29 +70,27 @@ class AnalyticsService {
     String? transactionId,
     required String source,
   }) async {
-    await _safeLog(
-      'purchase',
-      <String, Object>{
-        'product_id': productId,
-        'value': value,
-        'currency': currency,
-        'source': source,
-        if (transactionId != null && transactionId.isNotEmpty) 'transaction_id': transactionId,
-      },
-    );
+    final p = <String, Object>{
+      'product_id': productId,
+      'value': value,
+      'currency': currency,
+      'source': source,
+      if (transactionId != null && transactionId.isNotEmpty) 'transaction_id': transactionId,
+    };
+    await _safeLog('purchase', p);
+    unawaited(_mirror('conversion', 'purchase', p));
   }
 
   Future<void> logRestore({
     required bool success,
     required String source,
   }) async {
-    await _safeLog(
-      'restore_purchase',
-      <String, Object>{
-        'success': success ? 1 : 0,
-        'source': source,
-      },
-    );
+    final p = <String, Object>{
+      'success': success ? 1 : 0,
+      'source': source,
+    };
+    await _safeLog('restore_purchase', p);
+    unawaited(_mirror('click', 'restore_purchase', p));
   }
 
   Future<void> logAdImpression({
@@ -84,14 +98,13 @@ class AnalyticsService {
     required String adFormat,
     required String placement,
   }) async {
-    await _safeLog(
-      'ad_impression',
-      <String, Object>{
-        'ad_unit_id': adUnitId,
-        'ad_format': adFormat,
-        'placement': placement,
-      },
-    );
+    final p = <String, Object>{
+      'ad_unit_id': adUnitId,
+      'ad_format': adFormat,
+      'placement': placement,
+    };
+    await _safeLog('ad_impression', p);
+    unawaited(_mirror('exposure', 'ad_impression', p));
   }
 
   Future<void> logAdClick({
@@ -99,14 +112,94 @@ class AnalyticsService {
     required String adFormat,
     required String placement,
   }) async {
-    await _safeLog(
-      'ad_click',
-      <String, Object>{
-        'ad_unit_id': adUnitId,
-        'ad_format': adFormat,
-        'placement': placement,
-      },
-    );
+    final p = <String, Object>{
+      'ad_unit_id': adUnitId,
+      'ad_format': adFormat,
+      'placement': placement,
+    };
+    await _safeLog('ad_click', p);
+    unawaited(_mirror('click', 'ad_click', p));
+  }
+
+  Future<void> logAppOpen({required String source}) async {
+    final p = <String, Object>{'source': source};
+    await _safeLog('app_open', p);
+    unawaited(_mirror('exposure', 'app_open', p));
+  }
+
+  Future<void> logRecommendationImpression({
+    required String section,
+    required String steamAppId,
+    required List<String> reasonCodes,
+  }) async {
+    final p = <String, Object>{
+      'section': section,
+      'steam_app_id': steamAppId,
+      'reason_codes': reasonCodes.join(','),
+    };
+    await _safeLog('recommendation_impression', p);
+    unawaited(_mirror('exposure', 'recommendation_impression', p));
+  }
+
+  Future<void> logRecommendationClick({
+    required String section,
+    required String steamAppId,
+    required List<String> reasonCodes,
+  }) async {
+    final p = <String, Object>{
+      'section': section,
+      'steam_app_id': steamAppId,
+      'reason_codes': reasonCodes.join(','),
+    };
+    await _safeLog('recommendation_click', p);
+    unawaited(_mirror('click', 'recommendation_click', p));
+  }
+
+  Future<void> logSteamLinkClick({required String source}) async {
+    final p = <String, Object>{'source': source};
+    await _safeLog('steam_link_click', p);
+    unawaited(_mirror('click', 'steam_link_click', p));
+  }
+
+  Future<void> logSteamLinkSuccess() async {
+    const p = <String, Object>{};
+    await _safeLog('steam_link_success', p);
+    unawaited(_mirror('conversion', 'steam_link_success', p));
+  }
+
+  Future<void> logWishlistAdd({required String steamAppId}) async {
+    final p = <String, Object>{'steam_app_id': steamAppId};
+    await _safeLog('wishlist_add', p);
+    unawaited(_mirror('click', 'wishlist_add', p));
+  }
+
+  Future<void> logWishlistDecisionClick({required String decision, required String steamAppId}) async {
+    final p = <String, Object>{'decision': decision, 'steam_app_id': steamAppId};
+    await _safeLog('wishlist_decision_click', p);
+    unawaited(_mirror('click', 'wishlist_decision_click', p));
+  }
+
+  Future<void> logExploreFilterApply({required String summary}) async {
+    final p = <String, Object>{'summary': summary};
+    await _safeLog('explore_filter_apply', p);
+    unawaited(_mirror('click', 'explore_filter_apply', p));
+  }
+
+  Future<void> logProfileShareClick() async {
+    const p = <String, Object>{};
+    await _safeLog('profile_share_click', p);
+    unawaited(_mirror('click', 'profile_share_click', p));
+  }
+
+  Future<void> logPurchaseClick({required String productId, required String source}) async {
+    final p = <String, Object>{'product_id': productId, 'source': source};
+    await _safeLog('purchase_click', p);
+    unawaited(_mirror('click', 'purchase_click', p));
+  }
+
+  /// 仅 Firebase；转化镜像在 [logPurchase]（含 transaction_id）已发送，避免重复记转化。
+  Future<void> logPurchaseSuccess({required String productId, required String source}) async {
+    await _safeLog('purchase_success', <String, Object>{'product_id': productId, 'source': source});
   }
 
   Future<void> logAdLoadFailed({
@@ -115,15 +208,14 @@ class AnalyticsService {
     required String placement,
     required String errorCode,
   }) async {
-    await _safeLog(
-      'ad_load_failed',
-      <String, Object>{
-        'ad_unit_id': adUnitId,
-        'ad_format': adFormat,
-        'placement': placement,
-        'error_code': errorCode,
-      },
-    );
+    final p = <String, Object>{
+      'ad_unit_id': adUnitId,
+      'ad_format': adFormat,
+      'placement': placement,
+      'error_code': errorCode,
+    };
+    await _safeLog('ad_load_failed', p);
+    unawaited(_mirror('exposure', 'ad_load_failed', p));
   }
 
   Future<void> _safeLog(String name, Map<String, Object> params) async {

@@ -21,13 +21,16 @@ String _steamHoursLabel(AppLocalizations l10n, int totalMinutes) {
   return l10n.get('steam_hours_value').replaceAll('{v}', v);
 }
 
-String _steamGamePlaytimeLine(AppLocalizations l10n, dynamic playtimeForever) {
-  if (playtimeForever == null) return '';
-  final m = playtimeForever is num ? playtimeForever.round() : int.tryParse(playtimeForever.toString()) ?? 0;
-  if (m <= 0) return l10n.get('steam_never_played_suffix');
-  final h = m / 60.0;
-  final hs = h >= 10 ? h.round().toString() : h.toStringAsFixed(1);
-  return ' · ${l10n.get('steam_hours_value').replaceAll('{v}', hs)}';
+int _onlineFriendsCount(List<dynamic>? friends) {
+  if (friends == null) return 0;
+  var n = 0;
+  for (final f in friends) {
+    if (f is! Map) continue;
+    final ps = f['personaState'];
+    final v = ps is num ? ps.toInt() : int.tryParse(ps?.toString() ?? '') ?? 0;
+    if (v != 0) n++;
+  }
+  return n;
 }
 
 class SteamOverviewPage extends StatefulWidget {
@@ -155,19 +158,11 @@ class _SteamOverviewPageState extends State<SteamOverviewPage> {
                           padding: const EdgeInsets.all(16),
                           children: [
                             ..._buildProfileSection(theme, l10n),
-                            const SizedBox(height: 16),
-                            ..._buildStatsSection(theme, l10n),
-                            const SizedBox(height: 16),
+                            const SizedBox(height: 12),
                             ..._buildErrorsSection(theme, l10n),
-                            const SizedBox(height: 8),
-                            ..._buildFavoritesSection(theme, l10n),
-                            const SizedBox(height: 16),
-                            ..._buildFriendsSection(theme, l10n),
-                            const SizedBox(height: 16),
-                            ..._buildOwnedSection(theme, l10n),
-                            const SizedBox(height: 16),
-                            ..._buildRecentSection(theme, l10n),
-                            const SizedBox(height: 24),
+                            const SizedBox(height: 12),
+                            ..._buildCompactSteamMetrics(theme, l10n),
+                            const SizedBox(height: 12),
                             _fullListLinks(theme, l10n),
                           ],
                         ),
@@ -262,48 +257,40 @@ class _SteamOverviewPageState extends State<SteamOverviewPage> {
     return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
   }
 
-  List<Widget> _buildStatsSection(ThemeData theme, AppLocalizations l10n) {
+  List<Widget> _buildCompactSteamMetrics(ThemeData theme, AppLocalizations l10n) {
     final d = _data!;
     final owned = d['owned'] as Map<String, dynamic>?;
-    final recent = d['recent'] as Map<String, dynamic>?;
     final friends = d['friends'] as List<dynamic>?;
-    final favs = d['favorites'] as List<dynamic>?;
-
     final totalMin = owned != null ? (owned['totalPlaytimeMinutes'] as num?)?.round() ?? 0 : 0;
-    final gameCount = owned != null ? (owned['gameCount'] as num?)?.round() ?? 0 : 0;
-    final recentCount = recent != null ? (recent['totalCount'] as num?)?.round() ?? 0 : 0;
-
     final dash = l10n.get('steam_dash');
+    final fc = friends?.length;
+    final online = friends != null ? _onlineFriendsCount(friends) : null;
+
     return [
       Text(l10n.get('steam_section_overview'), style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
       const SizedBox(height: 8),
       Card(
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-          child: Wrap(
-            spacing: 8,
-            runSpacing: 8,
+          child: Row(
             children: [
-              _chip(l10n, l10n.get('steam_stat_total_time'), owned != null ? _steamHoursLabel(l10n, totalMin) : dash),
-              _chip(
-                l10n,
-                l10n.get('steam_stat_library'),
-                owned != null ? '$gameCount${l10n.get('steam_suffix_games')}' : dash,
+              Expanded(
+                child: _overviewMetricCell(
+                  label: l10n.get('steam_stat_total_time'),
+                  value: owned != null ? _steamHoursLabel(l10n, totalMin) : dash,
+                ),
               ),
-              _chip(
-                l10n,
-                l10n.get('steam_stat_recent'),
-                recent != null ? '$recentCount${l10n.get('steam_suffix_games')}' : dash,
+              Expanded(
+                child: _overviewMetricCell(
+                  label: l10n.get('steam_stat_friends'),
+                  value: fc != null ? '$fc${l10n.get('steam_suffix_people')}' : dash,
+                ),
               ),
-              _chip(
-                l10n,
-                l10n.get('steam_stat_friends'),
-                friends != null ? '${friends.length}${l10n.get('steam_suffix_people')}' : dash,
-              ),
-              _chip(
-                l10n,
-                l10n.get('steam_stat_favorites'),
-                favs != null ? '${favs.length}${l10n.get('steam_suffix_games')}' : dash,
+              Expanded(
+                child: _overviewMetricCell(
+                  label: l10n.get('home_steam_metric_online'),
+                  value: online != null ? '$online${l10n.get('steam_suffix_people')}' : dash,
+                ),
               ),
             ],
           ),
@@ -312,21 +299,28 @@ class _SteamOverviewPageState extends State<SteamOverviewPage> {
     ];
   }
 
-  Widget _chip(AppLocalizations l10n, String label, String value) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: AppColors.cardDark,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white12),
-      ),
+  Widget _overviewMetricCell({required String label, required String value}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(label, style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
-          const SizedBox(height: 2),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+          Text(
+            value,
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14, color: AppColors.textPrimary),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 10, height: 1.15, color: AppColors.textSecondary.withValues(alpha: 0.95)),
+          ),
         ],
       ),
     );
@@ -381,266 +375,6 @@ class _SteamOverviewPageState extends State<SteamOverviewPage> {
           ),
         ),
       ),
-    ];
-  }
-
-  List<Widget> _buildFavoritesSection(ThemeData theme, AppLocalizations l10n) {
-    final d = _data!;
-    final list = d['favorites'] as List<dynamic>?;
-    if (list == null && d['favoritesError'] != null) return [];
-
-    final items = list ?? [];
-    final show = items.length > 40 ? items.sublist(0, 40) : items;
-
-    return [
-      Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(l10n.get('steam_app_favorites_title'), style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SteamFavoritesPage()));
-            },
-            child: Text(l10n.get('steam_full_list')),
-          ),
-        ],
-      ),
-      if (items.isEmpty)
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Text(l10n.get('steam_no_favorites_yet'), style: TextStyle(color: AppColors.textSecondary)),
-          ),
-        )
-      else
-        Card(
-          child: Column(
-            children: [
-              for (final raw in show)
-                if (raw is Map)
-                  ListTile(
-                    dense: true,
-                    leading: (raw['headerImage']?.toString() ?? '').isNotEmpty
-                        ? ClipRRect(
-                            borderRadius: BorderRadius.circular(4),
-                            child: CachedNetworkImage(
-                              imageUrl: raw['headerImage'].toString(),
-                              width: 46,
-                              height: 27,
-                              fit: BoxFit.cover,
-                            ),
-                          )
-                        : const Icon(Icons.games_outlined),
-                    title: Text(raw['name']?.toString() ?? '', maxLines: 1, overflow: TextOverflow.ellipsis),
-                    subtitle: Text('${raw['appid']} · ${raw['source'] ?? ''}', style: const TextStyle(fontSize: 12)),
-                  ),
-              if (items.length > 40)
-                Padding(
-                  padding: const EdgeInsets.all(8),
-                  child: Text(
-                    l10n.get('steam_favorites_showing').replaceAll('{n}', '${items.length}'),
-                    style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
-                  ),
-                ),
-            ],
-          ),
-        ),
-    ];
-  }
-
-  List<Widget> _buildFriendsSection(ThemeData theme, AppLocalizations l10n) {
-    final d = _data!;
-    final list = d['friends'] as List<dynamic>?;
-    if (list == null && d['friendsError'] != null) return [];
-
-    final items = list ?? [];
-    final show = items.length > 30 ? items.sublist(0, 30) : items;
-
-    return [
-      Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(l10n.get('steam_friends_title'), style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SteamFriendsPage()));
-            },
-            child: Text(l10n.get('steam_full_list')),
-          ),
-        ],
-      ),
-      if (items.isEmpty)
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Text(l10n.get('steam_no_friends_visible'), style: TextStyle(color: AppColors.textSecondary)),
-          ),
-        )
-      else
-        Card(
-          child: Column(
-            children: [
-              for (final raw in show)
-                if (raw is Map)
-                  ListTile(
-                    dense: true,
-                    leading: CircleAvatar(
-                      radius: 18,
-                      backgroundImage: (raw['avatar']?.toString() ?? '').isNotEmpty
-                          ? CachedNetworkImageProvider(raw['avatar'].toString())
-                          : null,
-                      child: (raw['avatar']?.toString() ?? '').isEmpty ? const Icon(Icons.person, size: 18) : null,
-                    ),
-                    title: Text(raw['personaName']?.toString() ?? '', maxLines: 1, overflow: TextOverflow.ellipsis),
-                    subtitle: Text(
-                      '${raw['personaLabel'] ?? ''}${(raw['gameExtrainfo']?.toString() ?? '').trim().isNotEmpty ? ' · ${raw['gameExtrainfo']}' : ''}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                  ),
-              if (items.length > 30)
-                Padding(
-                  padding: const EdgeInsets.all(8),
-                  child: Text(
-                    l10n.get('steam_friends_showing').replaceAll('{n}', '${items.length}'),
-                    style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
-                  ),
-                ),
-            ],
-          ),
-        ),
-    ];
-  }
-
-  List<Widget> _buildOwnedSection(ThemeData theme, AppLocalizations l10n) {
-    final d = _data!;
-    final owned = d['owned'] as Map<String, dynamic>?;
-    if (owned == null && d['ownedError'] != null) return [];
-
-    final games = (owned?['games'] as List<dynamic>?) ?? [];
-    final sorted = <Map<String, dynamic>>[];
-    for (final x in games) {
-      if (x is Map) sorted.add(Map<String, dynamic>.from(x));
-    }
-    sorted.sort((a, b) {
-      final pa = a['playtimeForever'];
-      final pb = b['playtimeForever'];
-      final na = pa is num ? pa.round() : int.tryParse(pa?.toString() ?? '0') ?? 0;
-      final nb = pb is num ? pb.round() : int.tryParse(pb?.toString() ?? '0') ?? 0;
-      return nb.compareTo(na);
-    });
-    final show = sorted.length > 50 ? sorted.sublist(0, 50) : sorted;
-
-    return [
-      Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(l10n.get('steam_owned_by_time'), style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SteamOwnedGamesPage()));
-            },
-            child: Text(l10n.get('steam_full_list')),
-          ),
-        ],
-      ),
-      if (games.isEmpty)
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Text(l10n.get('steam_no_owned_visible'), style: TextStyle(color: AppColors.textSecondary)),
-          ),
-        )
-      else
-        Card(
-          child: Column(
-            children: [
-              for (final g in show)
-                ListTile(
-                  dense: true,
-                  leading: (g['headerImage']?.toString() ?? '').isNotEmpty
-                      ? ClipRRect(
-                          borderRadius: BorderRadius.circular(4),
-                          child: CachedNetworkImage(
-                            imageUrl: g['headerImage'].toString(),
-                            width: 46,
-                            height: 27,
-                            fit: BoxFit.cover,
-                          ),
-                        )
-                      : const Icon(Icons.sports_esports_outlined),
-                  title: Text(g['name']?.toString() ?? '', maxLines: 1, overflow: TextOverflow.ellipsis),
-                  subtitle: Text(
-                    '${g['appid']}${_steamGamePlaytimeLine(l10n, g['playtimeForever'])}',
-                    style: const TextStyle(fontSize: 12),
-                  ),
-                ),
-              if (sorted.length > 50)
-                Padding(
-                  padding: const EdgeInsets.all(8),
-                  child: Text(
-                    l10n.get('steam_owned_showing').replaceAll('{n}', '${games.length}'),
-                    style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
-                  ),
-                ),
-            ],
-          ),
-        ),
-    ];
-  }
-
-  List<Widget> _buildRecentSection(ThemeData theme, AppLocalizations l10n) {
-    final d = _data!;
-    final recent = d['recent'] as Map<String, dynamic>?;
-    if (recent == null && d['recentError'] != null) return [];
-
-    final games = (recent?['games'] as List<dynamic>?) ?? [];
-    return [
-      Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(l10n.get('steam_recent_title'), style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SteamRecentGamesPage()));
-            },
-            child: Text(l10n.get('steam_full_list')),
-          ),
-        ],
-      ),
-      if (games.isEmpty)
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Text(l10n.get('steam_no_recent_visible'), style: TextStyle(color: AppColors.textSecondary)),
-          ),
-        )
-      else
-        Card(
-          child: Column(
-            children: [
-              for (final raw in games)
-                if (raw is Map)
-                  ListTile(
-                    dense: true,
-                    leading: (raw['headerImage']?.toString() ?? '').isNotEmpty
-                        ? ClipRRect(
-                            borderRadius: BorderRadius.circular(4),
-                            child: CachedNetworkImage(
-                              imageUrl: raw['headerImage'].toString(),
-                              width: 46,
-                              height: 27,
-                              fit: BoxFit.cover,
-                            ),
-                          )
-                        : const Icon(Icons.history),
-                    title: Text(raw['name']?.toString() ?? '', maxLines: 1, overflow: TextOverflow.ellipsis),
-                    subtitle: Text(raw['appid']?.toString() ?? '', style: const TextStyle(fontSize: 12)),
-                  ),
-            ],
-          ),
-        ),
     ];
   }
 

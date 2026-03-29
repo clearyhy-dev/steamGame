@@ -383,10 +383,10 @@ class _HomeScreenState extends State<HomeScreen> {
               child: InkWell(
                 onTap: () => widget.onNavigateToTab?.call(1),
                 borderRadius: BorderRadius.circular(14),
-                child: const Center(
+                child: Center(
                   child: Text(
                     AppLocalizations.of(context).get('track_a_game'),
-                    style: TextStyle(
+                    style: const TextStyle(
                       color: Colors.white,
                       fontSize: 16,
                       fontWeight: FontWeight.w600,

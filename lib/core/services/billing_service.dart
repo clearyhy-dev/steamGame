@@ -116,6 +116,10 @@ class BillingService {
       transactionId: purchase.purchaseID,
       source: source,
     );
+    await AnalyticsService.instance.logPurchaseSuccess(
+      productId: productId,
+      source: source,
+    );
   }
 
   void dispose() {

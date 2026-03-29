@@ -204,7 +204,7 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const SubscriptionPage()),
+            MaterialPageRoute(builder: (_) => const SubscriptionPage(paywallSource: 'onboarding_overlay')),
           );
         }
       });

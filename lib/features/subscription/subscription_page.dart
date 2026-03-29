@@ -7,7 +7,10 @@ import '../../l10n/app_localizations.dart';
 import 'subscription_viewmodel.dart';
 
 class SubscriptionPage extends StatefulWidget {
-  const SubscriptionPage({super.key});
+  const SubscriptionPage({super.key, this.paywallSource = 'subscription_page'});
+
+  /// 从哪打开付费墙（埋点 `view_paywall` / `purchase_click` 等）。
+  final String paywallSource;
 
   @override
   State<SubscriptionPage> createState() => _SubscriptionPageState();
@@ -20,7 +23,7 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
   @override
   void initState() {
     super.initState();
-    AnalyticsService.instance.logPaywallView(source: 'subscription_page');
+    AnalyticsService.instance.logPaywallView(source: widget.paywallSource);
     _vm = SubscriptionViewModel();
     _vm.onNotify = () {
       if (mounted) setState(() {});
@@ -61,7 +64,7 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Text(
-                    '🔥 ${l10n.get('sub_title_unlock')}',
+                    l10n.get('sub_companion_title'),
                     style: const TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.bold,
@@ -71,7 +74,7 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    l10n.get('sub_subtitle'),
+                    l10n.get('sub_companion_sub'),
                     style: TextStyle(
                       fontSize: 15,
                       color: AppColors.textSecondary,
@@ -103,9 +106,13 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
                         onPressed: () {
                           final p = _productById(_selectedProductId) ?? vm.products.firstOrNull;
                           if (p != null) {
+                            AnalyticsService.instance.logPurchaseClick(
+                              productId: p.id,
+                              source: widget.paywallSource,
+                            );
                             AnalyticsService.instance.logSubscriptionPlanSelect(
                               productId: p.id,
-                              source: 'cta_start_trial',
+                              source: '${widget.paywallSource}_cta',
                             );
                             vm.buy(p);
                           }
@@ -218,7 +225,7 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
             : () {
                 AnalyticsService.instance.logSubscriptionPlanSelect(
                   productId: productId,
-                  source: 'subscription_page',
+                  source: '${widget.paywallSource}_plan',
                 );
                 onTap();
               },

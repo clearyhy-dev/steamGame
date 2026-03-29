@@ -1,22 +1,22 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+
+import '../../../core/services/analytics_service.dart';
+import '../../../core/steam_auth_events.dart';
 import '../../../core/theme/colors.dart';
-import '../../../core/utils/score_calculator.dart';
-import '../../../core/storage_service.dart';
-import '../../../core/schedule_config.dart';
-import '../../../core/access_control.dart';
-import '../../../core/services/game_service.dart';
-import '../../../core/services/algorithm_service.dart';
-import '../../../core/services/cache_service.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../models/game_model.dart';
-import '../detail/detail_page.dart';
 import '../detail/game_detail_page.dart';
+import '../steam/presentation/pages/steam_overview_page.dart';
 import '../subscription/subscription_page.dart';
-import 'widgets/top_deal_banner.dart';
-import 'widgets/top_list_item.dart';
+import 'home_feed_controller.dart';
+import 'widgets/home_best_deals_section.dart';
+import 'widgets/home_steam_snapshot_section.dart';
+import 'widgets/home_welcome_header.dart';
 import '../../../widgets/ad_banner.dart';
 
-/// 极简爆款首页：一大 Banner + Top 10 列表，秒开 + 后台刷新
+/// 个性化首页：欢迎区、Steam 摘要、今日好价、广告（愿望单决策与「为你推荐」在发现页）。
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -25,58 +25,40 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  List<GameModel> _deals = [];
-  List<GameModel> _top10 = [];
-  GameModel? _topDeal;
-  String? _updatedAt;
-  bool _loading = false;
-  bool _isPro = false;
-  bool _queryLimitReached = false;
+  final HomeFeedController _c = HomeFeedController();
+  StreamSubscription<SteamAuthSuccessPayload>? _steamAuthSub;
 
   @override
   void initState() {
     super.initState();
-    _initData();
+    _c.addListener(_onCtl);
+    _steamAuthSub = SteamAuthEvents.instance.stream.listen((_) {
+      _c.load();
+    });
+    _c.load().then((_) {
+      AnalyticsService.instance.logAppOpen(source: 'home');
+    });
   }
 
-  Future<void> _initData() async {
-    final storage = StorageService.instance;
-    _isPro = await storage.isPro();
-    final cache = CacheService();
-    final cached = await cache.getCachedGames();
-    final lastCheck = await cache.getLastCheckTime();
-    final locale = await storage.getPreferredLocale();
-    final isNewDay = ScheduleConfig.isNewDayInLocale(lastCheck, locale);
-    if (cached.isNotEmpty && !isNewDay && mounted) {
-      _applyDeals(deduplicateDeals(cached));
-    }
-    _updatedAt = lastCheck;
-    if (mounted) setState(() {});
-
-    final canSearch = await AccessControl().canSearchToday();
-    _queryLimitReached = !canSearch;
-    final canFetch = canSearch || isNewDay;
-    if (mounted) setState(() {});
-
-    if (!canFetch) return;
-
-    if (!isNewDay) await storage.incrementQueryCountToday();
-    final latest = await GameService().fetchGames(pageSize: 60);
-    if (latest.isEmpty || !mounted) return;
-    final deduped = deduplicateDeals(latest);
-    await cache.saveGames(deduped);
-    _updatedAt = await cache.getLastCheckTime();
-    if (mounted) _applyDeals(deduped);
+  void _onCtl() {
+    if (!mounted) return;
+    setState(() {});
   }
 
-  void _applyDeals(List<GameModel> list) {
-    _deals = list;
-    _top10 = AlgorithmService().topByScore(list, limit: 10);
-    _topDeal = _top10.isNotEmpty ? _top10.first : null;
-    if (mounted) setState(() {});
+  @override
+  void dispose() {
+    _steamAuthSub?.cancel();
+    _c.removeListener(_onCtl);
+    _c.dispose();
+    super.dispose();
   }
 
   void _openDetail(GameModel game) {
+    AnalyticsService.instance.logRecommendationClick(
+      section: 'best_deals',
+      steamAppId: game.steamAppID.isNotEmpty ? game.steamAppID : game.appId,
+      reasonCodes: const [],
+    );
     Navigator.of(context).push(
       PageRouteBuilder(
         pageBuilder: (_, __, ___) => GameDetailPage(game: game),
@@ -88,114 +70,59 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
+    final footerIso = _footerTimestampIso();
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
         child: RefreshIndicator(
-          onRefresh: () async {
-            setState(() => _loading = true);
-            await _initData();
-            if (mounted) setState(() => _loading = false);
-          },
+          onRefresh: () => _c.load(showSteamSectionLoading: false),
           child: ListView(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
             children: [
-              Text(
-                AppLocalizations.of(context).get('steam_deals_today'),
-                style: const TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.textPrimary,
+              HomeWelcomeHeader(
+                steamLinked: _c.steamLinkedUi,
+              ),
+              const SizedBox(height: 20),
+              HomeSteamSnapshotSection(
+                loading: _c.statsLoading,
+                steamLinked: _c.steamLinkedUi,
+                summary: _c.statsSummary,
+                friendCount: _c.steamFriendCount,
+                friendsOnline: _c.steamFriendsOnline,
+                onOpenFull: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(builder: (_) => const SteamOverviewPage()),
+                  );
+                },
+              ),
+              const SizedBox(height: 18),
+              HomeBestDealsSection(
+                topDeal: _c.topDeal,
+                top10: _c.top10,
+                isPro: _c.isPro,
+                queryLimitReached: _c.queryLimitReached,
+                onOpenDetail: _openDetail,
+                onTapUpgrade: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => const SubscriptionPage(paywallSource: 'home')),
                 ),
               ),
-              if (_updatedAt != null && _updatedAt!.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Text(
-                    _formatUpdatedAt(context, _updatedAt!),
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
+              const SizedBox(height: 28),
+              if (!_c.isPro) const AdBanner(),
+              if (footerIso.isNotEmpty) ...[
+                const SizedBox(height: 20),
+                Text(
+                  _formatUpdatedAt(context, footerIso),
+                  style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
                 ),
-              const SizedBox(height: 24),
-              TopDealBanner(
-                game: _topDeal,
-                onTap: _topDeal != null ? () => _openDetail(_topDeal!) : null,
-              ),
-              const SizedBox(height: 24),
-              Text(
-                AppLocalizations.of(context).get('top_10_deals_today'),
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-              const SizedBox(height: 16),
-              if (_top10.isEmpty && !_loading)
-                Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Center(
-                    child: Text(
-                      AppLocalizations.of(context).get('no_deals_pull'),
-                      style: const TextStyle(color: AppColors.textSecondary),
-                    ),
-                  ),
-                )
-              else
-                ...() {
-                  final list = <Widget>[];
-                  for (var i = 0; i < _top10.length; i++) {
-                    if (i == 2 && !_isPro) {
-                      list.add(const Padding(
-                        padding: EdgeInsets.only(bottom: 12),
-                        child: AdBanner(),
-                      ));
-                    }
-                    list.add(TopListItem(
-                      game: _top10[i],
-                      rank: i + 1,
-                      onTap: () => _openDetail(_top10[i]),
-                    ));
-                  }
-                  return list;
-                }(),
-              if (_queryLimitReached)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: InkWell(
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => const SubscriptionPage()),
-                    ),
-                    borderRadius: BorderRadius.circular(12),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                      child: Row(
-                        children: [
-                          Icon(Icons.workspace_premium_outlined, color: AppColors.itadOrange, size: 24),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              AppLocalizations.of(context).get('lookups_used_tap_unlock'),
-                              style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
-                            ),
-                          ),
-                          Icon(Icons.chevron_right, color: AppColors.textSecondary),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              if (!_isPro) const SizedBox(height: 24),
-              if (!_isPro) const AdBanner(),
+              ],
             ],
           ),
         ),
       ),
     );
   }
+
+  String _footerTimestampIso() => _c.updatedAt?.trim() ?? '';
 
   String _formatUpdatedAt(BuildContext context, String iso) {
     try {

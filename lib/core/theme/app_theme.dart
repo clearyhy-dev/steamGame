@@ -68,5 +68,17 @@ class AppTheme {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       ),
     ),
+    snackBarTheme: SnackBarThemeData(
+      backgroundColor: AppColors.cardDark,
+      behavior: SnackBarBehavior.floating,
+      elevation: 8,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      contentTextStyle: GoogleFonts.montserrat(
+        color: AppColors.textPrimary,
+        fontSize: 14,
+        fontWeight: FontWeight.w500,
+      ),
+      actionTextColor: AppColors.itadOrange,
+    ),
   );
 }

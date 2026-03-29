@@ -35,7 +35,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
     }
     Navigator.of(context).pop();
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const SubscriptionPage()),
+      MaterialPageRoute(builder: (_) => const SubscriptionPage(paywallSource: 'onboarding')),
     );
   }
 

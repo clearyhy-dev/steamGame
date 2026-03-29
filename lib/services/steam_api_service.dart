@@ -257,35 +257,83 @@ class SteamApiService {
     };
   }
 
-  /// 拉取 Steam 评测，按点赞数排序后取前 topN 条（最多 3 条）
-  Future<List<Map<String, dynamic>>> fetchSteamReviews(String steamAppID, {int topN = 3}) async {
-    if (steamAppID.isEmpty) return [];
+  static int _intField(dynamic v) {
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    return int.tryParse(v?.toString() ?? '0') ?? 0;
+  }
+
+  /// Steam 商店用户评价（公开 `appreviews` 接口），**不需要**用户 Steam 登录 token。
+  /// 返回 [query_summary] 聚合数据 + 按发布时间倒序的最近 [latestN] 条评测。
+  /// 文档: https://store.steampowered.com/appreviews/{appid}?json=1
+  Future<({List<Map<String, dynamic>> reviews, Map<String, dynamic>? summary})> fetchSteamReviews(
+    String steamAppID, {
+    int latestN = 10,
+  }) async {
+    if (steamAppID.isEmpty) {
+      return (reviews: <Map<String, dynamic>>[], summary: null);
+    }
     try {
       final uri = Uri.parse('https://store.steampowered.com/appreviews/$steamAppID').replace(
         queryParameters: <String, String>{
           'json': '1',
           'language': 'all',
-          'num_per_page': '30',
+          'num_per_page': '100',
           'filter': 'recent',
         },
       );
       final response = await http.get(uri).timeout(
-        const Duration(seconds: 6),
+        const Duration(seconds: 10),
         onTimeout: () => throw Exception('Steam reviews timeout'),
       );
-      if (response.statusCode != 200) return [];
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
-      final reviews = data['reviews'];
-      if (reviews is! List || reviews.isEmpty) return [];
-      final list = <Map<String, dynamic>>[];
-      for (final r in reviews) {
-        if (r is Map<String, dynamic>) list.add(parseReview(r));
+      if (response.statusCode != 200) {
+        return (reviews: <Map<String, dynamic>>[], summary: null);
       }
-      list.sort((a, b) => ((b['votes_up'] as int?) ?? 0).compareTo((a['votes_up'] as int?) ?? 0));
-      return list.take(topN).where((e) => (e['content'] as String).isNotEmpty).toList();
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final success = data['success'];
+      if (success != 1 && success != true) {
+        return (reviews: <Map<String, dynamic>>[], summary: null);
+      }
+
+      Map<String, dynamic>? summary;
+      final qs = data['query_summary'];
+      if (qs is Map<String, dynamic>) {
+        final tp = _intField(qs['total_positive']);
+        final tn = _intField(qs['total_negative']);
+        final denom = tp + tn;
+        final pct = denom > 0 ? ((tp * 100) / denom).round() : 0;
+        final numReviews = _intField(qs['num_reviews']);
+        summary = {
+          'review_score_desc': qs['review_score_desc']?.toString() ?? '',
+          'positive_percent': pct,
+          'total_reviews': numReviews > 0 ? numReviews : denom,
+          'total_positive': tp,
+          'total_negative': tn,
+        };
+      }
+
+      final reviewsRaw = data['reviews'];
+      if (reviewsRaw is! List || reviewsRaw.isEmpty) {
+        return (reviews: <Map<String, dynamic>>[], summary: summary);
+      }
+      final list = <Map<String, dynamic>>[];
+      for (final r in reviewsRaw) {
+        if (r is Map) {
+          final m = Map<String, dynamic>.from(r);
+          final row = parseReview(m);
+          if ((row['content'] as String).isNotEmpty) list.add(row);
+        }
+      }
+      list.sort((a, b) {
+        final ta = (a['timestamp_created'] as int?) ?? 0;
+        final tb = (b['timestamp_created'] as int?) ?? 0;
+        return tb.compareTo(ta);
+      });
+      final take = list.take(latestN).toList();
+      return (reviews: take, summary: summary);
     } catch (e) {
       debugPrint('fetchSteamReviews error: $e');
-      return [];
+      return (reviews: <Map<String, dynamic>>[], summary: null);
     }
   }
 
