@@ -13,6 +13,9 @@ import '../../../core/utils/countdown_util.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../services/steam_api_service.dart';
 import '../../../widgets/ad_banner.dart';
+import '../../../models/store_offer.dart' show buildMockStoreOffers;
+import '../../../services/price_engine.dart';
+import 'widgets/game_best_price_card.dart';
 
 /// 商业版详情页：多图轮播 + 折扣 + AI 评分 + Steam 跳转 + 分享(deep link) + 愿望单 + 倒计时
 class GameDetailPage extends StatefulWidget {
@@ -36,6 +39,7 @@ class _GameDetailPageState extends State<GameDetailPage> {
   /// Steam `appreviews` 返回的 [query_summary]（总评文案、好评率、条数），与登录 token 无关。
   Map<String, dynamic>? _reviewSummary;
   int? _currentPlayers;
+  late final PriceResult _priceResult;
 
   @override
   void initState() {
@@ -49,6 +53,7 @@ class _GameDetailPageState extends State<GameDetailPage> {
     _loadPriceHistory();
     _loadReviews();
     _loadCurrentPlayers();
+    _priceResult = PriceEngineService().calculateBestPrice(buildMockStoreOffers(widget.game));
   }
 
   Future<void> _loadCurrentPlayers() async {
@@ -254,6 +259,8 @@ class _GameDetailPageState extends State<GameDetailPage> {
                       ],
                     ),
                   ],
+                  const SizedBox(height: 16),
+                  GameBestPriceCard(game: game, priceResult: _priceResult),
                   const SizedBox(height: 16),
                   SizedBox(
                     width: double.infinity,

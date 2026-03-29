@@ -202,6 +202,22 @@ class AnalyticsService {
     await _safeLog('purchase_success', <String, Object>{'product_id': productId, 'source': source});
   }
 
+  Future<void> logAffiliateClick({
+    required String gameId,
+    required String store,
+    required double price,
+    required bool isOfficial,
+  }) async {
+    final p = <String, Object>{
+      'game_id': gameId,
+      'store': store,
+      'price': price,
+      'is_official': isOfficial ? 1 : 0,
+    };
+    await _safeLog('affiliate_click', p);
+    unawaited(_mirror('click', 'affiliate_click', p));
+  }
+
   Future<void> logAdLoadFailed({
     required String adUnitId,
     required String adFormat,

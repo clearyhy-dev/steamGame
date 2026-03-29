@@ -487,4 +487,20 @@ class StorageService {
     if (!_inited) return;
     await _prefs.setBool(AppConstants.keyForegroundServiceEnabled, enabled);
   }
+
+  Future<void> setFcmToken(String? token) async {
+    if (!_inited) return;
+    if (token == null || token.isEmpty) {
+      await _prefs.remove(AppConstants.keyFcmToken);
+    } else {
+      await _prefs.setString(AppConstants.keyFcmToken, token);
+    }
+  }
+
+  Future<String?> getFcmToken() async {
+    if (!_inited) return null;
+    final t = _prefs.getString(AppConstants.keyFcmToken);
+    if (t == null || t.isEmpty) return null;
+    return t;
+  }
 }

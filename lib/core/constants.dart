@@ -92,4 +92,7 @@ class AppConstants {
 
   /// 是否开启前台服务（常驻通知 + 后台收折扣），默认 true
   static const String keyForegroundServiceEnabled = 'foreground_service_enabled';
+
+  /// FCM 设备令牌（可选上报后端）
+  static const String keyFcmToken = 'fcm_token';
 }

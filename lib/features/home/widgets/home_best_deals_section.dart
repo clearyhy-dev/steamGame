@@ -66,6 +66,7 @@ class HomeBestDealsSection extends StatelessWidget {
           ...() {
             final list = <Widget>[];
             for (var i = 0; i < top10.length; i++) {
+              // 默认在第 3 条前插广告；不足 3 条时在列表末尾补一条，避免「只有 1～2 条好价时列表内广告永远不出现」
               if (i == insertAdAfterIndex && !isPro) {
                 list.add(
                   const Padding(
@@ -79,6 +80,14 @@ class HomeBestDealsSection extends StatelessWidget {
                   game: top10[i],
                   rank: i + 1,
                   onTap: () => onOpenDetail(top10[i]),
+                ),
+              );
+            }
+            if (top10.length <= insertAdAfterIndex && !isPro) {
+              list.add(
+                const Padding(
+                  padding: EdgeInsets.only(top: 4, bottom: 12),
+                  child: AdBanner(),
                 ),
               );
             }

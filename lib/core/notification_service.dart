@@ -136,6 +136,41 @@ class NotificationService {
     priority: Priority.high,
   );
 
+  /// FCM 前台通知与系统推送使用同一渠道（须先 [ensureFcmChannel]）。
+  Future<void> ensureFcmChannel() async {
+    try {
+      const channel = AndroidNotificationChannel(
+        'fcm_default',
+        'Push (FCM)',
+        description: 'Server deal and promo alerts',
+        importance: Importance.high,
+        playSound: true,
+      );
+      await notificationsPlugin
+          .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+          ?.createNotificationChannel(channel);
+    } catch (e) {
+      debugPrint('ensureFcmChannel: $e');
+    }
+  }
+
+  Future<void> showFcmNotification({
+    required String title,
+    required String body,
+    String? payload,
+  }) async {
+    const android = AndroidNotificationDetails(
+      'fcm_default',
+      'Push (FCM)',
+      channelDescription: 'Server deal and promo alerts',
+      importance: Importance.high,
+      priority: Priority.high,
+    );
+    final details = NotificationDetails(android: android);
+    final id = DateTime.now().millisecondsSinceEpoch % 100000;
+    await notificationsPlugin.show(id, title, body, details, payload: payload);
+  }
+
   Future<void> showNotification(
     String title,
     String body, {

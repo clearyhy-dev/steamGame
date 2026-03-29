@@ -3,6 +3,7 @@ import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:workmanager/workmanager.dart';
 import 'package:app_links/app_links.dart';
@@ -135,6 +136,12 @@ void main() async {
     debugPrint('Firebase.init: $e\n$stack');
   }
 
+  try {
+    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+  } catch (e, stack) {
+    debugPrint('FCM.onBackgroundMessage: $e\n$stack');
+  }
+
   // 全局捕获 Flutter 框架错误与异步未捕获异常，避免启动白屏/闪退无日志
   FlutterError.onError = (FlutterErrorDetails details) {
     debugPrint('FlutterError: ${details.exception}\n${details.stack}');
@@ -235,6 +242,12 @@ Future<void> _init() async {
     await NotificationService.instance.init();
   } catch (e) {
     debugPrint('NotificationService.init: $e');
+  }
+
+  try {
+    await FcmService.instance.init();
+  } catch (e) {
+    debugPrint('FcmService.init: $e');
   }
 
   try {

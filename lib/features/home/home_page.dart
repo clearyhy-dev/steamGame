@@ -12,6 +12,7 @@ import '../steam/presentation/pages/steam_overview_page.dart';
 import '../subscription/subscription_page.dart';
 import 'home_feed_controller.dart';
 import 'widgets/home_best_deals_section.dart';
+import 'widgets/home_best_deals_to_buy_section.dart';
 import 'widgets/home_steam_snapshot_section.dart';
 import 'widgets/home_welcome_header.dart';
 import '../../../widgets/ad_banner.dart';
@@ -96,6 +97,11 @@ class _HomePageState extends State<HomePage> {
                 },
               ),
               const SizedBox(height: 18),
+              HomeBestDealsToBuySection(
+                games: _c.bestDealsToBuy,
+                onOpenDetail: _openDetail,
+              ),
+              if (_c.bestDealsToBuy.isNotEmpty) const SizedBox(height: 18),
               HomeBestDealsSection(
                 topDeal: _c.topDeal,
                 top10: _c.top10,
