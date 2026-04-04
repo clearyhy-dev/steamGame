@@ -108,6 +108,10 @@ class AppLocalizations {
       'app_guide_hint': 'View onboarding slides again',
       'rate_us': 'Rate us',
       'rate_us_hint': 'Help us with a review on the store',
+      'rate_dialog_title': 'How would you rate the app?',
+      'rate_submit': 'Submit',
+      'rate_thanks_low': 'Thanks for your feedback — we will keep improving.',
+      'rate_thanks_high': 'Thank you for your support!',
       'daily_limit_hint': 'Free: 3 lookups/day on Home or Explore. Hit the limit to see "Unlock unlimited" and go Pro.',
       'unlock_unlimited': 'Unlock unlimited',
       'trial_099': '7 Days Trial - \$0.99',
@@ -151,6 +155,12 @@ class AppLocalizations {
       'affiliate_best_official': 'Best official price',
       'affiliate_cheapest_deal': 'Cheapest deal',
       'affiliate_buy_best_price': 'Buy best price',
+      'affiliate_cdkeys_sold_out':
+          'This CDKeys offer is sold out or unavailable. Please try again later. You can add the game to your wishlist for price drop alerts.',
+      'affiliate_purchase_unavailable':
+          'Could not open the purchase link. Please try again later. You can add the game to your wishlist for price drop alerts.',
+      'affiliate_rewarded_load_failed': 'Could not load the ad. Please try again later.',
+      'affiliate_rewarded_show_failed': 'Could not show the ad. Please try again later.',
       'affiliate_third_party_note': 'Third-party retailers — prices and stock may vary.',
       'store_name_steam': 'Steam',
       'store_name_fanatical': 'Fanatical',
@@ -458,6 +468,10 @@ class AppLocalizations {
       'app_guide_hint': '再次查看引导页',
       'rate_us': '给我们评分',
       'rate_us_hint': '在商店留下评价',
+      'rate_dialog_title': '请为应用打分',
+      'rate_submit': '提交',
+      'rate_thanks_low': '感谢反馈，我们会努力改进。',
+      'rate_thanks_high': '感谢支持！',
       'daily_limit_hint': '免费版每日 3 次查询，用完后可解锁无限次。',
       'unlock_unlimited': '解锁无限次',
       'trial_099': '7 天试用 - \$0.99',
@@ -509,6 +523,10 @@ class AppLocalizations {
       'affiliate_best_official': '官方渠道低价',
       'affiliate_cheapest_deal': '全渠道低价',
       'affiliate_buy_best_price': '以最优价购买',
+      'affiliate_cdkeys_sold_out': '该CDKeys已售完，请稍后再试。可将游戏加入愿望单，降价后我们会提醒你。',
+      'affiliate_purchase_unavailable': '无法打开购买链接，请稍后再试。可将游戏加入愿望单，降价后我们会提醒你。',
+      'affiliate_rewarded_load_failed': '广告加载失败，请稍后再试。',
+      'affiliate_rewarded_show_failed': '广告无法展示，请稍后再试。',
       'affiliate_third_party_note': '以下为第三方经销商，价格与库存以商家页面为准。',
       'store_name_steam': 'Steam',
       'store_name_fanatical': 'Fanatical',
@@ -789,6 +807,10 @@ class AppLocalizations {
       'profile_enabled_features': '現在有効：オンボーディング、サブスク、評価、シェア、日替わりお得通知。Proユーザーはウィッシュリスト値下げ通知も。',
       'share': 'シェア',
       'upgrade_to_pro': 'Proにアップグレード',
+      'affiliate_cdkeys_sold_out':
+          'CDKeysのこのオファーは売り切れかリンクを開けません。しばらくしてから再度お試しください。ウィッシュリストに追加すると値下げ通知を受け取れます。',
+      'affiliate_purchase_unavailable':
+          '購入リンクを開けませんでした。しばらくしてから再度お試しください。ウィッシュリストに追加すると値下げ通知を受け取れます。',
       'section_ai_picks': 'AI ピック',
       'section_just_released': '新着',
       'section_trending_now': 'トレンド',
@@ -1018,6 +1040,10 @@ class AppLocalizations {
       'profile_enabled_features': '현재 사용 중: 온보딩, 구독, 평가, 공유, 일일 할인 알림; Pro 사용자는 위시리스트 가격 인하 알림도 받습니다.',
       'share': '공유',
       'upgrade_to_pro': 'Pro 업그레이드',
+      'affiliate_cdkeys_sold_out':
+          '이 CDKeys 상품은 품절이거나 링크를 열 수 없습니다. 잠시 후 다시 시도하세요. 위시리스트에 추가하면 가격 인하 알림을 받을 수 있습니다.',
+      'affiliate_purchase_unavailable':
+          '구매 링크를 열 수 없습니다. 잠시 후 다시 시도하세요. 위시리스트에 추가하면 가격 인하 알림을 받을 수 있습니다.',
       'section_ai_picks': 'AI 추천',
       'section_just_released': '신규 출시',
       'section_trending_now': '트렌딩',
@@ -1245,6 +1271,10 @@ class AppLocalizations {
       'profile_enabled_features': 'Aktiv: Onboarding, Abo, Bewertung, Teilen, tägliche Deal-Benachrichtigungen; Pro-Nutzer erhalten zusätzlich Wunschlisten-Preissenkungsbenachrichtigungen.',
       'share': 'Teilen',
       'upgrade_to_pro': 'Auf Pro upgraden',
+      'affiliate_cdkeys_sold_out':
+          'Dieses CDKeys-Angebot ist ausverkauft oder nicht verfügbar. Bitte versuchen Sie es später erneut. Sie können das Spiel zur Wunschliste hinzufügen, um Preissenkungsbenachrichtigungen zu erhalten.',
+      'affiliate_purchase_unavailable':
+          'Der Kauflink konnte nicht geöffnet werden. Bitte versuchen Sie es später erneut. Sie können das Spiel zur Wunschliste hinzufügen, um Preissenkungsbenachrichtigungen zu erhalten.',
       'section_ai_picks': 'AI-Auswahl',
       'section_just_released': 'Neu erschienen',
       'section_trending_now': 'Im Trend',
@@ -1579,6 +1609,10 @@ class AppLocalizations {
       'profile_enabled_features': "Actuellement activé : onboarding, abonnement, notation, partage, notifications d'offres quotidiennes ; les utilisateurs Pro ont en plus les alertes de baisse de prix de la liste de souhaits.",
       'share': 'Partager',
       'upgrade_to_pro': 'Passer en Pro',
+      'affiliate_cdkeys_sold_out':
+          'Cette offre CDKeys est épuisée ou indisponible. Réessayez plus tard. Ajoutez le jeu à votre liste de souhaits pour les alertes de baisse de prix.',
+      'affiliate_purchase_unavailable':
+          'Impossible d\'ouvrir le lien d\'achat. Réessayez plus tard. Ajoutez le jeu à votre liste de souhaits pour les alertes de baisse de prix.',
       'section_ai_picks': 'Sélection AI',
       'section_just_released': 'Nouveautés',
       'section_trending_now': 'Tendances',
@@ -1872,6 +1906,10 @@ class AppLocalizations {
       'view_on_steam': 'В Steam',
       'share': 'Поделиться',
       'upgrade_to_pro': 'Перейти на Pro',
+      'affiliate_cdkeys_sold_out':
+          'Предложение CDKeys недоступно или распродано. Попробуйте позже. Добавьте игру в список желаний для уведомлений о снижении цены.',
+      'affiliate_purchase_unavailable':
+          'Не удалось открыть ссылку для покупки. Попробуйте позже. Добавьте игру в список желаний для уведомлений о снижении цены.',
       'subscription_title': 'Pro',
       'profile': 'Профиль',
       'profile_enabled_features': 'Включено: онбординг, подписка, оценка, шаринг, уведомления о ежедневных скидках; пользователи Pro также получают уведомления о снижении цен по списку желаний.',
@@ -1997,6 +2035,10 @@ class AppLocalizations {
       'enable_now': 'Activar ahora',
       'share': 'Compartir',
       'upgrade_to_pro': 'Pasarse a Pro',
+      'affiliate_cdkeys_sold_out':
+          'Esta oferta de CDKeys está agotada o no está disponible. Inténtalo más tarde. Añade el juego a tu lista de deseos para alertas de bajada de precio.',
+      'affiliate_purchase_unavailable':
+          'No se pudo abrir el enlace de compra. Inténtalo más tarde. Añade el juego a tu lista de deseos para alertas de bajada de precio.',
       'section_ai_picks': 'Selección IA',
       'section_just_released': 'Recién salidos',
       'section_trending_now': 'Tendencias',
@@ -2281,6 +2323,10 @@ class AppLocalizations {
       'view_on_steam': 'Steam پر دیکھیں',
       'share': 'شیئر کریں',
       'upgrade_to_pro': 'Pro اپ گریڈ کریں',
+      'affiliate_cdkeys_sold_out':
+          'یہ CDKeys کی پیشکش ختم یا دستیاب نہیں۔ بعد میں دوبارہ کوشش کریں۔ قیمت میں کمی کی اطلاعات کے لیے گیم کو خواہشات میں شامل کریں۔',
+      'affiliate_purchase_unavailable':
+          'خریداری کا لنک نہیں کھل سکا۔ بعد میں دوبارہ کوشش کریں۔ قیمت میں کمی کی اطلاعات کے لیے گیم کو خواہشات میں شامل کریں۔',
       'subscription_title': 'Pro',
       'profile': 'پروفائل',
       'section_ai_picks': 'AI پسندیدہ',
@@ -2358,6 +2404,10 @@ class AppLocalizations {
       'view_on_steam': 'Lihat di Steam',
       'share': 'Bagikan',
       'upgrade_to_pro': 'Upgrade ke Pro',
+      'affiliate_cdkeys_sold_out':
+          'Penawaran CDKeys ini habis atau tidak tersedia. Coba lagi nanti. Tambahkan game ke wishlist untuk notifikasi penurunan harga.',
+      'affiliate_purchase_unavailable':
+          'Tautan pembelian tidak bisa dibuka. Coba lagi nanti. Tambahkan game ke wishlist untuk notifikasi penurunan harga.',
       'subscription_title': 'Pro',
       'profile': 'Profil',
       'section_ai_picks': 'Pilihan AI',
@@ -2437,6 +2487,10 @@ class AppLocalizations {
       'view_on_steam': 'Steam\'de görüntüle',
       'share': 'Paylaş',
       'upgrade_to_pro': 'Pro\'ya geç',
+      'affiliate_cdkeys_sold_out':
+          'Bu CDKeys teklifi tükendi veya kullanılamıyor. Lütfen daha sonra tekrar deneyin. Fiyat düşüşü bildirimleri için oyunu istek listesine ekleyin.',
+      'affiliate_purchase_unavailable':
+          'Satın alma bağlantısı açılamadı. Lütfen daha sonra tekrar deneyin. Fiyat düşüşü bildirimleri için oyunu istek listesine ekleyin.',
       'subscription_title': 'Pro',
       'profile': 'Profil',
       'section_ai_picks': 'AI Seçimleri',
@@ -2516,6 +2570,10 @@ class AppLocalizations {
       'view_on_steam': 'Xem trên Steam',
       'share': 'Chia sẻ',
       'upgrade_to_pro': 'Nâng cấp Pro',
+      'affiliate_cdkeys_sold_out':
+          'Ưu đãi CDKeys đã hết hoặc không khả dụng. Vui lòng thử lại sau. Thêm game vào danh sách mong ước để nhận thông báo giảm giá.',
+      'affiliate_purchase_unavailable':
+          'Không mở được liên kết mua. Vui lòng thử lại sau. Thêm game vào danh sách mong ước để nhận thông báo giảm giá.',
       'subscription_title': 'Pro',
       'profile': 'Hồ sơ',
       'section_ai_picks': 'AI chọn',
@@ -2593,6 +2651,10 @@ class AppLocalizations {
       'view_on_steam': 'ดูบน Steam',
       'share': 'แชร์',
       'upgrade_to_pro': 'อัปเกรด Pro',
+      'affiliate_cdkeys_sold_out':
+          'ข้อเสนอ CDKeys นี้หมดหรือไม่พร้อมใช้งาน ลองอีกครั้งภายหลัง เพิ่มเกมในรายการโปรดเพื่อรับการแจ้งเตือนเมื่อราคาลด',
+      'affiliate_purchase_unavailable':
+          'ไม่สามารถเปิดลิงก์ซื้อได้ ลองอีกครั้งภายหลัง เพิ่มเกมในรายการโปรดเพื่อรับการแจ้งเตือนเมื่อราคาลด',
       'subscription_title': 'Pro',
       'profile': 'โปรไฟล์',
       'section_ai_picks': 'AI เลือก',
@@ -2672,6 +2734,10 @@ class AppLocalizations {
       'view_on_steam': 'Steam पर देखें',
       'share': 'शेयर करें',
       'upgrade_to_pro': 'Pro अपग्रेड',
+      'affiliate_cdkeys_sold_out':
+          'यह CDKeys ऑफ़र ख़त्म हो गया या उपलब्ध नहीं है। बाद में पुनः प्रयास करें। कीमत में कमी की सूचनाओं के लिए गेम को विशलिस्ट में जोड़ें।',
+      'affiliate_purchase_unavailable':
+          'खरीद लिंक नहीं खुल सका। बाद में पुनः प्रयास करें। कीमत में कमी की सूचनाओं के लिए गेम को विशलिस्ट में जोड़ें।',
       'subscription_title': 'Pro',
       'profile': 'प्रोफाइल',
       'section_ai_picks': 'AI पिक',
@@ -2749,6 +2815,10 @@ class AppLocalizations {
       'view_on_steam': 'Ver no Steam',
       'share': 'Compartilhar',
       'upgrade_to_pro': 'Fazer upgrade Pro',
+      'affiliate_cdkeys_sold_out':
+          'Esta oferta CDKeys esgotou ou está indisponível. Tente mais tarde. Adicione o jogo à lista de desejos para alertas de queda de preço.',
+      'affiliate_purchase_unavailable':
+          'Não foi possível abrir o link de compra. Tente mais tarde. Adicione o jogo à lista de desejos para alertas de queda de preço.',
       'subscription_title': 'Pro',
       'profile': 'Perfil',
       'section_ai_picks': 'Escolhas AI',
@@ -2828,6 +2898,10 @@ class AppLocalizations {
       'view_on_steam': 'عرض على Steam',
       'share': 'مشاركة',
       'upgrade_to_pro': 'ترقية إلى Pro',
+      'affiliate_cdkeys_sold_out':
+          'عرض CDKeys هذا نفد أو غير متاح. حاول لاحقًا. أضف اللعبة إلى قائمة الأمنيات لتنبيهات انخفاض السعر.',
+      'affiliate_purchase_unavailable':
+          'تعذر فتح رابط الشراء. حاول لاحقًا. أضف اللعبة إلى قائمة الأمنيات لتنبيهات انخفاض السعر.',
       'subscription_title': 'Pro',
       'profile': 'الملف الشخصي',
       'section_ai_picks': 'اختيارات AI',
@@ -2907,6 +2981,10 @@ class AppLocalizations {
       'view_on_steam': 'Zobacz w Steam',
       'share': 'Udostępnij',
       'upgrade_to_pro': 'Przejdź na Pro',
+      'affiliate_cdkeys_sold_out':
+          'Ta oferta CDKeys jest wyprzedana lub niedostępna. Spróbuj ponownie później. Dodaj grę do listy życzeń, aby otrzymywać powiadomienia o obniżce ceny.',
+      'affiliate_purchase_unavailable':
+          'Nie można otworzyć linku zakupu. Spróbuj ponownie później. Dodaj grę do listy życzeń, aby otrzymywać powiadomienia o obniżce ceny.',
       'subscription_title': 'Pro',
       'profile': 'Profil',
       'section_ai_picks': 'Wybór AI',
@@ -2986,6 +3064,10 @@ class AppLocalizations {
       'view_on_steam': 'Vedi su Steam',
       'share': 'Condividi',
       'upgrade_to_pro': 'Passa a Pro',
+      'affiliate_cdkeys_sold_out':
+          'Questa offerta CDKeys è esaurita o non disponibile. Riprova più tardi. Aggiungi il gioco alla lista desideri per gli avvisi di calo prezzo.',
+      'affiliate_purchase_unavailable':
+          'Impossibile aprire il link d\'acquisto. Riprova più tardi. Aggiungi il gioco alla lista desideri per gli avvisi di calo prezzo.',
       'subscription_title': 'Pro',
       'profile': 'Profilo',
       'section_ai_picks': 'Scelte AI',
@@ -3065,6 +3147,10 @@ class AppLocalizations {
       'view_on_steam': 'Bekijken op Steam',
       'share': 'Delen',
       'upgrade_to_pro': 'Upgrade naar Pro',
+      'affiliate_cdkeys_sold_out':
+          'Deze CDKeys-aanbieding is uitverkocht of niet beschikbaar. Probeer het later opnieuw. Voeg de game toe aan je verlanglijst voor prijsdalingmeldingen.',
+      'affiliate_purchase_unavailable':
+          'Kan de kooplink niet openen. Probeer het later opnieuw. Voeg de game toe aan je verlanglijst voor prijsdalingmeldingen.',
       'subscription_title': 'Pro',
       'profile': 'Profiel',
       'section_ai_picks': 'AI-keuzes',
@@ -3144,6 +3230,10 @@ class AppLocalizations {
       'view_on_steam': 'Visa på Steam',
       'share': 'Dela',
       'upgrade_to_pro': 'Uppgradera till Pro',
+      'affiliate_cdkeys_sold_out':
+          'Detta CDKeys-erbjudande är slut eller otillgängligt. Försök igen senare. Lägg till spelet på önskelistan för prissänkningsaviseringar.',
+      'affiliate_purchase_unavailable':
+          'Kunde inte öppna köplänken. Försök igen senare. Lägg till spelet på önskelistan för prissänkningsaviseringar.',
       'subscription_title': 'Pro',
       'profile': 'Profil',
       'section_ai_picks': 'AI-val',
@@ -3223,6 +3313,10 @@ class AppLocalizations {
       'view_on_steam': 'צפה ב-Steam',
       'share': 'שתף',
       'upgrade_to_pro': 'שדרג ל-Pro',
+      'affiliate_cdkeys_sold_out':
+          'ההצעה של CDKeys אזלה או אינה זמינה. נסה שוב מאוחר יותר. הוסף את המשחק לרשימת המשאלות להתראות על ירידת מחיר.',
+      'affiliate_purchase_unavailable':
+          'לא ניתן לפתוח את קישור הרכישה. נסה שוב מאוחר יותר. הוסף את המשחק לרשימת המשאלות להתראות על ירידת מחיר.',
       'subscription_title': 'Pro',
       'profile': 'פרופיל',
       'section_ai_picks': 'בחירות AI',
@@ -3302,6 +3396,10 @@ class AppLocalizations {
       'view_on_steam': 'Δες στο Steam',
       'share': 'Κοινή χρήση',
       'upgrade_to_pro': 'Αναβάθμιση σε Pro',
+      'affiliate_cdkeys_sold_out':
+          'Αυτή η προσφορά CDKeys εξαντλήθηκε ή δεν είναι διαθέσιμη. Δοκιμάστε ξανά αργότερα. Προσθέστε το παιχνίδι στη λίστα ευχών για ειδοποιήσεις μείωσης τιμής.',
+      'affiliate_purchase_unavailable':
+          'Δεν ήταν δυνατό το άνοιγμα του συνδέσμου αγοράς. Δοκιμάστε ξανά αργότερα. Προσθέστε το παιχνίδι στη λίστα ευχών για ειδοποιήσεις μείωσης τιμής.',
       'subscription_title': 'Pro',
       'profile': 'Προφίλ',
       'section_ai_picks': 'Επιλογές AI',

@@ -260,7 +260,13 @@ class _GameDetailPageState extends State<GameDetailPage> {
                     ),
                   ],
                   const SizedBox(height: 16),
-                  GameBestPriceCard(game: game, priceResult: _priceResult),
+                  GameBestPriceCard(
+                    game: game,
+                    priceResult: _priceResult,
+                    onAddToWishlist: () {
+                      if (!_inWishlist) _toggleWishlist();
+                    },
+                  ),
                   const SizedBox(height: 16),
                   SizedBox(
                     width: double.infinity,

@@ -234,6 +234,16 @@ class AnalyticsService {
     unawaited(_mirror('exposure', 'ad_load_failed', p));
   }
 
+  /// 个人中心主动评分：低分仅埋点并镜像后端；4–5 星另由 [ReviewService] 调起商店评价（此处 [submitToStore] 区分）。
+  Future<void> logAppRatingStars({required int stars, required bool submitToStore}) async {
+    final p = <String, Object>{
+      'stars': stars,
+      'submit_to_store': submitToStore ? 1 : 0,
+    };
+    await _safeLog('app_rating', p);
+    unawaited(_mirror('click', 'app_rating', p));
+  }
+
   Future<void> _safeLog(String name, Map<String, Object> params) async {
     try {
       await _analytics.logEvent(name: name, parameters: params);

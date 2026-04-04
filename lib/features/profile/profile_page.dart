@@ -620,26 +620,6 @@ class _ProfilePageState extends State<ProfilePage> {
             const SizedBox(height: 16),
             Card(
               child: ListTile(
-                leading: const Icon(Icons.settings_suggest, color: AppColors.itadOrange),
-                title: Text(l10n.get('background_run_title')),
-                subtitle: Text(l10n.get('background_run_hint')),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () async {
-                  await permission_handler.openAppSettings();
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(l10n.get('background_run_hint')),
-                        duration: const Duration(seconds: 5),
-                      ),
-                    );
-                  }
-                },
-              ),
-            ),
-            const SizedBox(height: 16),
-            Card(
-              child: ListTile(
                 leading: const Icon(Icons.share),
                 title: Text(l10n.get('share_app')),
                 subtitle: Text(l10n.get('share_app_hint')),
@@ -692,9 +672,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 title: Text(l10n.get('rate_us')),
                 subtitle: Text(l10n.get('rate_us_hint')),
                 trailing: const Icon(Icons.chevron_right),
-                onTap: () {
-                  ReviewService().requestReviewFromUser();
-                },
+                onTap: () => ReviewService().promptRatingFromProfile(context),
               ),
             ),
           ],

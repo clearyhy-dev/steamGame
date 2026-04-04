@@ -1,7 +1,5 @@
 import 'dart:io' show Platform;
 
-import 'package:flutter/foundation.dart';
-
 /// AdMob 单元 ID（与 [MobileAds.instance.initialize] 配合使用）。
 class AdConfig {
   AdConfig._();
@@ -21,6 +19,15 @@ class AdConfig {
 
   static String get interstitialAdUnitId =>
       Platform.isAndroid ? interstitialAndroidTest : interstitialIosTest;
+
+  /// 激励视频：「以最优价购买」前观看；Android 正式单元。
+  static const String rewardedAffiliateAndroid = 'ca-app-pub-7015260886566088/9809962513';
+
+  /// iOS 需在 AdMob 创建激励单元后替换；暂用 Google 测试 ID。
+  static const String rewardedAffiliateIosTest = 'ca-app-pub-3940256099942544/5224354917';
+
+  static String get rewardedAdUnitId =>
+      Platform.isAndroid ? rewardedAffiliateAndroid : rewardedAffiliateIosTest;
 
   /// 预留：远程开关可置 false。
   static bool get adsEnabledByPolicy => true;

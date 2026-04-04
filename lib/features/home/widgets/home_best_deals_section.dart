@@ -15,9 +15,7 @@ class HomeBestDealsSection extends StatelessWidget {
     required this.topDeal,
     required this.top10,
     required this.isPro,
-    required this.queryLimitReached,
     required this.onOpenDetail,
-    required this.onTapUpgrade,
   });
 
   /// 在该条 [TopListItem] 之前插入广告（0-based 游戏下标）。第 3 行、第 8 行各一条。
@@ -26,9 +24,7 @@ class HomeBestDealsSection extends StatelessWidget {
   final GameModel? topDeal;
   final List<GameModel> top10;
   final bool isPro;
-  final bool queryLimitReached;
   final void Function(GameModel g) onOpenDetail;
-  final VoidCallback onTapUpgrade;
 
   @override
   Widget build(BuildContext context) {
@@ -94,30 +90,6 @@ class HomeBestDealsSection extends StatelessWidget {
             }
             return list;
           }(),
-        if (queryLimitReached)
-          Padding(
-            padding: const EdgeInsets.only(top: 8, bottom: 8),
-            child: InkWell(
-              onTap: onTapUpgrade,
-              borderRadius: BorderRadius.circular(12),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                child: Row(
-                  children: [
-                    Icon(Icons.workspace_premium_outlined, color: AppColors.itadOrange, size: 24),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        l10n.get('lookups_used_tap_unlock'),
-                        style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
-                      ),
-                    ),
-                    const Icon(Icons.chevron_right, color: AppColors.textSecondary),
-                  ],
-                ),
-              ),
-            ),
-          ),
       ],
     );
   }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../../../core/rewarded_affiliate_ad_service.dart';
 import '../../../core/services/analytics_service.dart';
 import '../../../core/theme/colors.dart';
 import '../../../l10n/app_localizations.dart';
@@ -15,10 +16,14 @@ class GameBestPriceCard extends StatelessWidget {
     super.key,
     required this.game,
     required this.priceResult,
+    this.onAddToWishlist,
   });
 
   final GameModel game;
   final PriceResult priceResult;
+
+  /// 购买失败时 SnackBar「加入愿望单」操作；由详情页注入（与心形按钮逻辑一致）。
+  final VoidCallback? onAddToWishlist;
 
   static String _storeTitle(AppLocalizations l10n, String store) {
     switch (store) {
@@ -61,7 +66,38 @@ class GameBestPriceCard extends StatelessWidget {
         isOfficial: target.isOfficial,
       );
       final fallback = game.steamAppID.trim().isNotEmpty ? game.steamAppID.trim() : gid;
-      await AffiliateService.instance.openAffiliate(target, fallbackSteamAppId: fallback);
+
+      Future<void> openAfterReward() async {
+        final ok = await AffiliateService.instance.tryOpenPurchase(target, fallbackSteamAppId: fallback);
+        if (ok || !context.mounted) return;
+
+        final msg = target.store == StoreIds.cdkeys
+            ? l10n.get('affiliate_cdkeys_sold_out')
+            : l10n.get('affiliate_purchase_unavailable');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(msg),
+            action: onAddToWishlist != null
+                ? SnackBarAction(
+                    label: l10n.get('add_to_wishlist'),
+                    onPressed: onAddToWishlist!,
+                  )
+                : null,
+          ),
+        );
+      }
+
+      void onAdBlocked(String key) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(l10n.get(key))),
+        );
+      }
+
+      await RewardedAffiliateAdService.instance.runPurchaseAfterRewardedAd(
+        onRewardGranted: openAfterReward,
+        onAdBlocked: onAdBlocked,
+      );
     }
 
     Widget row(String label, StoreOffer? offer) {

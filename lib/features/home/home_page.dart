@@ -90,6 +90,13 @@ class _HomePageState extends State<HomePage> {
               ],
               HomeWelcomeHeader(
                 steamLinked: _c.steamLinkedUi,
+                onTapProUpsell: _c.isPro
+                    ? null
+                    : () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => const SubscriptionPage(paywallSource: 'home_tip'),
+                          ),
+                        ),
               ),
               const SizedBox(height: 12),
               HomeSteamSnapshotSection(
@@ -109,11 +116,7 @@ class _HomePageState extends State<HomePage> {
                 topDeal: _c.topDeal,
                 top10: _c.top10,
                 isPro: _c.isPro,
-                queryLimitReached: _c.queryLimitReached,
                 onOpenDetail: _openDetail,
-                onTapUpgrade: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(builder: (_) => const SubscriptionPage(paywallSource: 'home')),
-                ),
               ),
             ],
           ),
