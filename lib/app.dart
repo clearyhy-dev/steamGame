@@ -5,7 +5,6 @@ import 'package:permission_handler/permission_handler.dart' as permission_handle
 import 'core/theme/app_theme.dart';
 import 'core/theme/colors.dart';
 import 'core/app_update_helper.dart';
-import 'core/interstitial_helper.dart';
 import 'core/storage_service.dart';
 import 'core/services/review_service.dart';
 import 'features/home/home_page.dart';
@@ -222,9 +221,6 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
         if (!mounted) return;
         try {
           await StorageService.instance.setLastOpenDate(DateTime.now());
-        } catch (_) {}
-        try {
-          if (await InterstitialHelper.tryShowAfterAppOpen()) {}
         } catch (_) {}
         if (!mounted) return;
         try {

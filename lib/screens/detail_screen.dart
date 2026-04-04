@@ -60,9 +60,9 @@ class _DetailScreenState extends State<DetailScreen> {
         _inWishlist = inList;
         _loading = false;
       });
-      if (await InterstitialHelper.tryShowAfterDetailView()) {
-        // TODO: 展示插屏广告
-      }
+      try {
+        await InterstitialHelper.tryShowAfterDetailView();
+      } catch (_) {}
     }
   }
 

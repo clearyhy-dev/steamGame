@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import '../../../core/ad_config.dart';
 import '../../../core/access_control.dart';
 import '../../../core/current_players_cache.dart';
 import '../../../core/theme/colors.dart';
@@ -22,6 +23,8 @@ import '../../core/steam_auth_events.dart';
 import '../recommendation/models/recommended_item.dart';
 import '../detail/game_detail_page.dart';
 import '../subscription/subscription_page.dart';
+import '../../../widgets/ad_banner.dart';
+import '../../../widgets/explore_native_ad_card.dart';
 import '../home/widgets/home_best_deals_to_buy_section.dart';
 import 'widgets/game_card_small.dart';
 
@@ -57,6 +60,10 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
   /// 与 UI Tab 顺序一致：趋势 → 为你推荐 → 深度折扣 → 隐藏佳作
   static const List<String> _exploreTabKeys = ['trending', 'for_you', 'deep', 'hidden'];
 
+  bool _isPro = false;
+  /// 深度 Tab：Native 加载失败时在列表底部补 Banner。
+  bool _deepBannerFallback = false;
+
   bool _passesDealFilter(GameModel g) {
     if (g.discount < _filterMinDiscount.round()) return false;
     if (g.price > _filterMaxPrice) return false;
@@ -78,10 +85,20 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
       await _load(forceRefresh: false);
       if (mounted) await _loadExploreTab(_tabController.index);
     });
+    unawaited(_refreshPro());
     _load().then((_) {
       if (mounted) _loadExploreTab(_tabController.index);
     });
   }
+
+  Future<void> _refreshPro() async {
+    try {
+      final p = await StorageService.instance.isPro();
+      if (mounted) setState(() => _isPro = p);
+    } catch (_) {}
+  }
+
+  bool get _showExploreAds => !_isPro && AdConfig.adsEnabledByPolicy;
 
   void _onExploreTabChanged() {
     if (_tabController.indexIsChanging) return;
@@ -90,6 +107,9 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
 
   Future<void> _loadExploreTab(int index) async {
     if (index < 0 || index >= _exploreTabKeys.length) return;
+    if (index == 2 && mounted) {
+      setState(() => _deepBannerFallback = false);
+    }
     try {
       _backendToken = await StorageService.instance.getSteamBackendToken();
     } catch (_) {
@@ -190,6 +210,7 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
       _queryLimitReached = list.isEmpty && !canSearch && !isNewDay;
       _loading = false;
     });
+    unawaited(_refreshPro());
     if (list.isNotEmpty) WidgetsBinding.instance.addPostFrameCallback((_) => _fetchCurrentPlayersForTopGames());
   }
 
@@ -311,9 +332,10 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
     );
   }
 
-  /// 深度折扣 / 隐藏佳作 / 为你推荐：仅展示当前 Tab 对应的后端列表（与「趋势」下本地分类流区分）。
+  /// 深度折扣 / 隐藏佳作 / 为你推荐：后端列表 + 按 Tab 规则插入 Native（混合列表）。
   Widget _buildBackendTabBody(BuildContext context) {
     final l10n = AppLocalizations.of(context);
+    final tabKey = _exploreTabKeys[_tabController.index];
     if (_backendToken == null || _backendToken!.isEmpty) {
       return Center(
         child: Padding(
@@ -352,77 +374,177 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
         ),
       );
     }
+    final mixed = _buildBackendMixedFeed(tabKey, games);
+    final spaced = <Widget>[];
+    for (var i = 0; i < mixed.length; i++) {
+      if (i > 0) {
+        final gap = mixed[i] is ExploreNativeAdCard || mixed[i - 1] is ExploreNativeAdCard ? 4.0 : 10.0;
+        spaced.add(SizedBox(height: gap));
+      }
+      spaced.add(mixed[i]);
+    }
     return RefreshIndicator(
       onRefresh: () => _loadExploreTab(_tabController.index),
-      child: ListView.separated(
+      child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-        itemCount: games.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 10),
-        itemBuilder: (context, i) {
-          final g = games[i];
-          return Material(
-            color: AppColors.cardDark,
-            borderRadius: BorderRadius.circular(14),
-            child: InkWell(
-              onTap: () => _openDetail(g),
-              borderRadius: BorderRadius.circular(14),
-              child: Padding(
-                padding: const EdgeInsets.all(10),
-                child: Row(
+        children: spaced,
+      ),
+    );
+  }
+
+  /// 游戏行 + 广告占位混合（非 Pro）。
+  List<Widget> _buildBackendMixedFeed(String tabKey, List<GameModel> games) {
+    if (!_showExploreAds) {
+      return games.map(_buildExploreBackendGameTile).toList();
+    }
+    final out = <Widget>[];
+    switch (tabKey) {
+      case 'for_you':
+        if (games.length < 8) {
+          return games.map(_buildExploreBackendGameTile).toList();
+        }
+        for (var i = 0; i < games.length; i++) {
+          out.add(_buildExploreBackendGameTile(games[i]));
+          if (i == 5) {
+            out.add(
+              ExploreNativeAdCard(
+                key: const ValueKey<String>('explore_for_you_1'),
+                placement: 'explore_for_you_1',
+                enabled: true,
+              ),
+            );
+          }
+          if (games.length >= 14 && i == 13) {
+            out.add(
+              ExploreNativeAdCard(
+                key: const ValueKey<String>('explore_for_you_2'),
+                placement: 'explore_for_you_2',
+                enabled: true,
+              ),
+            );
+          }
+        }
+        return out;
+      case 'deep':
+        for (var i = 0; i < games.length; i++) {
+          out.add(_buildExploreBackendGameTile(games[i]));
+          if (i == 5) {
+            out.add(
+              ExploreNativeAdCard(
+                key: const ValueKey<String>('explore_deep_1'),
+                placement: 'explore_deep_1',
+                enabled: true,
+                onLoadFailed: () {
+                  if (mounted) setState(() => _deepBannerFallback = true);
+                },
+              ),
+            );
+          }
+          if (games.length >= 13 && i == 12) {
+            out.add(
+              ExploreNativeAdCard(
+                key: const ValueKey<String>('explore_deep_2'),
+                placement: 'explore_deep_2',
+                enabled: true,
+                onLoadFailed: () {
+                  if (mounted) setState(() => _deepBannerFallback = true);
+                },
+              ),
+            );
+          }
+        }
+        if (_deepBannerFallback) {
+          out.add(
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: AdBanner(),
+            ),
+          );
+        }
+        return out;
+      case 'hidden':
+        if (games.length < 10) {
+          return games.map(_buildExploreBackendGameTile).toList();
+        }
+        for (var i = 0; i < games.length; i++) {
+          out.add(_buildExploreBackendGameTile(games[i]));
+          if (i == 7) {
+            out.add(
+              ExploreNativeAdCard(
+                key: const ValueKey<String>('explore_hidden_1'),
+                placement: 'explore_hidden_1',
+                enabled: true,
+              ),
+            );
+          }
+        }
+        return out;
+      default:
+        return games.map(_buildExploreBackendGameTile).toList();
+    }
+  }
+
+  Widget _buildExploreBackendGameTile(GameModel g) {
+    return Material(
+      color: AppColors.cardDark,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: () => _openDetail(g),
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: g.image.isNotEmpty
+                    ? CachedNetworkImage(
+                        imageUrl: g.image,
+                        width: 96,
+                        height: 54,
+                        fit: BoxFit.cover,
+                        placeholder: (_, __) => const ColoredBox(
+                          color: AppColors.bgDark,
+                          child: SizedBox(width: 96, height: 54),
+                        ),
+                        errorWidget: (_, __, ___) => const ColoredBox(
+                          color: AppColors.bgDark,
+                          child: SizedBox(width: 96, height: 54),
+                        ),
+                      )
+                    : const ColoredBox(
+                        color: AppColors.bgDark,
+                        child: SizedBox(width: 96, height: 54),
+                      ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: g.image.isNotEmpty
-                          ? CachedNetworkImage(
-                              imageUrl: g.image,
-                              width: 96,
-                              height: 54,
-                              fit: BoxFit.cover,
-                              placeholder: (_, __) => const ColoredBox(
-                                color: AppColors.bgDark,
-                                child: SizedBox(width: 96, height: 54),
-                              ),
-                              errorWidget: (_, __, ___) => const ColoredBox(
-                                color: AppColors.bgDark,
-                                child: SizedBox(width: 96, height: 54),
-                              ),
-                            )
-                          : const ColoredBox(
-                              color: AppColors.bgDark,
-                              child: SizedBox(width: 96, height: 54),
-                            ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            g.name,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.textPrimary,
-                              height: 1.25,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            '-${g.discount}%  \$${g.price.toStringAsFixed(2)}',
-                            style: const TextStyle(fontSize: 13, color: AppColors.itadOrange),
-                          ),
-                        ],
+                    Text(
+                      g.name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textPrimary,
+                        height: 1.25,
                       ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '-${g.discount}%  \$${g.price.toStringAsFixed(2)}',
+                      style: const TextStyle(fontSize: 13, color: AppColors.itadOrange),
                     ),
                   ],
                 ),
               ),
-            ),
-          );
-        },
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -725,12 +847,24 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
                               ...curated,
                               _section(context, 'section_just_released', _filterGames(newR)),
                               _section(context, 'section_most_played', _filterGames(mostPlayedList), showPlayersOnCard: true),
+                              if (_showExploreAds)
+                                ExploreNativeAdCard(
+                                  key: const ValueKey<String>('explore_trend_after_most_played'),
+                                  placement: 'explore_trend_after_most_played',
+                                  enabled: true,
+                                ),
                               _section(context, 'section_ai_picks', _filterGames(aiList)),
                               _section(context, 'section_trending_now', _filterGames(trend)),
                               HomeBestDealsToBuySection(
                                 games: _bestDealsToBuy,
                                 onOpenDetail: _openDetail,
                               ),
+                              if (_showExploreAds)
+                                ExploreNativeAdCard(
+                                  key: const ValueKey<String>('explore_trend_after_best_deals'),
+                                  placement: 'explore_trend_after_best_deals',
+                                  enabled: true,
+                                ),
                               _section(context, 'section_hidden_gems', _filterGames(hidden)),
                               _section(context, 'section_biggest_discount', _filterGames(hot)),
                               _section(context, 'section_free_to_play', _filterGames(freeList)),
