@@ -1,0 +1,11 @@
+const fs = require("fs");
+const types = "d:/googleplay/steamgame/steamGame/server/src/modules/wishlist/wishlist.types.ts";
+let tt = fs.readFileSync(types, "utf8");
+tt = tt.replace("'buy_now' | 'wait' | 'watch'", "'buy_now' | 'wait' | 'watch' | 'skip_for_now'");
+fs.writeFileSync(types, tt);
+const svc = "d:/googleplay/steamgame/steamGame/server/src/modules/wishlist/wishlist.service.ts";
+let ts = fs.readFileSync(svc, "utf8");
+const needle = "  const reasons: string[] = [];\n  if (discount >= 55) {";
+const ins = "  const reasons: string[] = [];\n  if (discount > 0 && discount <= 10 && retail >= 20) {\n    reasons.push('low_priority');\n    return { decision: 'skip_for_now', reasonCodes: reasons };\n  }\n  if (discount >= 55) {";
+if (!ts.includes("skip_for_now")) ts = ts.replace(needle, ins);
+fs.writeFileSync(svc, ts);
