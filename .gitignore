@@ -1,3 +1,7 @@
+# Local tooling / accidental dirs (do not commit)
+.gcloud/
+steamGameGooglePlay/
+
 # Miscellaneous
 *.class
 *.log

@@ -10,6 +10,8 @@ import 'package:app_links/app_links.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'app.dart';
 import 'core/steam_auth_events.dart';
+import 'core/fcm_background.dart';
+import 'core/fcm_service.dart';
 import 'core/background_task.dart';
 import 'core/constants.dart';
 import 'core/services/billing_service.dart';

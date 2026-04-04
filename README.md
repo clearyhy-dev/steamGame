@@ -20,7 +20,6 @@ lib/
 ├── services/
 │   └── steam_api_service.dart    # 折扣 API（需配置你的 API 或使用模拟数据）
 ├── screens/
-│   ├── home_screen.dart
 │   ├── search_screen.dart
 │   ├── detail_screen.dart
 │   └── wishlist_screen.dart

@@ -14,6 +14,7 @@ import '../../../data/services/cache_service.dart';
 import '../../../data/services/api_service.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../models/game_model.dart';
+import '../../../models/store_offer.dart';
 import '../../../screens/search_screen.dart';
 import '../../../services/steam_api_service.dart';
 import '../../../services/steam_backend_service.dart';
@@ -21,6 +22,7 @@ import '../../core/steam_auth_events.dart';
 import '../recommendation/models/recommended_item.dart';
 import '../detail/game_detail_page.dart';
 import '../subscription/subscription_page.dart';
+import '../home/widgets/home_best_deals_to_buy_section.dart';
 import 'widgets/game_card_small.dart';
 
 /// Explore：顶部搜索 → 分类胶囊 Tab → 内容。「趋势」为本地流 + 后端趋势精选；其余 Tab 为对应后端列表。
@@ -36,6 +38,8 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
   List<GameModel> _freeDeals = [];
   List<GameModel> _mostPlayedGlobal = [];
   DealCategories? _cat;
+  /// 与首页原逻辑一致：高折扣 + 可联盟购买，供「超值入手」横滑列表（趋势 Tab）。
+  List<GameModel> _bestDealsToBuy = [];
   bool _loading = true;
   bool _queryLimitReached = false;
   final _searchController = TextEditingController();
@@ -173,11 +177,16 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
       try { freeList = await api.fetchFreeDeals(pageSize: 30); } catch (_) {}
     }
     if (!mounted) return;
+    final bestBuy = list
+        .where((g) => g.discount > 50 && hasAffiliateableOffer(g))
+        .take(12)
+        .toList();
     setState(() {
       _deals = list;
       _freeDeals = freeList;
       _mostPlayedGlobal = mostPlayed;
       _cat = list.isNotEmpty ? ShockDealAlgorithm.computeCategories(list) : null;
+      _bestDealsToBuy = bestBuy;
       _queryLimitReached = list.isEmpty && !canSearch && !isNewDay;
       _loading = false;
     });
@@ -559,7 +568,7 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
               child: DecoratedBox(
                 decoration: BoxDecoration(
                   color: AppColors.card,
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(999),
                   border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
                   boxShadow: [
                     BoxShadow(
@@ -569,26 +578,36 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
                     ),
                   ],
                 ),
-                child: TextField(
-                  controller: _searchController,
-                  style: const TextStyle(color: AppColors.textPrimary, fontSize: 15),
-                  decoration: InputDecoration(
-                    hintText: l10n.get('search_hint'),
-                    hintStyle: TextStyle(color: AppColors.textSecondary.withValues(alpha: 0.85)),
-                    prefixIcon: Icon(Icons.search_rounded, color: AppColors.itadOrange.withValues(alpha: 0.95)),
-                    border: InputBorder.none,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 14),
-                  ),
-                  onSubmitted: (q) {
-                    if (q.trim().isEmpty) return;
-                    Navigator.of(context).push(
-                      PageRouteBuilder(
-                        pageBuilder: (_, __, ___) => const SearchScreen(),
-                        transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
-                        transitionDuration: const Duration(milliseconds: 200),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(999),
+                  child: SizedBox(
+                    height: 48,
+                    child: TextField(
+                      controller: _searchController,
+                      textAlignVertical: TextAlignVertical.center,
+                      style: const TextStyle(color: AppColors.textPrimary, fontSize: 15),
+                      cursorHeight: 20,
+                      decoration: InputDecoration(
+                        isDense: true,
+                        hintText: l10n.get('search_hint'),
+                        hintStyle: TextStyle(color: AppColors.textSecondary.withValues(alpha: 0.85)),
+                        prefixIcon: Icon(Icons.search_rounded, color: AppColors.itadOrange.withValues(alpha: 0.95), size: 22),
+                        prefixIconConstraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+                        border: InputBorder.none,
+                        contentPadding: const EdgeInsets.fromLTRB(0, 0, 16, 0),
                       ),
-                    );
-                  },
+                      onSubmitted: (q) {
+                        if (q.trim().isEmpty) return;
+                        Navigator.of(context).push(
+                          PageRouteBuilder(
+                            pageBuilder: (_, __, ___) => const SearchScreen(),
+                            transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
+                            transitionDuration: const Duration(milliseconds: 200),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -708,6 +727,10 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
                               _section(context, 'section_most_played', _filterGames(mostPlayedList), showPlayersOnCard: true),
                               _section(context, 'section_ai_picks', _filterGames(aiList)),
                               _section(context, 'section_trending_now', _filterGames(trend)),
+                              HomeBestDealsToBuySection(
+                                games: _bestDealsToBuy,
+                                onOpenDetail: _openDetail,
+                              ),
                               _section(context, 'section_hidden_gems', _filterGames(hidden)),
                               _section(context, 'section_biggest_discount', _filterGames(hot)),
                               _section(context, 'section_free_to_play', _filterGames(freeList)),

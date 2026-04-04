@@ -8,7 +8,6 @@ import '../../core/services/game_service.dart';
 import '../../core/storage_service.dart';
 import '../../core/utils/score_calculator.dart';
 import '../../models/game_model.dart';
-import '../../models/store_offer.dart';
 import '../../services/steam_backend_service.dart';
 
 /// 首页数据：本地折扣缓存、统计快照、愿望单决策（个性化推荐见发现页「为你推荐」）。
@@ -24,8 +23,6 @@ class HomeFeedController extends ChangeNotifier {
 
   List<GameModel> deals = [];
   List<GameModel> top10 = [];
-  /// 折扣大于 50% 且具备联盟链接（Mock 下恒有）的条目，供「超值入手」横滑列表。
-  List<GameModel> bestDealsToBuy = [];
   GameModel? topDeal;
   String? updatedAt;
 
@@ -159,9 +156,5 @@ class HomeFeedController extends ChangeNotifier {
     deals = list;
     top10 = AlgorithmService().topByScore(list, limit: 10);
     topDeal = top10.isNotEmpty ? top10.first : null;
-    bestDealsToBuy = list
-        .where((g) => g.discount > 50 && hasAffiliateableOffer(g))
-        .take(12)
-        .toList();
   }
 }

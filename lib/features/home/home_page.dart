@@ -12,10 +12,8 @@ import '../steam/presentation/pages/steam_overview_page.dart';
 import '../subscription/subscription_page.dart';
 import 'home_feed_controller.dart';
 import 'widgets/home_best_deals_section.dart';
-import 'widgets/home_best_deals_to_buy_section.dart';
 import 'widgets/home_steam_snapshot_section.dart';
 import 'widgets/home_welcome_header.dart';
-import '../../../widgets/ad_banner.dart';
 
 /// 个性化首页：欢迎区、Steam 摘要、今日好价、广告（愿望单决策与「为你推荐」在发现页）。
 class HomePage extends StatefulWidget {
@@ -71,7 +69,7 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
-    final footerIso = _footerTimestampIso();
+    final updatedIso = _footerTimestampIso();
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
@@ -80,10 +78,20 @@ class _HomePageState extends State<HomePage> {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
             children: [
+              if (updatedIso.isNotEmpty) ...[
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    _formatUpdatedAt(context, updatedIso),
+                    style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
               HomeWelcomeHeader(
                 steamLinked: _c.steamLinkedUi,
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 12),
               HomeSteamSnapshotSection(
                 loading: _c.statsLoading,
                 steamLinked: _c.steamLinkedUi,
@@ -97,11 +105,6 @@ class _HomePageState extends State<HomePage> {
                 },
               ),
               const SizedBox(height: 18),
-              HomeBestDealsToBuySection(
-                games: _c.bestDealsToBuy,
-                onOpenDetail: _openDetail,
-              ),
-              if (_c.bestDealsToBuy.isNotEmpty) const SizedBox(height: 18),
               HomeBestDealsSection(
                 topDeal: _c.topDeal,
                 top10: _c.top10,
@@ -112,15 +115,6 @@ class _HomePageState extends State<HomePage> {
                   MaterialPageRoute<void>(builder: (_) => const SubscriptionPage(paywallSource: 'home')),
                 ),
               ),
-              const SizedBox(height: 28),
-              if (!_c.isPro) const AdBanner(),
-              if (footerIso.isNotEmpty) ...[
-                const SizedBox(height: 20),
-                Text(
-                  _formatUpdatedAt(context, footerIso),
-                  style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
-                ),
-              ],
             ],
           ),
         ),

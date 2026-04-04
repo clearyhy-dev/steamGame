@@ -8,7 +8,7 @@ import '../../../models/store_offer.dart';
 import '../../../services/price_engine.dart';
 import '../../../widgets/section_header.dart';
 
-/// 首页：高折扣 + 可联盟购买的横向推荐。
+/// 发现页（趋势）：高折扣 + 可联盟购买的横向推荐。
 class HomeBestDealsToBuySection extends StatelessWidget {
   const HomeBestDealsToBuySection({
     super.key,

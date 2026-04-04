@@ -8,7 +8,7 @@ import '../../../widgets/section_header.dart';
 import 'top_deal_banner.dart';
 import 'top_list_item.dart';
 
-/// 今日好价：Banner + Top 列表（保留原算法与广告位逻辑）。
+/// 今日好价：Banner + Top 列表（非 Pro：广告插在 Top10 第 3、第 8 行；不足 3 条时在末尾补一条）。
 class HomeBestDealsSection extends StatelessWidget {
   const HomeBestDealsSection({
     super.key,
@@ -18,8 +18,10 @@ class HomeBestDealsSection extends StatelessWidget {
     required this.queryLimitReached,
     required this.onOpenDetail,
     required this.onTapUpgrade,
-    this.insertAdAfterIndex = 2,
   });
+
+  /// 在该条 [TopListItem] 之前插入广告（0-based 游戏下标）。第 3 行、第 8 行各一条。
+  static const Set<int> _adBeforeGameIndex = {2, 6};
 
   final GameModel? topDeal;
   final List<GameModel> top10;
@@ -27,7 +29,6 @@ class HomeBestDealsSection extends StatelessWidget {
   final bool queryLimitReached;
   final void Function(GameModel g) onOpenDetail;
   final VoidCallback onTapUpgrade;
-  final int insertAdAfterIndex;
 
   @override
   Widget build(BuildContext context) {
@@ -66,8 +67,7 @@ class HomeBestDealsSection extends StatelessWidget {
           ...() {
             final list = <Widget>[];
             for (var i = 0; i < top10.length; i++) {
-              // 默认在第 3 条前插广告；不足 3 条时在列表末尾补一条，避免「只有 1～2 条好价时列表内广告永远不出现」
-              if (i == insertAdAfterIndex && !isPro) {
+              if (_adBeforeGameIndex.contains(i) && !isPro) {
                 list.add(
                   const Padding(
                     padding: EdgeInsets.only(bottom: 12),
@@ -83,7 +83,8 @@ class HomeBestDealsSection extends StatelessWidget {
                 ),
               );
             }
-            if (top10.length <= insertAdAfterIndex && !isPro) {
+            // 不足 3 条好价时无法在「第 3 行」插广告，在列表末尾补一条
+            if (top10.length <= 2 && !isPro) {
               list.add(
                 const Padding(
                   padding: EdgeInsets.only(top: 4, bottom: 12),

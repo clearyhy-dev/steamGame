@@ -91,14 +91,14 @@ class HomeSteamSnapshotSection extends StatelessWidget {
             caption: l10n.get('home_steam_metric_playtime'),
           ),
         ),
-        const SizedBox(width: 8),
+        const SizedBox(width: 6),
         Expanded(
           child: _statBox(
             value: _intOrDash(friendCount),
             caption: l10n.get('home_steam_metric_friends'),
           ),
         ),
-        const SizedBox(width: 8),
+        const SizedBox(width: 6),
         Expanded(
           child: _statBox(
             value: _intOrDash(friendsOnline),
@@ -113,15 +113,15 @@ class HomeSteamSnapshotSection extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         row,
-        const SizedBox(height: 8),
+        const SizedBox(height: 4),
         Row(
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
             Text(
               l10n.get('home_steam_tap_detail'),
-              style: TextStyle(fontSize: 11, color: AppColors.itadOrange.withValues(alpha: 0.95)),
+              style: TextStyle(fontSize: 10, color: AppColors.itadOrange.withValues(alpha: 0.95)),
             ),
-            Icon(Icons.chevron_right_rounded, size: 16, color: AppColors.itadOrange.withValues(alpha: 0.95)),
+            Icon(Icons.chevron_right_rounded, size: 14, color: AppColors.itadOrange.withValues(alpha: 0.95)),
           ],
         ),
       ],
@@ -140,9 +140,9 @@ class HomeSteamSnapshotSection extends StatelessWidget {
         color: Colors.transparent,
         child: InkWell(
           onTap: onOpenFull,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(12),
           child: Padding(
-            padding: const EdgeInsets.all(4),
+            padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
             child: content,
           ),
         ),
@@ -152,10 +152,10 @@ class HomeSteamSnapshotSection extends StatelessWidget {
 
   Widget _statBox({required String value, required String caption}) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
       decoration: BoxDecoration(
         color: AppColors.cardDark.withValues(alpha: 0.92),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
       ),
       child: Column(
@@ -168,13 +168,13 @@ class HomeSteamSnapshotSection extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w700,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
               color: AppColors.textPrimary,
-              height: 1.15,
+              height: 1.1,
             ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 3),
           Text(
             caption,
             textAlign: TextAlign.center,
@@ -182,7 +182,7 @@ class HomeSteamSnapshotSection extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontSize: 10,
-              height: 1.2,
+              height: 1.12,
               color: AppColors.textSecondary.withValues(alpha: 0.95),
             ),
           ),
