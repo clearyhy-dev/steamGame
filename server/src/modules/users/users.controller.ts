@@ -26,6 +26,15 @@ export class UsersController {
       steamPersonaName: user.steamPersonaName ?? null,
       steamAvatar: user.steamAvatar ?? null,
       steamProfileUrl: user.steamProfileUrl ?? null,
+      registeredAt: (user as any).registeredAtResolved
+        ? (user as any).registeredAtResolved.toISOString()
+        : null,
+      trial: {
+        days: (user as any).trialDays ?? 3,
+        active: !!(user as any).trialActive,
+        endsAt: (user as any).trialEndsAt ? (user as any).trialEndsAt.toISOString() : null,
+        remainingSeconds: (user as any).trialRemainingSeconds ?? 0,
+      },
     });
   };
 

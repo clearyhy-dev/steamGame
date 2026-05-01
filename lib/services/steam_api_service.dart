@@ -112,27 +112,33 @@ class SteamApiService {
 
   /// 拉取当前折扣列表（分页），5 秒超时防止卡死
   Future<List<GameModel>> fetchDeals({int pageSize = 25, int pageNumber = 0}) async {
-    try {
-      final uri = Uri.parse('$_baseUrl/deals').replace(
-        queryParameters: <String, String>{
-          'pageSize': pageSize.toString(),
-          'pageNumber': pageNumber.toString(),
-        },
-      );
-      final response = await http.get(uri).timeout(
-        const Duration(seconds: 5),
-        onTimeout: () => throw Exception('Deals request timeout'),
-      );
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data is List) {
-          return data
-              .map((e) => GameModel.fromCheapSharkDeal(Map<String, dynamic>.from(e as Map)))
-              .toList();
+    final uri = Uri.parse('$_baseUrl/deals').replace(
+      queryParameters: <String, String>{
+        'pageSize': pageSize.toString(),
+        'pageNumber': pageNumber.toString(),
+      },
+    );
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        final response = await http.get(uri).timeout(
+          const Duration(seconds: 10),
+          onTimeout: () => throw Exception('Deals request timeout'),
+        );
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          if (data is List) {
+            return data
+                .map((e) => GameModel.fromCheapSharkDeal(Map<String, dynamic>.from(e as Map)))
+                .toList();
+          }
+        }
+      } catch (e) {
+        debugPrint('fetchDeals error(attempt ${attempt + 1}): $e');
+        if (attempt == 0) {
+          await Future<void>.delayed(const Duration(milliseconds: 300));
+          continue;
         }
       }
-    } catch (e) {
-      debugPrint('fetchDeals error: $e');
     }
     return [];
   }

@@ -64,6 +64,7 @@ class AppConstants {
   /// 分享拉新奖励（本地）：分享次数、奖励 Pro 截止日
   static const String keyShareCount = 'share_count';
   static const String keyProFreeUntil = 'pro_free_until';
+  static const String keyBackendTrialUntil = 'backend_trial_until';
   static const int sharesNeededForOneDayPro = 3;
 
   /// 登录（Google）：存储 user_id / email / photo_url

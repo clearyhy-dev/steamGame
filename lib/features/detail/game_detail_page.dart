@@ -9,10 +9,13 @@ import '../../../core/current_players_cache.dart';
 import '../../../core/theme/colors.dart';
 import '../../../core/services/algorithm_service.dart';
 import '../../../core/services/wishlist_service.dart';
+import '../../../core/storage_service.dart';
 import '../../../core/utils/countdown_util.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../services/steam_api_service.dart';
+import '../../../services/steam_backend_service.dart';
 import '../../../widgets/ad_banner.dart';
+import '../subscription/subscription_page.dart';
 import '../../../models/store_offer.dart' show buildMockStoreOffers;
 import '../../../services/price_engine.dart';
 import 'widgets/game_best_price_card.dart';
@@ -40,6 +43,25 @@ class _GameDetailPageState extends State<GameDetailPage> {
   Map<String, dynamic>? _reviewSummary;
   int? _currentPlayers;
   late final PriceResult _priceResult;
+  final SteamBackendService _backend = SteamBackendService();
+  String _boundDiscountUrl = '';
+  List<Map<String, dynamic>> _dealLinks = [];
+  String _dealCountryCode = 'US';
+  bool _isPro = false;
+  bool _refreshingDeals = false;
+  bool _allDealsLoaded = false;
+  bool _metaEnsured = false;
+  bool _autoRefreshedDeals = false;
+  DateTime? _dealsCacheUpdatedAt;
+  bool _dealsUsingCache = false;
+
+  String _resolvedSteamId() {
+    final fromSteam = widget.game.steamAppID.trim();
+    if (fromSteam.isNotEmpty) return fromSteam;
+    final fromApp = widget.game.appId.trim();
+    if (RegExp(r'^\d+$').hasMatch(fromApp)) return fromApp;
+    return '';
+  }
 
   @override
   void initState() {
@@ -53,20 +75,185 @@ class _GameDetailPageState extends State<GameDetailPage> {
     _loadPriceHistory();
     _loadReviews();
     _loadCurrentPlayers();
+    _loadBoundDiscountUrl();
+    _loadSteamDealLinks();
+    _ensureBackendMeta();
     _priceResult = PriceEngineService().calculateBestPrice(buildMockStoreOffers(widget.game));
   }
 
+  Future<void> _ensureBackendMeta() async {
+    if (_metaEnsured) return;
+    final steamId = widget.game.steamAppID.trim().isNotEmpty ? widget.game.steamAppID.trim() : widget.game.appId.trim();
+    if (steamId.isEmpty) return;
+    _metaEnsured = true;
+    try {
+      await _backend.ensureGameMeta(steamId);
+      await _loadBoundDiscountUrl();
+      await _loadSteamDealLinks();
+    } catch (_) {}
+  }
+
+  Future<void> _loadSteamDealLinks() async {
+    final steamId = widget.game.steamAppID.trim().isNotEmpty ? widget.game.steamAppID.trim() : widget.game.appId.trim();
+    if (steamId.isEmpty) return;
+    if (mounted) {
+      setState(() {
+        _refreshingDeals = true;
+      });
+    }
+    try {
+      final pro = await StorageService.instance.isPro();
+      final data = await _backend.getGameDeals(steamId);
+      final countryCode = (data['countryCode']?.toString() ?? 'US').trim().toUpperCase();
+      final rows = _selectCountryRows(data, countryCode);
+      if (!mounted) return;
+      setState(() {
+        _dealLinks = rows;
+        _dealCountryCode = countryCode;
+        _isPro = pro;
+        _allDealsLoaded = true;
+        _dealsUsingCache = false;
+        _dealsCacheUpdatedAt = DateTime.now();
+      });
+      await StorageService.instance.setDetailDealsCache(
+        appid: steamId,
+        countryCode: countryCode,
+        rows: rows,
+      );
+      await _refreshDealsIfMissingOtherPlatforms();
+    } catch (e) {
+      debugPrint('detail:getGameDeals failed($steamId): $e');
+      await _loadDealsFromCache(steamId);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _refreshingDeals = false;
+        });
+      }
+    }
+  }
+
+  bool _hasAnyOtherPlatformPrice() {
+    for (final d in _dealLinks) {
+      final source = (d['source']?.toString() ?? '').toLowerCase();
+      if (source == 'isthereanydeal' || source == 'ggdeals' || source == 'cheapshark') {
+        final p = d['finalPrice'];
+        final n = p is num ? p.toDouble() : double.tryParse('${d['finalPrice']}');
+        if (n != null && n > 0) return true;
+      }
+    }
+    return false;
+  }
+
+  Future<void> _refreshDealsIfMissingOtherPlatforms() async {
+    if (_autoRefreshedDeals) return;
+    if (_hasAnyOtherPlatformPrice()) return;
+    final steamId = _resolvedSteamId();
+    if (steamId.isEmpty) return;
+    _autoRefreshedDeals = true;
+    if (mounted) setState(() => _refreshingDeals = true);
+    try {
+      await _backend.refreshGameDeals(steamId);
+      final data = await _backend.getGameDeals(steamId);
+      final countryCode = (data['countryCode']?.toString() ?? _dealCountryCode).trim().toUpperCase();
+      final rows = _selectCountryRows(data, countryCode);
+      if (!mounted) return;
+      setState(() {
+        _dealLinks = rows;
+        _dealCountryCode = countryCode;
+        _dealsUsingCache = false;
+        _dealsCacheUpdatedAt = DateTime.now();
+      });
+      await StorageService.instance.setDetailDealsCache(
+        appid: steamId,
+        countryCode: countryCode,
+        rows: rows,
+      );
+    } catch (_) {
+      // ignore and keep current data
+    } finally {
+      if (mounted) setState(() => _refreshingDeals = false);
+    }
+  }
+
+  Future<void> _ensureAllDealsLoaded() async {
+    if (_allDealsLoaded) return;
+    final steamId = widget.game.steamAppID.trim().isNotEmpty ? widget.game.steamAppID.trim() : widget.game.appId.trim();
+    if (steamId.isEmpty) return;
+    final data = await _backend.getGameDeals(steamId);
+    final countryCode = (data['countryCode']?.toString() ?? _dealCountryCode).trim().toUpperCase();
+    final rows = _selectCountryRows(data, countryCode);
+    if (!mounted) return;
+    setState(() {
+      _dealLinks = rows;
+      _dealCountryCode = countryCode;
+      _allDealsLoaded = true;
+      _dealsUsingCache = false;
+      _dealsCacheUpdatedAt = DateTime.now();
+    });
+    await StorageService.instance.setDetailDealsCache(
+      appid: steamId,
+      countryCode: countryCode,
+      rows: rows,
+    );
+  }
+
+  List<Map<String, dynamic>> _selectCountryRows(Map<String, dynamic> data, String countryCode) {
+    final allRows = (data['links'] as List<dynamic>? ?? [])
+        .whereType<Map>()
+        .map((e) => e.map((k, v) => MapEntry(k.toString(), v)))
+        .toList();
+    final scopedRows = allRows
+        .where((e) => (e['countryCode']?.toString() ?? '').trim().toUpperCase() == countryCode)
+        .toList();
+    return scopedRows.isNotEmpty ? scopedRows : allRows;
+  }
+
+  Future<void> _loadDealsFromCache(String steamId) async {
+    final countryCode = _dealCountryCode.isNotEmpty ? _dealCountryCode : 'US';
+    final cache = await StorageService.instance.getDetailDealsCache(
+      appid: steamId,
+      countryCode: countryCode,
+    );
+    if (!mounted || cache.rows.isEmpty) return;
+    setState(() {
+      _dealLinks = cache.rows;
+      _dealCountryCode = countryCode;
+      _dealsCacheUpdatedAt = cache.savedAt;
+      _dealsUsingCache = true;
+      _allDealsLoaded = true;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('网络波动，已展示最近一次价格缓存')),
+    );
+  }
+
+  Future<void> _loadBoundDiscountUrl() async {
+    final steamId = widget.game.steamAppID.trim().isNotEmpty ? widget.game.steamAppID.trim() : widget.game.appId.trim();
+    if (steamId.isEmpty) return;
+    try {
+      final url = await _backend.getGameDiscountLink(steamId);
+      if (!mounted) return;
+      setState(() {
+        _boundDiscountUrl = url.trim();
+      });
+    } catch (_) {}
+  }
+
   Future<void> _loadCurrentPlayers() async {
-    if (widget.game.steamAppID.isEmpty) return;
-    final count = await _steamApi.fetchCurrentPlayers(widget.game.steamAppID);
+    final steamId = _resolvedSteamId();
+    if (steamId.isEmpty) return;
+    final count = await _steamApi.fetchCurrentPlayers(steamId);
     if (count != null) CurrentPlayersCache.set(widget.game.steamAppID, count);
     if (mounted && count != null) setState(() => _currentPlayers = count);
   }
 
   Future<void> _loadPriceHistory() async {
     final g = widget.game;
+    final steamId = _resolvedSteamId();
+    if (steamId.isEmpty) return;
     final points = await _steamApi.fetchPriceHistory(
-      g.steamAppID,
+      steamId,
       g.price,
       g.originalPrice > 0 ? g.originalPrice : g.price,
       lastChangeSec: g.lastChange,
@@ -75,8 +262,9 @@ class _GameDetailPageState extends State<GameDetailPage> {
   }
 
   Future<void> _loadReviews() async {
-    if (widget.game.steamAppID.isEmpty) return;
-    final result = await _steamApi.fetchSteamReviews(widget.game.steamAppID, latestN: 10);
+    final steamId = _resolvedSteamId();
+    if (steamId.isEmpty) return;
+    final result = await _steamApi.fetchSteamReviews(steamId, latestN: 10);
     if (!mounted) return;
     setState(() {
       _topReviews = result.reviews;
@@ -92,18 +280,17 @@ class _GameDetailPageState extends State<GameDetailPage> {
 
   /// 若当前只有 1 张图且有 steamAppID，从 Steam 商店 API 拉取多张截图用于轮播
   Future<void> _loadMoreImages() async {
-    if (_imageUrls.length > 1) return;
-    final steamId = widget.game.steamAppID;
+    final steamId = _resolvedSteamId();
     if (steamId.isEmpty) return;
     try {
       final list = await _steamApi.fetchSteamScreenshots(steamId);
       if (list.isEmpty || !mounted) return;
-      final first = widget.game.image.isNotEmpty ? widget.game.image : (list.isNotEmpty ? list.first : '');
-      final rest = list.where((u) => u != first).toList();
-      final combined = first.isNotEmpty ? [first, ...rest] : list;
-      if (combined.length > 1 && mounted) {
-        setState(() => _imageUrls = combined);
-      }
+      final fallbackCover = widget.game.image.isNotEmpty ? widget.game.image : '';
+      final merged = <String>[
+        ...list,
+        if (fallbackCover.isNotEmpty && !list.contains(fallbackCover)) fallbackCover,
+      ];
+      setState(() => _imageUrls = merged);
     } catch (_) {}
   }
 
@@ -113,15 +300,52 @@ class _GameDetailPageState extends State<GameDetailPage> {
   }
 
   String get _storeUrl => widget.game.steamAppID.isNotEmpty
-      ? 'https://store.steampowered.com/app/${widget.game.steamAppID}'
-      : '';
+      ? (_boundDiscountUrl.isNotEmpty ? _boundDiscountUrl : 'https://store.steampowered.com/app/${widget.game.steamAppID}')
+      : (_boundDiscountUrl.isNotEmpty ? _boundDiscountUrl : '');
+
+  String get _steamStoreUrl {
+    final steamId = _resolvedSteamId();
+    if (steamId.isEmpty) return '';
+    return 'https://store.steampowered.com/app/$steamId';
+  }
 
   Future<void> _openSteam() async {
-    if (_storeUrl.isEmpty) return;
-    final uri = Uri.parse(_storeUrl);
-    if (await url_launcher.canLaunchUrl(uri)) {
-      await url_launcher.launchUrl(uri, mode: url_launcher.LaunchMode.externalApplication);
+    final steamId = _resolvedSteamId();
+    final webUrl = _steamStoreUrl;
+    if (steamId.isEmpty || webUrl.isEmpty) return;
+    debugPrint('detail:steamTap source=best_price_card appid=$steamId');
+    final candidates = <Uri>[
+      Uri.parse('steam://store/$steamId'),
+      Uri.parse('steam://openurl/$webUrl'),
+      Uri.parse('market://details?id=com.valvesoftware.android.steam.community'),
+      Uri.parse('https://play.google.com/store/apps/details?id=com.valvesoftware.android.steam.community'),
+      Uri.parse(webUrl),
+    ];
+    for (final uri in candidates) {
+      try {
+        debugPrint('detail:steamLaunch try=$uri');
+        final ok = await url_launcher.launchUrl(
+          uri,
+          mode: url_launcher.LaunchMode.externalApplication,
+        );
+        debugPrint('detail:steamLaunch result uri=$uri ok=$ok');
+        if (ok) {
+          if (!mounted) return;
+          if (uri.scheme == 'market' || uri.host.contains('play.google.com')) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('未检测到 Steam App，已为你打开应用商店')),
+            );
+          }
+          return;
+        }
+      } catch (_) {
+        debugPrint('detail:steamLaunch failed uri=$uri');
+      }
     }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('暂时无法打开 Steam，请稍后重试')),
+    );
   }
 
   Future<void> _toggleWishlist() async {
@@ -131,6 +355,99 @@ class _GameDetailPageState extends State<GameDetailPage> {
       await _wishlist.add(widget.game);
     }
     if (mounted) setState(() => _inWishlist = !_inWishlist);
+  }
+
+  Future<void> _toggleWishlistWithProGate() async {
+    final pro = await StorageService.instance.isPro();
+    if (!pro) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('愿望单功能仅会员可用，请先开通会员')),
+      );
+      await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const SubscriptionPage(paywallSource: 'wishlist_gate')),
+      );
+      if (!mounted) return;
+      setState(() => _isPro = false);
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _isPro = true);
+    await _toggleWishlist();
+  }
+
+  Future<void> _onTapDealSource(String source) async {
+    if (source == 'steam') {
+      await _openSteam();
+      return;
+    }
+    final pro = await StorageService.instance.isPro();
+    if (!pro) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('已为你展示该平台最低价，开通会员后可查看购买链接并跳转购买')),
+      );
+      await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const SubscriptionPage(paywallSource: 'deal_source_gate')),
+      );
+      if (!mounted) return;
+      setState(() => _isPro = false);
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _isPro = true);
+    // 重新按当前手机国家请求一次，避免用到历史缓存国家的数据。
+    await _loadSteamDealLinks();
+    await _ensureAllDealsLoaded();
+    final rows = _dealLinks
+        .where((d) => (d['source']?.toString() ?? '') == source)
+        .toList();
+    if (rows.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('该平台当前暂无可用折扣信息')));
+      return;
+    }
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF151A22),
+      builder: (_) => SafeArea(
+        child: ListView.separated(
+          shrinkWrap: true,
+          itemCount: rows.length,
+          separatorBuilder: (_, __) => const Divider(height: 1, color: Colors.white12),
+          itemBuilder: (_, i) {
+            final r = rows[i];
+            final cc = (r['countryCode'] ?? 'US').toString();
+            final discount = r['discountPercent'];
+            final url = (r['url'] ?? '').toString();
+            final original = r['originalPrice'];
+            final finalPrice = r['finalPrice'];
+            return ListTile(
+              title: Text(
+                '$source ($cc${_dealCountryCode.isNotEmpty ? ' · 当前$_dealCountryCode' : ''})',
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+              ),
+              subtitle: Text(
+                '${discount is num ? '折扣 ${discount.toInt()}%' : '折扣信息'}'
+                '${(original is num || finalPrice is num) ? ' · 原价 ${(original is num ? original.toStringAsFixed(2) : '-')} 现价 ${(finalPrice is num ? finalPrice.toStringAsFixed(2) : '-')}' : ''}',
+                style: const TextStyle(color: Colors.white70),
+              ),
+              trailing: const Icon(Icons.open_in_new, color: Colors.white70, size: 18),
+              onTap: () async {
+                if (url.isEmpty) return;
+                final uri = Uri.parse(url);
+                if (await url_launcher.canLaunchUrl(uri)) {
+                  await url_launcher.launchUrl(uri, mode: url_launcher.LaunchMode.externalApplication);
+                }
+              },
+            );
+          },
+        ),
+      ),
+    );
   }
 
   @override
@@ -191,7 +508,7 @@ class _GameDetailPageState extends State<GameDetailPage> {
               IconButton(
                 icon: Icon(_inWishlist ? Icons.favorite : Icons.favorite_border),
                 color: _inWishlist ? AppColors.discountRed : Colors.white70,
-                onPressed: _toggleWishlist,
+                onPressed: _toggleWishlistWithProGate,
               ),
               IconButton(
                 icon: const Icon(Icons.share),
@@ -263,15 +580,21 @@ class _GameDetailPageState extends State<GameDetailPage> {
                   GameBestPriceCard(
                     game: game,
                     priceResult: _priceResult,
+                    dealLinks: _dealLinks,
+                    onTapSource: _onTapDealSource,
+                    isPro: _isPro,
+                    refreshingDeals: _refreshingDeals,
+                    dealsCacheUpdatedAt: _dealsCacheUpdatedAt,
+                    dealsUsingCache: _dealsUsingCache,
                     onAddToWishlist: () {
-                      if (!_inWishlist) _toggleWishlist();
+                      if (!_inWishlist) _toggleWishlistWithProGate();
                     },
                   ),
                   const SizedBox(height: 16),
                   SizedBox(
                     width: double.infinity,
                     child: OutlinedButton.icon(
-                      onPressed: _toggleWishlist,
+                      onPressed: _toggleWishlistWithProGate,
                       icon: Icon(_inWishlist ? Icons.favorite : Icons.favorite_border, size: 20),
                       label: Text(_inWishlist ? l10n.get('remove_from_wishlist') : l10n.get('add_to_wishlist')),
                       style: OutlinedButton.styleFrom(
@@ -320,22 +643,7 @@ class _GameDetailPageState extends State<GameDetailPage> {
                           ),
                         ),
                       ),
-                      if (game.steamAppID.isNotEmpty) ...[
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: _openSteam,
-                            icon: const Icon(Icons.open_in_new, size: 20),
-                            label: Text(l10n.get('view_on_steam')),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: AppColors.itadOrange,
-                              side: const BorderSide(color: AppColors.itadOrange),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                            ),
-                          ),
-                        ),
-                      ],
+                      // Purchase is unified in GameBestPriceCard ("Buy Best Price").
                     ],
                   ),
                 ],
@@ -693,27 +1001,45 @@ class _GameDetailPageState extends State<GameDetailPage> {
 
   Widget _priceSection() {
     final game = widget.game;
+    final Map<String, dynamic>? steamRow = _dealLinks.cast<Map<String, dynamic>?>().firstWhere(
+          (d) => (d?['source']?.toString() ?? '') == 'steam',
+          orElse: () => null,
+        );
+    double current = game.price;
+    double original = game.originalPrice;
+    int discount = game.discount;
+    if (steamRow != null) {
+      final f = steamRow['finalPrice'];
+      final o = steamRow['originalPrice'];
+      final d = steamRow['discountPercent'];
+      final fv = f is num ? f.toDouble() : double.tryParse(f?.toString() ?? '');
+      final ov = o is num ? o.toDouble() : double.tryParse(o?.toString() ?? '');
+      // Steam backend may return cents.
+      if (fv != null) current = fv > 1000 ? fv / 100.0 : fv;
+      if (ov != null) original = ov > 1000 ? ov / 100.0 : ov;
+      if (d is num) discount = d.toInt();
+    }
     return Row(
       children: [
         Text(
-          '\$${game.price.toStringAsFixed(2)}',
+          '\$${current.toStringAsFixed(2)}',
           style: const TextStyle(
             fontSize: 20,
             color: AppColors.itadOrangeLight,
             fontWeight: FontWeight.bold,
           ),
         ),
-        if (game.originalPrice > 0) ...[
+        if (original > 0) ...[
           const SizedBox(width: 8),
           Text(
-            '\$${game.originalPrice.toStringAsFixed(0)}',
+            '\$${original.toStringAsFixed(2)}',
             style: const TextStyle(
               decoration: TextDecoration.lineThrough,
               color: AppColors.textSecondary,
               fontSize: 16,
             ),
           ),
-          if (game.discount > 0) ...[
+          if (discount > 0) ...[
             const SizedBox(width: 8),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -722,7 +1048,7 @@ class _GameDetailPageState extends State<GameDetailPage> {
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
-                '-${game.discount}%',
+                '-$discount%',
                 style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
               ),
             ),
@@ -745,4 +1071,5 @@ class _GameDetailPageState extends State<GameDetailPage> {
       ),
     );
   }
+
 }

@@ -1,0 +1,41 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // --- 目录 / 展示数据：App 可读；写入仅后台 Admin SDK（客户端 SDK 不写）---
+    match /game_catalog/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /game_deal_links/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /game_reviews/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /video_sources/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // --- 用户数据：需 Firebase Authentication；uid 必须与文档路径一致 ---
+    // App 内请先接入 firebase_auth 并与登录用户绑定（可与 Google 登录关联）。
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    match /users/{userId}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    match /app_users/{userId}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // --- 其余集合默认拒绝客户端访问（后台服务仍可通过 Admin SDK 读写）---
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

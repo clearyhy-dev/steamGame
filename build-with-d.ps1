@@ -27,7 +27,7 @@ Write-Host ""
 $cmd = $args
 if ($cmd.Count -eq 0) {
     $cmd = @("build", "apk")
-    Write-Host "未传参，默认执行: flutter build apk（AAB 用 .\build-aab-with-d.ps1）"
+    Write-Host 'Default: flutter build apk. For AAB run .\build-aab-with-d.ps1'
 }
 
 Set-Location $ProjectRoot

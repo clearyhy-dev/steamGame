@@ -1,0 +1,29 @@
+.git
+.gitignore
+.idea
+.vscode
+
+# Flutter / mobile build artifacts
+.dart_tool
+build
+android/.gradle
+android/.cxx
+ios/Pods
+
+# Node artifacts
+**/node_modules
+admin/dist
+server/dist
+
+# Local temp/log
+.deploy-tmp
+*.log
+
+# Docs and misc not required for image build
+agent-transcripts
+mcps
+terminals
+tools
+test
+play_assets
+steamGameGooglePlay

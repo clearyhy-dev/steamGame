@@ -58,6 +58,7 @@ export class AuthService {
           steamPersonaName: steamProfile.personaName,
           steamAvatar: steamProfile.avatarFull || steamProfile.avatar || '',
           steamProfileUrl: steamProfile.profileUrl,
+          registeredAt: now,
           createdAt: now,
           updatedAt: now,
         });
@@ -119,6 +120,7 @@ export class AuthService {
       steamPersonaName: steamProfile.personaName,
       steamAvatar: steamProfile.avatarFull || steamProfile.avatar || '',
       steamProfileUrl: steamProfile.profileUrl,
+      registeredAt: now,
       createdAt: now,
       updatedAt: now,
     });

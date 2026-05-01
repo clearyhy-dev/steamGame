@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/colors.dart';
+import '../../../core/utils/country_price.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../models/game_model.dart';
 import '../../../models/store_offer.dart';
@@ -30,6 +31,11 @@ class HomeBestDealsToBuySection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         SectionHeader(title: l10n.get('home_section_best_deals_to_buy')),
+        const SizedBox(height: 4),
+        Text(
+          l10n.get('home_section_best_deals_to_buy_subtitle'),
+          style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+        ),
         const SizedBox(height: 12),
         SizedBox(
           height: 168,
@@ -70,6 +76,7 @@ class _BuyCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final currency = CountryPrice.formatter();
     final img = game.image.isNotEmpty ? game.image : '';
     return Material(
       color: AppColors.cardDark,
@@ -153,6 +160,24 @@ class _BuyCard extends StatelessWidget {
                     ),
                   ),
                 ),
+              const SizedBox(height: 4),
+              if (game.originalPrice > 0)
+                Text(
+                  currency.format(game.originalPrice),
+                  style: const TextStyle(
+                    fontSize: 10,
+                    color: AppColors.textSecondary,
+                    decoration: TextDecoration.lineThrough,
+                  ),
+                ),
+              Text(
+                currency.format(game.price),
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.itadOrange,
+                ),
+              ),
             ],
           ),
         ),

@@ -45,3 +45,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/app_icon_512.png
+    - assets/platforms/steam.png
+    - assets/platforms/isthereanydeal.png
+    - assets/platforms/ggdeals.png
+    - assets/platforms/cheapshark.png

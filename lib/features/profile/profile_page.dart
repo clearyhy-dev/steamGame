@@ -13,6 +13,7 @@ import '../../core/services/review_service.dart';
 import '../../l10n/app_localizations.dart';
 import '../subscription/subscription_page.dart';
 import '../onboarding/onboarding_page.dart';
+import '../../core/app_remote_config.dart';
 import '../../core/constants/api_constants.dart';
 import '../../services/steam_backend_service.dart';
 import '../../core/services/analytics_service.dart';
@@ -230,7 +231,8 @@ class _ProfilePageState extends State<ProfilePage> {
   Future<void> _startSteamLogin({required bool bindMode}) async {
     try {
       final startPath = bindMode ? '/auth/steam/start?mode=bind' : '/auth/steam/start?mode=login';
-      final start = Uri.parse('${ApiConstants.baseUrl}$startPath');
+      final apiRoot = AppRemoteConfig.instance.resolveApiBase(ApiConstants.baseUrl);
+      final start = Uri.parse('$apiRoot$startPath');
 
       Uri finalStart = start;
       if (bindMode) {
@@ -249,10 +251,20 @@ class _ProfilePageState extends State<ProfilePage> {
       }
 
       // 勿依赖 canLaunchUrl：Android 11+ 无 <queries> 时常误判为 false，导致永远打不开浏览器
-      final ok = await url_launcher.launchUrl(
-        finalStart,
+      final withTs = finalStart.replace(queryParameters: {
+        ...finalStart.queryParameters,
+        'ts': DateTime.now().millisecondsSinceEpoch.toString(),
+      });
+      var ok = await url_launcher.launchUrl(
+        withTs,
         mode: url_launcher.LaunchMode.externalApplication,
       );
+      if (!ok) {
+        ok = await url_launcher.launchUrl(
+          withTs,
+          mode: url_launcher.LaunchMode.platformDefault,
+        );
+      }
       if (!ok) throw Exception('launchUrl returned false');
     } catch (e) {
       if (!mounted) return;

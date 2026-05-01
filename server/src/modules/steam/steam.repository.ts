@@ -120,5 +120,17 @@ export class SteamRepository {
       throw new ApiError(500, 'FIRESTORE_WRITE_FAILED', 'Failed to write recent games cache', e);
     }
   }
+
+  async listOwnedGamesCaches(limit: number): Promise<SteamOwnedGamesCache[]> {
+    const n = Math.max(1, Math.min(limit, 300));
+    const snap = await this.db.collection(OWNED_CACHE_COLLECTION).orderBy('lastFetchedAt', 'desc').limit(n).get();
+    return snap.docs.map((d) => d.data() as SteamOwnedGamesCache);
+  }
+
+  async listRecentGamesCaches(limit: number): Promise<SteamRecentGamesCache[]> {
+    const n = Math.max(1, Math.min(limit, 300));
+    const snap = await this.db.collection(RECENT_CACHE_COLLECTION).orderBy('lastFetchedAt', 'desc').limit(n).get();
+    return snap.docs.map((d) => d.data() as SteamRecentGamesCache);
+  }
 }
 

@@ -5,6 +5,7 @@ import '../../core/storage_service.dart';
 import '../../services/steam_backend_service.dart';
 import '../../models/wishlist_model.dart';
 import '../../core/theme/colors.dart';
+import '../../core/app_remote_config.dart';
 import '../../core/constants/api_constants.dart';
 
 import 'package:url_launcher/url_launcher.dart' as url_launcher;
@@ -199,11 +200,22 @@ class _SteamLibraryPageState extends State<SteamLibraryPage> {
   Future<void> _openSteamLoginStart() async {
     // 这里跳转到后端，由后端发起 Steam OpenID。
     // 后续可复用 ProfilePage 的入口，这里提供最小可用兜底。
-    final start = Uri.parse('${ApiConstants.baseUrl}/auth/steam/start?mode=login');
-    final ok = await url_launcher.launchUrl(
-      start,
+    final apiRoot = AppRemoteConfig.instance.resolveApiBase(ApiConstants.baseUrl);
+    final start = Uri.parse('$apiRoot/auth/steam/start?mode=login');
+    final withTs = start.replace(queryParameters: {
+      ...start.queryParameters,
+      'ts': DateTime.now().millisecondsSinceEpoch.toString(),
+    });
+    var ok = await url_launcher.launchUrl(
+      withTs,
       mode: url_launcher.LaunchMode.externalApplication,
     );
+    if (!ok) {
+      ok = await url_launcher.launchUrl(
+        withTs,
+        mode: url_launcher.LaunchMode.platformDefault,
+      );
+    }
     if (!ok && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('无法打开 Steam 登录链接，请检查网络/系统设置')),

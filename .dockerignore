@@ -1,0 +1,12 @@
+.git
+.gitignore
+**/.DS_Store
+**/node_modules
+server/dist
+admin/dist
+**/build
+*.iml
+.idea
+.vscode
+terminals
+**/agent-transcripts

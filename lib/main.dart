@@ -14,6 +14,8 @@ import 'core/fcm_background.dart';
 import 'core/fcm_service.dart';
 import 'core/background_task.dart';
 import 'core/constants.dart';
+import 'core/app_remote_config.dart';
+import 'core/constants/api_constants.dart';
 import 'core/services/billing_service.dart';
 import 'core/services/subscription_service.dart';
 import 'core/storage_service.dart';
@@ -26,8 +28,10 @@ import 'services/steam_backend_service.dart';
 /// 后端 `deepLink()` 生成的是 `myapp://auth/steam/success`（`auth` 为 [Uri.host]，路径为 `/steam/success`），
 /// 此时 [Uri.pathSegments] 为 `steam,success`，不能按 `/auth/steam/...` 三段路径解析。
 bool _steamDeepLinkIsSuccess(Uri uri) {
-  if (uri.scheme != 'myapp') return false;
-  if (uri.host == 'auth' &&
+  final scheme = AppRemoteConfig.instance.deeplinkScheme;
+  final hostOk = AppRemoteConfig.instance.deeplinkSuccessHost;
+  if (uri.scheme != scheme) return false;
+  if (uri.host == hostOk &&
       uri.pathSegments.length >= 2 &&
       uri.pathSegments[0] == 'steam' &&
       uri.pathSegments[1] == 'success') {
@@ -43,8 +47,10 @@ bool _steamDeepLinkIsSuccess(Uri uri) {
 }
 
 bool _steamDeepLinkIsFail(Uri uri) {
-  if (uri.scheme != 'myapp') return false;
-  if (uri.host == 'auth' &&
+  final scheme = AppRemoteConfig.instance.deeplinkScheme;
+  final hostFail = AppRemoteConfig.instance.deeplinkFailHost;
+  if (uri.scheme != scheme) return false;
+  if (uri.host == hostFail &&
       uri.pathSegments.length >= 2 &&
       uri.pathSegments[0] == 'steam' &&
       uri.pathSegments[1] == 'fail') {
@@ -68,7 +74,16 @@ Future<void> _handleSteamAuthDeepLink(Uri? uri) async {
     try {
       await StorageService.instance.setSteamBackendToken(token);
       final backend = SteamBackendService();
-      await backend.getMe(token);
+      final me = await backend.getMe(token);
+      final trial = me['trial'];
+      if (trial is Map) {
+        final endsAtRaw = trial['endsAt']?.toString() ?? '';
+        if (endsAtRaw.isNotEmpty) {
+          try {
+            await StorageService.instance.setBackendTrialUntil(DateTime.parse(endsAtRaw));
+          } catch (_) {}
+        }
+      }
       final profile = await backend.getSteamProfile(token);
 
       await StorageService.instance.setSteamProfileCache(
@@ -127,6 +142,24 @@ Future<void> _handleSteamAuthDeepLink(Uri? uri) async {
       Future<void>.delayed(const Duration(milliseconds: 1500), showFailBar);
     } catch (_) {}
   }
+}
+
+Future<void> _syncTrialFromBackendIfLoggedIn() async {
+  try {
+    final token = await StorageService.instance.getSteamBackendToken();
+    if (token == null || token.isEmpty) return;
+    final backend = SteamBackendService();
+    final me = await backend.getMe(token);
+    final trial = me['trial'];
+    if (trial is Map) {
+      final endsAtRaw = trial['endsAt']?.toString() ?? '';
+      if (endsAtRaw.isNotEmpty) {
+        try {
+          await StorageService.instance.setBackendTrialUntil(DateTime.parse(endsAtRaw));
+        } catch (_) {}
+      }
+    }
+  } catch (_) {}
 }
 
 void main() async {
@@ -201,6 +234,12 @@ Future<void> _init() async {
   }
 
   try {
+    await AppRemoteConfig.instance.loadFromBackend(ApiConstants.baseUrl);
+  } catch (e) {
+    debugPrint('AppRemoteConfig.load: $e');
+  }
+
+  try {
     await CacheService.init();
   } catch (e) {
     debugPrint('CacheService.init: $e');
@@ -219,6 +258,8 @@ Future<void> _init() async {
   } catch (e) {
     debugPrint('BillingService.init: $e');
   }
+
+  await _syncTrialFromBackendIfLoggedIn();
 
   try {
     final appLinks = AppLinks();
@@ -256,7 +297,7 @@ Future<void> _init() async {
     if (Platform.isAndroid) {
       final status = await Permission.notification.status;
       if (status.isDenied) await Permission.notification.request();
-      final granted = await Permission.notification.isGranted;
+      await Permission.notification.isGranted;
     }
   } catch (e) {
     debugPrint('NotificationPermission: $e');

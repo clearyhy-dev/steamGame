@@ -109,10 +109,29 @@ gcloud run deploy steam-game-api \
   --project=<PROJECT_ID> \
   --region=asia-southeast1 \
   --allow-unauthenticated \
-  --set-env-vars=PORT=8080,NODE_ENV=production,JWT_SECRET=<JWT_SECRET>,STEAM_API_KEY=<STEAM_API_KEY>,STEAM_REALM=https://<YOUR_RUN_URL>,STEAM_RETURN_URL=https://<YOUR_RUN_URL>/auth/steam/callback,APP_DEEP_LINK_SCHEME=myapp,APP_DEEP_LINK_SUCCESS_HOST=auth,APP_DEEP_LINK_FAIL_HOST=auth,FIREBASE_PROJECT_ID=<FIREBASE_PROJECT_ID>
+  --set-env-vars=NODE_ENV=production,JWT_SECRET=<JWT_SECRET>,STEAM_API_KEY=<STEAM_API_KEY>,STEAM_REALM=https://<YOUR_RUN_URL>,STEAM_RETURN_URL=https://<YOUR_RUN_URL>/auth/steam/callback,APP_BASE_URL=https://<YOUR_RUN_URL>,APP_DEEP_LINK_SCHEME=myapp,APP_DEEP_LINK_SUCCESS_HOST=auth,APP_DEEP_LINK_FAIL_HOST=auth,FIREBASE_PROJECT_ID=<FIREBASE_PROJECT_ID>
 ```
 
 部署后请把 `STEAM_REALM`、`STEAM_RETURN_URL` 中的域名更新为 Cloud Run 正式 URL。
+
+### 一条命令部署（推荐，避免遗漏参数）
+
+在仓库根目录执行：
+
+```powershell
+.\scripts\deploy-cloud-run.ps1 `
+  -ProjectId "steamdeal" `
+  -Region "asia-southeast1" `
+  -Service "steam-game-api" `
+  -ServiceUrl "https://steam-game-api-r7vmg7elga-as.a.run.app" `
+  -JwtSecret "<YOUR_JWT_SECRET>" `
+  -SteamApiKey "<YOUR_STEAM_API_KEY>" `
+  -FirebaseProjectId "steamdeal" `
+  -AdminUsername "admin" `
+  -AdminPassword "<YOUR_ADMIN_PASSWORD>"
+```
+
+该脚本会同时更新常用运行参数（`APP_*`、`STEAM_*`、`ADMIN_*`、`FIREBASE_PROJECT_ID` 等），减少后续漏配。
 
 ## 7. 自定义域名（可选）
 

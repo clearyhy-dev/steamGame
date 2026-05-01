@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../../core/theme/colors.dart';
+import '../../../core/utils/country_price.dart';
 import '../../../core/current_players_cache.dart';
 import '../../../core/utils/score_calculator.dart';
 import '../../../l10n/app_localizations.dart';
@@ -27,6 +28,7 @@ class GameCardSmall extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final currency = CountryPrice.formatter();
     return Padding(
       padding: const EdgeInsets.only(right: 16),
       child: Material(
@@ -111,7 +113,7 @@ class GameCardSmall extends StatelessWidget {
                       ),
                       if (game.originalPrice > 0)
                         Text(
-                          '\$${game.originalPrice.toStringAsFixed(0)}',
+                          currency.format(game.originalPrice),
                           style: const TextStyle(
                             fontSize: 11,
                             color: AppColors.textSecondary,
@@ -121,7 +123,7 @@ class GameCardSmall extends StatelessWidget {
                       Row(
                         children: [
                           Text(
-                            '\$${game.price.toStringAsFixed(2)}',
+                            currency.format(game.price),
                             style: const TextStyle(
                               fontSize: 16,
                               color: AppColors.itadOrangeLight,

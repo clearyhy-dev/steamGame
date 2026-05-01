@@ -27,6 +27,7 @@ class StorageService {
   bool get isInitialized => _inited;
 
   static const String _keyWishlistItems = 'wishlist_items';
+  static const String _keyRemoteConfigCache = 'remote_config_cache_v1';
 
   Future<List<WishlistItem>> getWishlistItems() async {
     if (!_inited) return [];
@@ -143,6 +144,7 @@ class StorageService {
   }
 
   static const String _keyLastKnownDiscounts = 'wishlist_last_discount';
+  static const String _keyDetailDealsCache = 'detail_deals_cache_v1';
 
   /// 上次检测时各愿望单游戏的折扣（appId -> discount%）
   Future<Map<String, int>> getLastKnownDiscounts() async {
@@ -151,7 +153,7 @@ class StorageService {
     if (json == null) return {};
     try {
       final map = jsonDecode(json) as Map<String, dynamic>;
-      return map.map((k, v) => MapEntry(k, (v is int) ? v : (v is num ? (v as num).toInt() : 0)));
+      return map.map((k, v) => MapEntry(k, (v is int) ? v : (v is num ? v.toInt() : 0)));
     } catch (_) {
       return {};
     }
@@ -163,6 +165,56 @@ class StorageService {
     final map = await getLastKnownDiscounts();
     map[appId] = discount;
     await _prefs.setString(_keyLastKnownDiscounts, jsonEncode(map));
+  }
+
+  Future<void> setDetailDealsCache({
+    required String appid,
+    required String countryCode,
+    required List<Map<String, dynamic>> rows,
+  }) async {
+    if (!_inited) return;
+    final key = '${appid.trim()}_${countryCode.trim().toUpperCase()}';
+    if (key == '_') return;
+    final raw = _prefs.getString(_keyDetailDealsCache);
+    final map = <String, dynamic>{};
+    if (raw != null && raw.isNotEmpty) {
+      try {
+        map.addAll(jsonDecode(raw) as Map<String, dynamic>);
+      } catch (_) {}
+    }
+    map[key] = {
+      'savedAt': DateTime.now().toIso8601String(),
+      'rows': rows,
+    };
+    await _prefs.setString(_keyDetailDealsCache, jsonEncode(map));
+  }
+
+  Future<({List<Map<String, dynamic>> rows, DateTime? savedAt})> getDetailDealsCache({
+    required String appid,
+    required String countryCode,
+  }) async {
+    if (!_inited) return (rows: <Map<String, dynamic>>[], savedAt: null);
+    final key = '${appid.trim()}_${countryCode.trim().toUpperCase()}';
+    if (key == '_') return (rows: <Map<String, dynamic>>[], savedAt: null);
+    final raw = _prefs.getString(_keyDetailDealsCache);
+    if (raw == null || raw.isEmpty) return (rows: <Map<String, dynamic>>[], savedAt: null);
+    try {
+      final map = jsonDecode(raw) as Map<String, dynamic>;
+      final record = map[key];
+      if (record is! Map) return (rows: <Map<String, dynamic>>[], savedAt: null);
+      final rowsRaw = record['rows'];
+      final savedAtRaw = record['savedAt']?.toString();
+      final rows = rowsRaw is List
+          ? rowsRaw.whereType<Map>().map((e) => e.map((k, v) => MapEntry(k.toString(), v))).toList()
+          : <Map<String, dynamic>>[];
+      DateTime? savedAt;
+      if (savedAtRaw != null && savedAtRaw.isNotEmpty) {
+        savedAt = DateTime.tryParse(savedAtRaw);
+      }
+      return (rows: rows, savedAt: savedAt);
+    } catch (_) {
+      return (rows: <Map<String, dynamic>>[], savedAt: null);
+    }
   }
 
   Future<bool> getHasAskedNotification() async {
@@ -243,6 +295,12 @@ class StorageService {
         if (DateTime.parse(until).isAfter(DateTime.now())) return true;
       } catch (_) {}
     }
+    final backendTrialUntil = _prefs.getString(AppConstants.keyBackendTrialUntil);
+    if (backendTrialUntil != null && backendTrialUntil.isNotEmpty) {
+      try {
+        if (DateTime.parse(backendTrialUntil).isAfter(DateTime.now())) return true;
+      } catch (_) {}
+    }
     return false;
   }
 
@@ -250,6 +308,26 @@ class StorageService {
   Future<void> setProFreeUntil(DateTime dateTime) async {
     if (!_inited) return;
     await _prefs.setString(AppConstants.keyProFreeUntil, dateTime.toIso8601String());
+  }
+
+  Future<void> setBackendTrialUntil(DateTime? dateTime) async {
+    if (!_inited) return;
+    if (dateTime == null) {
+      await _prefs.remove(AppConstants.keyBackendTrialUntil);
+      return;
+    }
+    await _prefs.setString(AppConstants.keyBackendTrialUntil, dateTime.toIso8601String());
+  }
+
+  Future<DateTime?> getBackendTrialUntil() async {
+    if (!_inited) return null;
+    final raw = _prefs.getString(AppConstants.keyBackendTrialUntil);
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      return DateTime.parse(raw);
+    } catch (_) {
+      return null;
+    }
   }
 
   // --- 评分 ---
@@ -395,6 +473,7 @@ class StorageService {
     await _prefs.remove(AppConstants.keyAuthUserId);
     await _prefs.remove(AppConstants.keyAuthEmail);
     await _prefs.remove(AppConstants.keyAuthPhotoUrl);
+    await _prefs.remove(AppConstants.keyBackendTrialUntil);
   }
 
   // --- 后端（Steam OpenID）JWT 登录态 ---
@@ -417,6 +496,7 @@ class StorageService {
     await _prefs.remove(AppConstants.keySteamPersonaName);
     await _prefs.remove(AppConstants.keySteamAvatar);
     await _prefs.remove(AppConstants.keySteamProfileUrl);
+    await _prefs.remove(AppConstants.keyBackendTrialUntil);
   }
 
   // --- Steam 绑定资料缓存 ---
@@ -474,6 +554,25 @@ class StorageService {
       await _prefs.remove(AppConstants.keyPreferredLocale);
     } else {
       await _prefs.setString(AppConstants.keyPreferredLocale, languageCode);
+    }
+  }
+
+  Future<void> setRemoteConfigCache(Map<String, dynamic> data) async {
+    if (!_inited) return;
+    await _prefs.setString(_keyRemoteConfigCache, jsonEncode(data));
+  }
+
+  Future<Map<String, dynamic>?> getRemoteConfigCache() async {
+    if (!_inited) return null;
+    final raw = _prefs.getString(_keyRemoteConfigCache);
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<String, dynamic>) return decoded;
+      if (decoded is Map) return decoded.map((k, v) => MapEntry(k.toString(), v));
+      return null;
+    } catch (_) {
+      return null;
     }
   }
 

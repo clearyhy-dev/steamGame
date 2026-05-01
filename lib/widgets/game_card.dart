@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../core/theme/colors.dart';
+import '../core/utils/country_price.dart';
 import '../core/utils/score_calculator.dart';
 import '../models/game_model.dart';
 
@@ -22,6 +23,8 @@ class GameCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final imageUrl = game.image.trim();
+    final currency = CountryPrice.formatter();
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       color: AppColors.cardDark,
@@ -41,14 +44,28 @@ class GameCard extends StatelessWidget {
                 children: [
                   ClipRRect(
                     borderRadius: BorderRadius.circular(12),
-                    child: CachedNetworkImage(
-                      imageUrl: game.image,
-                      width: 96,
-                      height: 54,
-                      fit: BoxFit.cover,
-                      placeholder: (_, __) => const ColoredBox(color: AppColors.cardElevated),
-                      errorWidget: (_, __, ___) => const ColoredBox(color: AppColors.cardElevated),
-                    ),
+                    child: imageUrl.isNotEmpty
+                        ? CachedNetworkImage(
+                            imageUrl: imageUrl,
+                            width: 96,
+                            height: 54,
+                            fit: BoxFit.cover,
+                            placeholder: (_, __) => const ColoredBox(color: AppColors.cardElevated),
+                            errorWidget: (_, __, ___) => Container(
+                              width: 96,
+                              height: 54,
+                              color: AppColors.cardElevated,
+                              alignment: Alignment.center,
+                              child: const Icon(Icons.image_not_supported, size: 16, color: AppColors.textSecondary),
+                            ),
+                          )
+                        : Container(
+                            width: 96,
+                            height: 54,
+                            color: AppColors.cardElevated,
+                            alignment: Alignment.center,
+                            child: const Icon(Icons.videogame_asset, size: 16, color: AppColors.textSecondary),
+                          ),
                   ),
                   if (game.discount > 0)
                     Container(
@@ -106,7 +123,7 @@ class GameCard extends StatelessWidget {
                     ),
                     if (game.originalPrice > 0)
                       Text(
-                        '\$${game.originalPrice.toStringAsFixed(0)}',
+                        currency.format(game.originalPrice),
                         style: const TextStyle(
                           decoration: TextDecoration.lineThrough,
                           color: AppColors.textSecondary,
@@ -116,7 +133,7 @@ class GameCard extends StatelessWidget {
                     Row(
                       children: [
                         Text(
-                          '\$${game.price.toStringAsFixed(2)}',
+                          currency.format(game.price),
                           style: const TextStyle(
                             fontSize: 18,
                             color: AppColors.itadOrangeLight,

@@ -7,11 +7,14 @@ export type UserDoc = {
   displayName?: string;
   avatarUrl?: string;
   authProviders: AuthProvider[];
+  adminNote?: string;
+  disabled?: boolean;
 
   steamId?: string;
   steamPersonaName?: string;
   steamAvatar?: string;
   steamProfileUrl?: string;
+  registeredAt?: FirebaseTimestampLike;
 
   createdAt: FirebaseTimestampLike;
   updatedAt: FirebaseTimestampLike;

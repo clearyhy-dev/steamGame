@@ -1,5 +1,6 @@
 # Local tooling / accidental dirs (do not commit)
 .gcloud/
+.deploy-tmp/
 steamGameGooglePlay/
 
 # Miscellaneous
@@ -33,13 +34,28 @@ steamGameGooglePlay/
 .pub-cache/
 .pub/
 /build/
+**/build/
+**/.gradle/
+coverage/
 
 # Android signing (勿提交密钥和密码)
 android/key.properties
 android/*.jks
+android/build/
+android/**/build/
+android/build/reports/
 
 # Web related
 lib/generated_plugin_registrant.dart
+
+# JavaScript/Node generated artifacts
+**/node_modules/
+admin/dist/
+server/dist/
+
+# Local workspace/runtime files
+*.code-workspace
+.vscode/
 
 # Exceptions to above rules.
 !/packages/flutter_tools/test/data/dart_dependencies_test/**/.packages

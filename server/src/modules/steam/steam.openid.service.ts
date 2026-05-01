@@ -9,10 +9,8 @@ type OpenIdQuery = Record<string, string | string[] | undefined>;
 export class SteamOpenIdService {
   private steamLoginEndpoint = STEAM_OPENID_ENDPOINT;
 
-  constructor(private env: Env) {}
-
-  buildLoginRedirectUrl(returnTo: string): string {
-    const realm = this.env.steamOpenidRealm;
+  buildLoginRedirectUrl(env: Env, returnTo: string): string {
+    const realm = env.steamOpenidRealm;
     const query = new URLSearchParams({
       'openid.ns': 'http://specs.openid.net/auth/2.0',
       'openid.mode': 'checkid_setup',
@@ -29,7 +27,7 @@ export class SteamOpenIdService {
    * Verify OpenID callback with Steam by calling check_authentication.
    * Returns steamId when valid.
    */
-  async verifyCallbackAndExtractSteamId(openidQuery: OpenIdQuery): Promise<string> {
+  async verifyCallbackAndExtractSteamId(env: Env, openidQuery: OpenIdQuery): Promise<string> {
     // Only send OpenID-related parameters to Steam verification.
     const params: Record<string, string> = {};
     for (const [k, v] of Object.entries(openidQuery as OpenIdQuery)) {
@@ -52,7 +50,7 @@ export class SteamOpenIdService {
     try {
       const resp = await axios.post(this.steamLoginEndpoint, body, {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        timeout: this.env.steamHttpTimeoutMs,
+        timeout: env.steamHttpTimeoutMs,
       });
       const text = typeof resp.data === 'string' ? resp.data : JSON.stringify(resp.data);
       const isValid = text.includes('is_valid:true');

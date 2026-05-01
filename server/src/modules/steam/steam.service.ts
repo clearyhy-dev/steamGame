@@ -11,6 +11,7 @@ import type {
   SteamProfileDoc,
 } from './steam.types';
 import axios from 'axios';
+import { getEffectiveEnv } from '../../config/runtime-config';
 
 const STEAM_API_BASE = 'https://api.steampowered.com';
 const GET_PLAYER_SUMMARIES = `${STEAM_API_BASE}/ISteamUser/GetPlayerSummaries/v2/`;
@@ -20,7 +21,6 @@ const GET_RECENTLY_PLAYED = `${STEAM_API_BASE}/IPlayerService/GetRecentlyPlayedG
 
 export class SteamService {
   private steamRepo: SteamRepository;
-  private timeoutMs: number;
 
   private FRIENDS_TTL_MS = 10 * 60 * 1000;
   private OWNED_TTL_MS = 24 * 60 * 60 * 1000;
@@ -28,7 +28,6 @@ export class SteamService {
 
   constructor(private env: Env) {
     this.steamRepo = new SteamRepository();
-    this.timeoutMs = env.steamHttpTimeoutMs;
   }
 
   private toMs(ts: any): number {
@@ -71,6 +70,10 @@ export class SteamService {
   }
 
   async getPlayerSummaries(steamIds: string[]): Promise<SteamPlayerSummary[]> {
+    const e = await getEffectiveEnv(this.env);
+    if (!String(e.steamApiKey ?? '').trim()) {
+      throw new ApiError(500, 'INTERNAL_ERROR', 'STEAM_API_KEY is not configured (env or admin runtime settings)');
+    }
     const ids = [...new Set(steamIds.filter(Boolean))];
     if (ids.length === 0) return [];
 
@@ -79,9 +82,9 @@ export class SteamService {
     for (const batch of this.chunkArray(ids, 100)) {
       try {
         const resp = await axios.get(GET_PLAYER_SUMMARIES, {
-          timeout: this.timeoutMs,
+          timeout: e.steamHttpTimeoutMs,
           params: {
-            key: this.env.steamApiKey,
+            key: e.steamApiKey,
             steamids: batch.join(','),
             format: 'json',
           },
@@ -111,11 +114,15 @@ export class SteamService {
   }
 
   async getFriendList(ownerSteamId: string): Promise<string[]> {
+    const e = await getEffectiveEnv(this.env);
+    if (!String(e.steamApiKey ?? '').trim()) {
+      throw new ApiError(500, 'INTERNAL_ERROR', 'STEAM_API_KEY is not configured (env or admin runtime settings)');
+    }
     try {
       const resp = await axios.get(GET_FRIEND_LIST, {
-        timeout: this.timeoutMs,
+        timeout: e.steamHttpTimeoutMs,
         params: {
-          key: this.env.steamApiKey,
+          key: e.steamApiKey,
           steamid: ownerSteamId,
           relationship: 'friend',
           format: 'json',
@@ -152,11 +159,15 @@ export class SteamService {
   }
 
   async getOwnedGames(ownerSteamId: string): Promise<{ games: SteamGame[]; gameCount: number }> {
+    const e = await getEffectiveEnv(this.env);
+    if (!String(e.steamApiKey ?? '').trim()) {
+      throw new ApiError(500, 'INTERNAL_ERROR', 'STEAM_API_KEY is not configured (env or admin runtime settings)');
+    }
     try {
       const resp = await axios.get(GET_OWNED_GAMES, {
-        timeout: this.timeoutMs,
+        timeout: e.steamHttpTimeoutMs,
         params: {
-          key: this.env.steamApiKey,
+          key: e.steamApiKey,
           steamid: ownerSteamId,
           include_appinfo: 1,
           include_played_free_games: 1,
@@ -209,11 +220,15 @@ export class SteamService {
   }
 
   async getRecentlyPlayedGames(ownerSteamId: string, count = 30): Promise<{ games: SteamGame[]; totalCount: number }> {
+    const e = await getEffectiveEnv(this.env);
+    if (!String(e.steamApiKey ?? '').trim()) {
+      throw new ApiError(500, 'INTERNAL_ERROR', 'STEAM_API_KEY is not configured (env or admin runtime settings)');
+    }
     try {
       const resp = await axios.get(GET_RECENTLY_PLAYED, {
-        timeout: this.timeoutMs,
+        timeout: e.steamHttpTimeoutMs,
         params: {
-          key: this.env.steamApiKey,
+          key: e.steamApiKey,
           steamid: ownerSteamId,
           count,
           include_played_free_games: 1,

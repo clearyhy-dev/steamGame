@@ -6,6 +6,7 @@ import '../../../core/ad_config.dart';
 import '../../../core/access_control.dart';
 import '../../../core/current_players_cache.dart';
 import '../../../core/theme/colors.dart';
+import '../../../core/utils/country_price.dart';
 import '../../../core/shock_deal_algorithm.dart';
 import '../../../core/utils/score_calculator.dart' as score_util;
 import '../../../core/services/analytics_service.dart';
@@ -485,6 +486,7 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
   }
 
   Widget _buildExploreBackendGameTile(GameModel g) {
+    final currency = CountryPrice.formatter();
     return Material(
       color: AppColors.cardDark,
       borderRadius: BorderRadius.circular(14),
@@ -536,7 +538,7 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      '-${g.discount}%  \$${g.price.toStringAsFixed(2)}',
+                      '-${g.discount}%  ${currency.format(g.price)}',
                       style: const TextStyle(fontSize: 13, color: AppColors.itadOrange),
                     ),
                   ],
@@ -803,25 +805,6 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
                                 child: ListView(
                                   padding: const EdgeInsets.symmetric(horizontal: 16),
                                   children: () {
-                            final curated = <Widget>[];
-                            if (_exploreLoading) {
-                              curated.add(const Padding(
-                                padding: EdgeInsets.only(bottom: 16),
-                                child: Center(child: SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))),
-                              ));
-                            } else if (_exploreFeed.isNotEmpty) {
-                              curated.add(_section(context, 'explore_curated', _filterGames(_exploreFeed)));
-                            } else if (_backendToken == null || _backendToken!.isEmpty) {
-                              curated.add(
-                                Padding(
-                                  padding: const EdgeInsets.only(bottom: 16),
-                                  child: Text(
-                                    AppLocalizations.of(context).get('explore_for_you_sign_in'),
-                                    style: const TextStyle(fontSize: 13, color: AppColors.textSecondary, height: 1.35),
-                                  ),
-                                ),
-                              );
-                            }
                             final usedIds = <String>{};
                             final mostPlayedRaw = _mostPlayedGlobal.isNotEmpty
                                 ? _mostPlayedGlobal
@@ -844,7 +827,6 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
                             final trend = _cat!.trending;
                             final hot = _cat!.todayHot;
                             return [
-                              ...curated,
                               _section(context, 'section_just_released', _filterGames(newR)),
                               _section(context, 'section_most_played', _filterGames(mostPlayedList), showPlayersOnCard: true),
                               if (_showExploreAds)

@@ -5,6 +5,7 @@ import { SteamOpenIdService } from '../steam/steam.openid.service';
 import { SteamService } from '../steam/steam.service';
 import { AuthService, type SteamLoginMode } from './auth.service';
 import type { AuthedRequest } from '../../middlewares/auth.middleware';
+import { getEffectiveEnv } from '../../config/runtime-config';
 
 function deepLink(env: Env, host: string, path: string, params: Record<string, string>) {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
@@ -19,16 +20,17 @@ export class AuthController {
   private auth: AuthService;
 
   constructor(private env: Env) {
-    this.openid = new SteamOpenIdService(env);
+    this.openid = new SteamOpenIdService();
     this.steam = new SteamService(env);
     this.auth = new AuthService(env);
   }
 
   startSteam = async (req: Request, res: Response) => {
+    const e = await getEffectiveEnv(this.env);
     const modeRaw = String(req.query.mode ?? 'login').toLowerCase();
     const mode: SteamLoginMode = modeRaw === 'bind' ? 'bind' : 'login';
 
-    const returnUrl = new URL(this.env.steamOpenidReturnUrl);
+    const returnUrl = new URL(e.steamOpenidReturnUrl);
     returnUrl.searchParams.set('mode', mode);
 
     if (mode === 'bind') {
@@ -45,13 +47,14 @@ export class AuthController {
     // Optional random state to avoid accidental mix-ups (kept as return_to param).
     returnUrl.searchParams.set('state', cryptoRandomState());
 
-    const redirectUrl = this.openid.buildLoginRedirectUrl(returnUrl.toString());
+    const redirectUrl = this.openid.buildLoginRedirectUrl(e, returnUrl.toString());
     res.redirect(302, redirectUrl);
   };
 
   callbackSteam = async (req: Request, res: Response) => {
+    const e = await getEffectiveEnv(this.env);
     try {
-      const steamId = await this.openid.verifyCallbackAndExtractSteamId(req.query as any);
+      const steamId = await this.openid.verifyCallbackAndExtractSteamId(e, req.query as any);
 
       const modeRaw = String(req.query.mode ?? 'login').toLowerCase();
       const mode: SteamLoginMode = modeRaw === 'bind' ? 'bind' : 'login';
@@ -76,15 +79,15 @@ export class AuthController {
 
       res.redirect(
         302,
-        deepLink(this.env, this.env.appDeeplinkSuccessHost, '/steam/success', {
+        deepLink(e, e.appDeeplinkSuccessHost, '/steam/success', {
           token: result.token,
         }),
       );
-    } catch (e: any) {
-      const reason = e instanceof ApiError ? e.message : String(e?.message ?? e);
+    } catch (err: any) {
+      const reason = err instanceof ApiError ? err.message : String(err?.message ?? err);
       res.redirect(
         302,
-        deepLink(this.env, this.env.appDeeplinkFailHost, '/steam/fail', {
+        deepLink(e, e.appDeeplinkFailHost, '/steam/fail', {
           reason,
         }),
       );
