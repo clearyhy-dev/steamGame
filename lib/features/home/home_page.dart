@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../core/services/analytics_service.dart';
+import '../../../core/price_region_events.dart';
 import '../../../core/steam_auth_events.dart';
 import '../../../core/theme/colors.dart';
 import '../../../l10n/app_localizations.dart';
@@ -34,9 +35,14 @@ class _HomePageState extends State<HomePage> {
     _steamAuthSub = SteamAuthEvents.instance.stream.listen((_) {
       _c.load();
     });
+    PriceRegionEvents.instance.changed.addListener(_onPriceRegionChanged);
     _c.load().then((_) {
       AnalyticsService.instance.logAppOpen(source: 'home');
     });
+  }
+
+  void _onPriceRegionChanged() {
+    _c.load(showSteamSectionLoading: false);
   }
 
   void _onCtl() {
@@ -47,6 +53,7 @@ class _HomePageState extends State<HomePage> {
   @override
   void dispose() {
     _steamAuthSub?.cancel();
+    PriceRegionEvents.instance.changed.removeListener(_onPriceRegionChanged);
     _c.removeListener(_onCtl);
     _c.dispose();
     super.dispose();
@@ -61,7 +68,8 @@ class _HomePageState extends State<HomePage> {
     Navigator.of(context).push(
       PageRouteBuilder(
         pageBuilder: (_, __, ___) => GameDetailPage(game: game),
-        transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
+        transitionsBuilder: (_, a, __, c) =>
+            FadeTransition(opacity: a, child: c),
         transitionDuration: const Duration(milliseconds: 200),
       ),
     );
@@ -83,7 +91,8 @@ class _HomePageState extends State<HomePage> {
                   alignment: Alignment.centerLeft,
                   child: Text(
                     _formatUpdatedAt(context, updatedIso),
-                    style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                    style: const TextStyle(
+                        fontSize: 12, color: AppColors.textSecondary),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -94,7 +103,8 @@ class _HomePageState extends State<HomePage> {
                     ? null
                     : () => Navigator.of(context).push(
                           MaterialPageRoute<void>(
-                            builder: (_) => const SubscriptionPage(paywallSource: 'home_tip'),
+                            builder: (_) => const SubscriptionPage(
+                                paywallSource: 'home_tip'),
                           ),
                         ),
               ),
@@ -107,7 +117,8 @@ class _HomePageState extends State<HomePage> {
                 friendsOnline: _c.steamFriendsOnline,
                 onOpenFull: () {
                   Navigator.of(context).push(
-                    MaterialPageRoute<void>(builder: (_) => const SteamOverviewPage()),
+                    MaterialPageRoute<void>(
+                        builder: (_) => const SteamOverviewPage()),
                   );
                 },
               ),

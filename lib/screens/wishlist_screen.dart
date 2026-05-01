@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../core/storage_service.dart';
+import '../core/price_region_events.dart';
 import '../core/services/auth_service.dart';
 import '../core/theme/colors.dart';
 import '../l10n/app_localizations.dart';
@@ -7,6 +8,7 @@ import '../models/game_model.dart';
 import '../models/wishlist_model.dart';
 import '../services/steam_api_service.dart';
 import '../services/steam_backend_service.dart';
+import '../core/utils/price_region_resolver.dart';
 import '../widgets/game_card.dart';
 import '../features/subscription/subscription_page.dart';
 import '../core/services/analytics_service.dart';
@@ -26,6 +28,7 @@ class _WishlistScreenState extends State<WishlistScreen> {
   List<WishlistItem> _items = [];
   List<GameModel> _deals = [];
   Map<String, int> _lastDiscounts = {};
+
   /// 后端 `/v1/wishlist/decisions`，key = appid
   Map<String, Map<String, dynamic>> _decisionsByAppId = {};
   bool _loading = true;
@@ -40,10 +43,15 @@ class _WishlistScreenState extends State<WishlistScreen> {
   @override
   void initState() {
     super.initState();
+    PriceRegionEvents.instance.changed.addListener(_onPriceRegionChanged);
     _checkAuthAndLoad();
     _searchController.addListener(() {
       setState(() => _searchQuery = _searchController.text.trim());
     });
+  }
+
+  void _onPriceRegionChanged() {
+    _load();
   }
 
   Future<void> _checkAuthAndLoad() async {
@@ -60,6 +68,7 @@ class _WishlistScreenState extends State<WishlistScreen> {
 
   @override
   void dispose() {
+    PriceRegionEvents.instance.changed.removeListener(_onPriceRegionChanged);
     _searchController.dispose();
     super.dispose();
   }
@@ -73,9 +82,11 @@ class _WishlistScreenState extends State<WishlistScreen> {
   }
 
   Future<void> _load() async {
-    if (!StorageService.instance.isInitialized) await StorageService.instance.init();
+    if (!StorageService.instance.isInitialized)
+      await StorageService.instance.init();
     List<WishlistItem> items = await _storage.getWishlistItems();
-    final deals = await _api.fetchDeals(pageSize: 100);
+    final region = await PriceRegionResolver.resolve();
+    final deals = await _api.fetchDeals(pageSize: 100, country: region.country);
     final lastDiscounts = await _storage.getLastKnownDiscounts();
 
     // 当用户完成 Steam 登录后：优先以后端 favorites 为准，进行远程同步到本地。
@@ -87,7 +98,8 @@ class _WishlistScreenState extends State<WishlistScreen> {
         final remoteSet = <String>{};
         for (final f in remote) {
           final appid = f is Map ? f['appid']?.toString() : null;
-          if (appid != null && appid.trim().isNotEmpty) remoteSet.add(appid.trim());
+          if (appid != null && appid.trim().isNotEmpty)
+            remoteSet.add(appid.trim());
         }
 
         final localSet = items.map((e) => e.appId).toSet();
@@ -210,7 +222,8 @@ class _WishlistScreenState extends State<WishlistScreen> {
     } else if (_sortMode == 2) {
       copy.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
     } else if (_sortMode == 3) {
-      copy.sort((a, b) => _decisionRank(a.appId).compareTo(_decisionRank(b.appId)));
+      copy.sort(
+          (a, b) => _decisionRank(a.appId).compareTo(_decisionRank(b.appId)));
     }
     return copy;
   }
@@ -227,7 +240,9 @@ class _WishlistScreenState extends State<WishlistScreen> {
     if (filtered.isEmpty) {
       return Center(
         child: Text(
-          _searchQuery.isEmpty ? '' : AppLocalizations.of(context).get('search_no_match'),
+          _searchQuery.isEmpty
+              ? ''
+              : AppLocalizations.of(context).get('search_no_match'),
           style: theme.textTheme.bodyMedium,
         ),
       );
@@ -240,18 +255,19 @@ class _WishlistScreenState extends State<WishlistScreen> {
         itemBuilder: (context, index) {
           final item = filtered[index];
           final game = _gameFor(item);
-                      if (game == null) {
-                        return Card(
-                          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: ListTile(
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                            leading: item.image != null && item.image.isNotEmpty
-                                ? ClipRRect(
-                                    borderRadius: BorderRadius.circular(10),
-                                    child: Image.network(
+          if (game == null) {
+            return Card(
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: ListTile(
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                leading: item.image != null && item.image.isNotEmpty
+                    ? ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: Image.network(
                           item.image,
                           width: 56,
                           height: 36,
@@ -259,8 +275,10 @@ class _WishlistScreenState extends State<WishlistScreen> {
                         ),
                       )
                     : const Icon(Icons.games),
-                title: Text(item.name, maxLines: 2, overflow: TextOverflow.ellipsis),
-                subtitle: Text(AppLocalizations.of(context).get('deal_ended'), style: theme.textTheme.bodySmall),
+                title: Text(item.name,
+                    maxLines: 2, overflow: TextOverflow.ellipsis),
+                subtitle: Text(AppLocalizations.of(context).get('deal_ended'),
+                    style: theme.textTheme.bodySmall),
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(
                     builder: (_) => DetailScreen(appId: item.appId),
@@ -269,10 +287,12 @@ class _WishlistScreenState extends State<WishlistScreen> {
                 trailing: IconButton(
                   icon: const Icon(Icons.delete_outline),
                   onPressed: () async {
-                    final token = await StorageService.instance.getSteamBackendToken();
+                    final token =
+                        await StorageService.instance.getSteamBackendToken();
                     if (token != null && token.isNotEmpty) {
                       try {
-                        await SteamBackendService().deleteFavorite(token: token, appid: item.appId);
+                        await SteamBackendService()
+                            .deleteFavorite(token: token, appid: item.appId);
                       } catch (_) {}
                     }
                     await _storage.removeFromWishlist(item.appId);
@@ -301,11 +321,13 @@ class _WishlistScreenState extends State<WishlistScreen> {
                       );
                     },
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 5),
                       decoration: BoxDecoration(
                         color: _decisionColor(decCode).withOpacity(0.15),
                         borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: _decisionColor(decCode).withOpacity(0.4)),
+                        border: Border.all(
+                            color: _decisionColor(decCode).withOpacity(0.4)),
                       ),
                       child: Text(
                         _decisionLabel(decCode),
@@ -322,7 +344,8 @@ class _WishlistScreenState extends State<WishlistScreen> {
                 Padding(
                   padding: const EdgeInsets.only(left: 16, bottom: 4),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
                       color: AppColors.danger.withOpacity(0.15),
                       borderRadius: BorderRadius.circular(10),
@@ -330,9 +353,14 @@ class _WishlistScreenState extends State<WishlistScreen> {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.trending_down, size: 16, color: AppColors.danger),
+                        const Icon(Icons.trending_down,
+                            size: 16, color: AppColors.danger),
                         const SizedBox(width: 4),
-                        Text(AppLocalizations.of(context).get('price_dropped'), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.danger)),
+                        Text(AppLocalizations.of(context).get('price_dropped'),
+                            style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.danger)),
                       ],
                     ),
                   ),
@@ -343,14 +371,17 @@ class _WishlistScreenState extends State<WishlistScreen> {
                 isInWishlist: true,
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(
-                    builder: (_) => DetailScreen(appId: item.appId, initialGame: game),
+                    builder: (_) =>
+                        DetailScreen(appId: item.appId, initialGame: game),
                   ),
                 ),
                 onWishlistToggle: () async {
-                  final token = await StorageService.instance.getSteamBackendToken();
+                  final token =
+                      await StorageService.instance.getSteamBackendToken();
                   if (token != null && token.isNotEmpty) {
                     try {
-                      await SteamBackendService().deleteFavorite(token: token, appid: item.appId);
+                      await SteamBackendService()
+                          .deleteFavorite(token: token, appid: item.appId);
                     } catch (_) {}
                   }
                   await _storage.removeFromWishlist(item.appId);
@@ -372,7 +403,8 @@ class _WishlistScreenState extends State<WishlistScreen> {
         backgroundColor: AppColors.background,
         appBar: AppBar(
           backgroundColor: AppColors.background,
-          title: Text(AppLocalizations.of(context).get('wishlist_tab'), style: const TextStyle(color: AppColors.textPrimary)),
+          title: Text(AppLocalizations.of(context).get('wishlist_tab'),
+              style: const TextStyle(color: AppColors.textPrimary)),
         ),
         body: _LoginGate(
           onSignIn: () async {
@@ -387,7 +419,8 @@ class _WishlistScreenState extends State<WishlistScreen> {
       backgroundColor: AppColors.background,
       appBar: AppBar(
         backgroundColor: AppColors.background,
-        title: Text(AppLocalizations.of(context).get('wishlist_tab'), style: const TextStyle(color: AppColors.textPrimary)),
+        title: Text(AppLocalizations.of(context).get('wishlist_tab'),
+            style: const TextStyle(color: AppColors.textPrimary)),
         actions: [
           PopupMenuButton<int>(
             icon: const Icon(Icons.sort),
@@ -395,10 +428,22 @@ class _WishlistScreenState extends State<WishlistScreen> {
             initialValue: _sortMode,
             onSelected: (v) => setState(() => _sortMode = v),
             itemBuilder: (ctx) => [
-              PopupMenuItem(value: 0, child: Text(AppLocalizations.of(ctx).get('wishlist_sort_default'))),
-              PopupMenuItem(value: 1, child: Text(AppLocalizations.of(ctx).get('wishlist_sort_discount'))),
-              PopupMenuItem(value: 2, child: Text(AppLocalizations.of(ctx).get('wishlist_sort_name'))),
-              PopupMenuItem(value: 3, child: Text(AppLocalizations.of(ctx).get('wishlist_sort_decision'))),
+              PopupMenuItem(
+                  value: 0,
+                  child: Text(
+                      AppLocalizations.of(ctx).get('wishlist_sort_default'))),
+              PopupMenuItem(
+                  value: 1,
+                  child: Text(
+                      AppLocalizations.of(ctx).get('wishlist_sort_discount'))),
+              PopupMenuItem(
+                  value: 2,
+                  child:
+                      Text(AppLocalizations.of(ctx).get('wishlist_sort_name'))),
+              PopupMenuItem(
+                  value: 3,
+                  child: Text(
+                      AppLocalizations.of(ctx).get('wishlist_sort_decision'))),
             ],
           ),
         ],
@@ -417,7 +462,9 @@ class _WishlistScreenState extends State<WishlistScreen> {
                         child: InkWell(
                           onTap: () {
                             Navigator.of(context).push(
-                              MaterialPageRoute(builder: (_) => const SubscriptionPage(paywallSource: 'wishlist')),
+                              MaterialPageRoute(
+                                  builder: (_) => const SubscriptionPage(
+                                      paywallSource: 'wishlist')),
                             );
                           },
                           borderRadius: BorderRadius.circular(20),
@@ -426,15 +473,22 @@ class _WishlistScreenState extends State<WishlistScreen> {
                             decoration: BoxDecoration(
                               color: AppColors.primary.withOpacity(0.12),
                               borderRadius: BorderRadius.circular(20),
-                              boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 6, offset: Offset(0, 2))],
+                              boxShadow: const [
+                                BoxShadow(
+                                    color: Colors.black26,
+                                    blurRadius: 6,
+                                    offset: Offset(0, 2))
+                              ],
                             ),
                             child: Row(
                               children: [
-                                const Icon(Icons.rocket_launch, color: AppColors.itadOrange, size: 28),
+                                const Icon(Icons.rocket_launch,
+                                    color: AppColors.itadOrange, size: 28),
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: Text(
-                                    AppLocalizations.of(context).get('upgrade_to_pro_instant_alerts'),
+                                    AppLocalizations.of(context)
+                                        .get('upgrade_to_pro_instant_alerts'),
                                     style: const TextStyle(
                                       fontSize: 15,
                                       fontWeight: FontWeight.w600,
@@ -453,7 +507,8 @@ class _WishlistScreenState extends State<WishlistScreen> {
                       child: TextField(
                         controller: _searchController,
                         decoration: InputDecoration(
-                          hintText: AppLocalizations.of(context).get('wishlist_search_hint'),
+                          hintText: AppLocalizations.of(context)
+                              .get('wishlist_search_hint'),
                           prefixIcon: const Icon(Icons.search),
                           suffixIcon: _searchQuery.isNotEmpty
                               ? IconButton(
@@ -466,7 +521,8 @@ class _WishlistScreenState extends State<WishlistScreen> {
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 12),
                         ),
                         onChanged: (_) => setState(() {}),
                       ),
@@ -493,7 +549,8 @@ class _LoginGate extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.favorite_border, size: 64, color: AppColors.textSecondary),
+            Icon(Icons.favorite_border,
+                size: 64, color: AppColors.textSecondary),
             const SizedBox(height: 24),
             Text(
               AppLocalizations.of(context).get('sign_in_to_use_wishlist'),
@@ -540,7 +597,8 @@ class _EmptyWishlist extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.favorite_border, size: 72, color: theme.textTheme.bodySmall!.color),
+            Icon(Icons.favorite_border,
+                size: 72, color: theme.textTheme.bodySmall!.color),
             const SizedBox(height: 24),
             Text(
               AppLocalizations.of(context).get('empty_wishlist_title'),

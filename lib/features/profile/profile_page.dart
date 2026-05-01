@@ -2,9 +2,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:permission_handler/permission_handler.dart' as permission_handler;
+import 'package:permission_handler/permission_handler.dart'
+    as permission_handler;
 import '../../core/theme/colors.dart';
 import '../../core/region_config.dart';
+import '../../core/price_region_events.dart';
 import '../../core/storage_service.dart';
 import '../../data/services/cache_service.dart';
 import '../../core/notification_service.dart';
@@ -75,8 +77,10 @@ class _ProfilePageState extends State<ProfilePage> {
     final pro = await StorageService.instance.isPro();
     final user = await AuthService().getCurrentUser();
     final localeCode = await StorageService.instance.getPreferredLocale();
-    final selectedPriceRegion = await StorageService.instance.getSelectedPriceRegion();
-    final resolvedPriceRegion = selectedPriceRegion ?? await PriceRegionResolver.resolve();
+    final selectedPriceRegion =
+        await StorageService.instance.getSelectedPriceRegion();
+    final resolvedCtx = await PriceRegionResolver.resolve();
+    final resolvedPriceRegion = selectedPriceRegion ?? resolvedCtx.country;
 
     String? steamToken;
     try {
@@ -94,13 +98,23 @@ class _ProfilePageState extends State<ProfilePage> {
       } catch (_) {
         // fallback to cache
         final cached = await StorageService.instance.getSteamProfileCache();
-        steamId = cached['steamId']?.toString().trim().isNotEmpty == true ? cached['steamId'] : null;
-        steamPersonaName = cached['personaName']?.toString().trim().isNotEmpty == true ? cached['personaName'] : null;
+        steamId = cached['steamId']?.toString().trim().isNotEmpty == true
+            ? cached['steamId']
+            : null;
+        steamPersonaName =
+            cached['personaName']?.toString().trim().isNotEmpty == true
+                ? cached['personaName']
+                : null;
       }
     } else {
       final cached = await StorageService.instance.getSteamProfileCache();
-      steamId = cached['steamId']?.toString().trim().isNotEmpty == true ? cached['steamId'] : null;
-      steamPersonaName = cached['personaName']?.toString().trim().isNotEmpty == true ? cached['personaName'] : null;
+      steamId = cached['steamId']?.toString().trim().isNotEmpty == true
+          ? cached['steamId']
+          : null;
+      steamPersonaName =
+          cached['personaName']?.toString().trim().isNotEmpty == true
+              ? cached['personaName']
+              : null;
     }
 
     Map<String, dynamic>? statsSummary;
@@ -127,7 +141,8 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
-  String _localizedShareOneLiner(AppLocalizations l10n, Map<String, dynamic> s) {
+  String _localizedShareOneLiner(
+      AppLocalizations l10n, Map<String, dynamic> s) {
     final ratio = (s['unplayedRatio'] as num?)?.toDouble() ?? 0;
     final topList = s['topPlayed'] as List<dynamic>?;
     var topName = '';
@@ -149,7 +164,8 @@ class _ProfilePageState extends State<ProfilePage> {
       return _localizedShareOneLiner(l10n, _statsSummary!);
     }
     if (_shareCard != null && _shareCard!['stats'] is Map) {
-      return ((_shareCard!['stats'] as Map)['collectionNote']?.toString()) ?? '';
+      return ((_shareCard!['stats'] as Map)['collectionNote']?.toString()) ??
+          '';
     }
     return l10n.get('stats_share_fallback');
   }
@@ -163,7 +179,8 @@ class _ProfilePageState extends State<ProfilePage> {
       final hours = min / 60.0;
       final hStr = hours >= 100 ? '${hours.round()}' : hours.toStringAsFixed(1);
       final genres = s['favoriteGenres'] as List<dynamic>?;
-      final g = (genres != null && genres.isNotEmpty) ? genres.first.toString() : '';
+      final g =
+          (genres != null && genres.isNotEmpty) ? genres.first.toString() : '';
       final b = StringBuffer()
         ..writeln(title)
         ..writeln(l10n.get('stats_share_line_games').replaceAll('{n}', '$n'))
@@ -193,12 +210,16 @@ class _ProfilePageState extends State<ProfilePage> {
         backgroundColor: AppColors.cardDark,
         title: Text(
           AppLocalizations.of(ctx).get('region'),
-          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+          style: const TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textPrimary),
         ),
         content: SizedBox(
           width: double.maxFinite,
           child: ConstrainedBox(
-            constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.6),
+            constraints:
+                BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.6),
             child: ListView.builder(
               shrinkWrap: true,
               itemCount: regions.length,
@@ -210,9 +231,12 @@ class _ProfilePageState extends State<ProfilePage> {
                 return ListTile(
                   title: Text(
                     label,
-                    style: const TextStyle(color: AppColors.textPrimary, fontSize: 16),
+                    style: const TextStyle(
+                        color: AppColors.textPrimary, fontSize: 16),
                   ),
-                  trailing: isSelected ? const Icon(Icons.check, color: AppColors.itadOrange) : null,
+                  trailing: isSelected
+                      ? const Icon(Icons.check, color: AppColors.itadOrange)
+                      : null,
                   onTap: () => Navigator.pop(ctx, valueToStore),
                 );
               },
@@ -223,7 +247,10 @@ class _ProfilePageState extends State<ProfilePage> {
     );
     if (selected == null) return;
     final toStore = selected.isEmpty ? null : selected;
-    if (toStore == _currentLocaleCode || (toStore == null && (_currentLocaleCode == null || _currentLocaleCode!.isEmpty))) return;
+    if (toStore == _currentLocaleCode ||
+        (toStore == null &&
+            (_currentLocaleCode == null || _currentLocaleCode!.isEmpty)))
+      return;
     await StorageService.instance.setPreferredLocale(toStore);
     await StorageService.instance.clearLastDailyTaskScheduledAt();
     await StorageService.instance.clearLastWishlistTaskScheduledAt();
@@ -235,7 +262,8 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Future<void> _showPriceRegionPicker() async {
     const preferredOrder = ['US', 'IN', 'JP', 'BR', 'PL', 'FR', 'DE', 'CN'];
-    final enabled = AppRemoteConfig.instance.regionSettings.enabledCountries.toSet();
+    final enabled =
+        AppRemoteConfig.instance.regionSettings.enabledCountries.toSet();
     final options = preferredOrder.where((c) => enabled.contains(c)).toList();
     if (options.isEmpty) {
       options.addAll(preferredOrder);
@@ -246,7 +274,10 @@ class _ProfilePageState extends State<ProfilePage> {
         backgroundColor: AppColors.cardDark,
         title: const Text(
           'Price Region',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+          style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textPrimary),
         ),
         content: SizedBox(
           width: double.maxFinite,
@@ -256,13 +287,18 @@ class _ProfilePageState extends State<ProfilePage> {
             itemBuilder: (_, index) {
               final code = options[index];
               final isSelected = code == (_currentPriceRegion ?? '');
-              final currency = AppRemoteConfig.instance.regionSettings.countryCurrencyMap[code] ?? 'USD';
+              final currency = AppRemoteConfig
+                      .instance.regionSettings.countryCurrencyMap[code] ??
+                  'USD';
               return ListTile(
                 title: Text(
                   '$code ($currency)',
-                  style: const TextStyle(color: AppColors.textPrimary, fontSize: 16),
+                  style: const TextStyle(
+                      color: AppColors.textPrimary, fontSize: 16),
                 ),
-                trailing: isSelected ? const Icon(Icons.check, color: AppColors.itadOrange) : null,
+                trailing: isSelected
+                    ? const Icon(Icons.check, color: AppColors.itadOrange)
+                    : null,
                 onTap: () => Navigator.pop(ctx, code),
               );
             },
@@ -273,6 +309,10 @@ class _ProfilePageState extends State<ProfilePage> {
     if (selected == null || selected == _currentPriceRegion) return;
     await StorageService.instance.setSelectedPriceRegion(selected);
     AppRemoteConfig.instance.setActivePriceRegion(selected);
+    await StorageService.instance.clearDetailDealsCache();
+    await StorageService.instance.clearLastDealsCache();
+    await CacheService.clearLastCheckTime();
+    PriceRegionEvents.instance.notifyChanged();
     if (mounted) {
       setState(() => _currentPriceRegion = selected);
       ScaffoldMessenger.of(context).showSnackBar(
@@ -283,8 +323,11 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Future<void> _startSteamLogin({required bool bindMode}) async {
     try {
-      final startPath = bindMode ? '/auth/steam/start?mode=bind' : '/auth/steam/start?mode=login';
-      final apiRoot = AppRemoteConfig.instance.resolveApiBase(ApiConstants.baseUrl);
+      final startPath = bindMode
+          ? '/auth/steam/start?mode=bind'
+          : '/auth/steam/start?mode=login';
+      final apiRoot =
+          AppRemoteConfig.instance.resolveApiBase(ApiConstants.baseUrl);
       final start = Uri.parse('$apiRoot$startPath');
 
       Uri finalStart = start;
@@ -366,7 +409,8 @@ class _ProfilePageState extends State<ProfilePage> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 child: Text(
                   l10n.get('choose_sign_in_method'),
                   style: TextStyle(
@@ -378,7 +422,8 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
               ),
               ListTile(
-                leading: const Icon(Icons.account_circle, color: AppColors.itadOrange),
+                leading: const Icon(Icons.account_circle,
+                    color: AppColors.itadOrange),
                 title: Text(l10n.get('sign_in_google')),
                 subtitle: Text(l10n.get('sign_in_hint')),
                 onTap: () async {
@@ -387,7 +432,8 @@ class _ProfilePageState extends State<ProfilePage> {
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.sports_esports, color: AppColors.itadOrange),
+                leading: const Icon(Icons.sports_esports,
+                    color: AppColors.itadOrange),
                 title: Text(l10n.get('use_steam_login')),
                 subtitle: Text(l10n.get('use_steam_login_sub')),
                 onTap: () async {
@@ -437,10 +483,12 @@ class _ProfilePageState extends State<ProfilePage> {
                     children: [
                       CircleAvatar(
                         radius: 28,
-                        backgroundImage: _user!['photoUrl'] != null && _user!['photoUrl']!.isNotEmpty
+                        backgroundImage: _user!['photoUrl'] != null &&
+                                _user!['photoUrl']!.isNotEmpty
                             ? CachedNetworkImageProvider(_user!['photoUrl']!)
                             : null,
-                        child: _user!['photoUrl'] == null || _user!['photoUrl']!.isEmpty
+                        child: _user!['photoUrl'] == null ||
+                                _user!['photoUrl']!.isEmpty
                             ? const Icon(Icons.person, size: 32)
                             : null,
                       ),
@@ -450,8 +498,11 @@ class _ProfilePageState extends State<ProfilePage> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              _user!['email']?.isNotEmpty == true ? _user!['email']! : l10n.get('signed_in'),
-                              style: const TextStyle(fontWeight: FontWeight.w600),
+                              _user!['email']?.isNotEmpty == true
+                                  ? _user!['email']!
+                                  : l10n.get('signed_in'),
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.w600),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -476,7 +527,8 @@ class _ProfilePageState extends State<ProfilePage> {
               if (_steamId == null || _steamId!.isEmpty)
                 Card(
                   child: ListTile(
-                    leading: const Icon(Icons.login, color: AppColors.itadOrange),
+                    leading:
+                        const Icon(Icons.login, color: AppColors.itadOrange),
                     title: Text(l10n.get('login')),
                     subtitle: Text(l10n.get('login_subtitle')),
                     trailing: _googleSigningIn
@@ -492,13 +544,16 @@ class _ProfilePageState extends State<ProfilePage> {
               else
                 Card(
                   child: ListTile(
-                    leading: const Icon(Icons.sports_esports, color: AppColors.itadOrange),
+                    leading: const Icon(Icons.sports_esports,
+                        color: AppColors.itadOrange),
                     title: Text(l10n.get('steam_linked')),
-                    subtitle: Text(_steamPersonaName ?? l10n.get('steam_linked_sub')),
+                    subtitle:
+                        Text(_steamPersonaName ?? l10n.get('steam_linked_sub')),
                     trailing: const Icon(Icons.chevron_right),
                     onTap: () {
                       Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => const SteamAccountPage()),
+                        MaterialPageRoute(
+                            builder: (_) => const SteamAccountPage()),
                       );
                     },
                   ),
@@ -510,7 +565,8 @@ class _ProfilePageState extends State<ProfilePage> {
             if (_user != null)
               Card(
                 child: ListTile(
-                  leading: const Icon(Icons.sports_esports, color: AppColors.itadOrange),
+                  leading: const Icon(Icons.sports_esports,
+                      color: AppColors.itadOrange),
                   title: Text(
                     _steamId == null || _steamId!.isEmpty
                         ? l10n.get('steam_continue')
@@ -519,13 +575,15 @@ class _ProfilePageState extends State<ProfilePage> {
                   subtitle: Text(
                     _steamId == null || _steamId!.isEmpty
                         ? l10n.get('steam_openid_continue')
-                        : (_steamPersonaName ?? l10n.get('steam_linked_placeholder')),
+                        : (_steamPersonaName ??
+                            l10n.get('steam_linked_placeholder')),
                   ),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () {
                     if (_steamId != null && _steamId!.isNotEmpty) {
                       Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => const SteamAccountPage()),
+                        MaterialPageRoute(
+                            builder: (_) => const SteamAccountPage()),
                       );
                       return;
                     }
@@ -548,7 +606,8 @@ class _ProfilePageState extends State<ProfilePage> {
             if (_steamId != null && _steamId!.isNotEmpty)
               Card(
                 child: ListTile(
-                  leading: const Icon(Icons.logout, color: AppColors.itadOrange),
+                  leading:
+                      const Icon(Icons.logout, color: AppColors.itadOrange),
                   title: Text(l10n.get('sign_out_steam')),
                   subtitle: Text(l10n.get('sign_out_steam_sub')),
                   trailing: const Icon(Icons.chevron_right),
@@ -559,7 +618,8 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
               ),
 
-            if (_statsSummary != null && _statsSummary!['steamLinked'] == true) ...[
+            if (_statsSummary != null &&
+                _statsSummary!['steamLinked'] == true) ...[
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -568,19 +628,23 @@ class _ProfilePageState extends State<ProfilePage> {
                     children: [
                       Text(
                         l10n.get('stats_library_summary'),
-                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w600, fontSize: 16),
                       ),
                       const SizedBox(height: 10),
                       Text(
-                        l10n.get('stats_games_owned').replaceAll('{n}', '${_statsSummary!['ownedCount'] ?? 0}'),
-                        style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
+                        l10n.get('stats_games_owned').replaceAll(
+                            '{n}', '${_statsSummary!['ownedCount'] ?? 0}'),
+                        style: TextStyle(
+                            fontSize: 14, color: AppColors.textSecondary),
                       ),
                       Text(
                         l10n.get('stats_unplayed_line').replaceAll(
                               '{p}',
                               '${(((_statsSummary!['unplayedRatio'] as num?)?.toDouble() ?? 0) * 100).round()}',
                             ),
-                        style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
+                        style: TextStyle(
+                            fontSize: 14, color: AppColors.textSecondary),
                       ),
                     ],
                   ),
@@ -589,10 +653,13 @@ class _ProfilePageState extends State<ProfilePage> {
               const SizedBox(height: 12),
             ],
 
-            if (_shareCard != null || (_statsSummary != null && _statsSummary!['steamLinked'] == true))
+            if (_shareCard != null ||
+                (_statsSummary != null &&
+                    _statsSummary!['steamLinked'] == true))
               Card(
                 child: ListTile(
-                  leading: const Icon(Icons.image_outlined, color: AppColors.itadOrange),
+                  leading: const Icon(Icons.image_outlined,
+                      color: AppColors.itadOrange),
                   title: Text(l10n.get('stats_share_card')),
                   subtitle: Text(
                     _shareCardSubtitle(l10n),
@@ -617,12 +684,14 @@ class _ProfilePageState extends State<ProfilePage> {
               ),
               child: Row(
                 children: [
-                  Icon(Icons.info_outline, color: AppColors.itadOrange, size: 22),
+                  Icon(Icons.info_outline,
+                      color: AppColors.itadOrange, size: 22),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       l10n.get('profile_enabled_features'),
-                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                      style: const TextStyle(
+                          fontSize: 13, fontWeight: FontWeight.w500),
                     ),
                   ),
                 ],
@@ -635,9 +704,11 @@ class _ProfilePageState extends State<ProfilePage> {
                   padding: const EdgeInsets.all(16),
                   child: Row(
                     children: [
-                      const Icon(Icons.workspace_premium, color: AppColors.successGreen, size: 32),
+                      const Icon(Icons.workspace_premium,
+                          color: AppColors.successGreen, size: 32),
                       const SizedBox(width: 12),
-                      Text(l10n.get('proFeature'), style: const TextStyle(fontWeight: FontWeight.w600)),
+                      Text(l10n.get('proFeature'),
+                          style: const TextStyle(fontWeight: FontWeight.w600)),
                     ],
                   ),
                 ),
@@ -651,7 +722,9 @@ class _ProfilePageState extends State<ProfilePage> {
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () async {
                     await Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => const SubscriptionPage(paywallSource: 'profile')),
+                      MaterialPageRoute(
+                          builder: (_) =>
+                              const SubscriptionPage(paywallSource: 'profile')),
                     );
                     _load();
                   },
@@ -663,8 +736,10 @@ class _ProfilePageState extends State<ProfilePage> {
                 leading: const Icon(Icons.public),
                 title: Text(l10n.get('region')),
                 subtitle: Text(
-                  RegionConfig.getDisplayNameForStored(_currentLocaleCode, l10n.get('system_default')),
-                  style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                  RegionConfig.getDisplayNameForStored(
+                      _currentLocaleCode, l10n.get('system_default')),
+                  style:
+                      TextStyle(fontSize: 13, color: AppColors.textSecondary),
                 ),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: _showRegionPicker,
@@ -676,8 +751,10 @@ class _ProfilePageState extends State<ProfilePage> {
                 leading: const Icon(Icons.attach_money),
                 title: const Text('Price Region'),
                 subtitle: Text(
-                  _currentPriceRegion ?? AppRemoteConfig.instance.regionSettings.defaultCountry,
-                  style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                  _currentPriceRegion ??
+                      AppRemoteConfig.instance.regionSettings.defaultCountry,
+                  style:
+                      TextStyle(fontSize: 13, color: AppColors.textSecondary),
                 ),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: _showPriceRegionPicker,
@@ -705,7 +782,9 @@ class _ProfilePageState extends State<ProfilePage> {
                 onTap: () async {
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text(l10n.get('share_return_hint')), duration: const Duration(seconds: 4)),
+                      SnackBar(
+                          content: Text(l10n.get('share_return_hint')),
+                          duration: const Duration(seconds: 4)),
                     );
                   }
                   final storage = StorageService.instance;
@@ -737,7 +816,8 @@ class _ProfilePageState extends State<ProfilePage> {
                 onTap: () {
                   Navigator.of(context).push(
                     MaterialPageRoute(
-                      builder: (_) => const OnboardingPage(showOnlyForReview: true),
+                      builder: (_) =>
+                          const OnboardingPage(showOnlyForReview: true),
                     ),
                   );
                 },

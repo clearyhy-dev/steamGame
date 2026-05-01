@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import '../l10n/app_localizations.dart';
 import '../core/notification_permission_helper.dart';
+import '../core/price_region_events.dart';
 import '../core/storage_service.dart';
 import '../models/game_model.dart';
 import '../models/wishlist_model.dart';
 import '../services/steam_api_service.dart';
+import '../core/utils/price_region_resolver.dart';
 import '../widgets/game_card.dart';
 import 'detail_screen.dart';
 
@@ -26,12 +28,18 @@ class _SearchScreenState extends State<SearchScreen> {
   @override
   void initState() {
     super.initState();
+    PriceRegionEvents.instance.changed.addListener(_onPriceRegionChanged);
     _loadDeals();
     _controller.addListener(() => setState(() {}));
   }
 
+  void _onPriceRegionChanged() {
+    _loadDeals();
+  }
+
   Future<void> _loadDeals() async {
-    final list = await _api.fetchDeals();
+    final region = await PriceRegionResolver.resolve();
+    final list = await _api.fetchDeals(country: region.country);
     if (mounted) {
       setState(() {
         _allGames = list;
@@ -54,7 +62,9 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Future<void> _searchFromApi(String query) async {
-    final list = await _api.searchGames(query, pageSize: 25);
+    final region = await PriceRegionResolver.resolve();
+    final list =
+        await _api.searchGames(query, pageSize: 25, country: region.country);
     if (mounted) {
       setState(() {
         _filtered = list;
@@ -65,6 +75,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
   @override
   void dispose() {
+    PriceRegionEvents.instance.changed.removeListener(_onPriceRegionChanged);
     _controller.dispose();
     super.dispose();
   }
@@ -98,7 +109,8 @@ class _SearchScreenState extends State<SearchScreen> {
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               ),
               onChanged: _search,
             ),
@@ -114,35 +126,37 @@ class _SearchScreenState extends State<SearchScreen> {
                         ),
                       )
                     : ListView.builder(
-                  itemCount: _filtered.length,
-                  itemBuilder: (context, index) {
-                    final game = _filtered[index];
-                    return FutureBuilder<bool>(
-                      future: _storage.isInWishlist(game.appId),
-                      builder: (ctx, ws) => GameCard(
-                        game: game,
-                        isInWishlist: ws.data ?? false,
-                        onTap: () => Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => DetailScreen(appId: game.appId, initialGame: game),
-                          ),
-                        ),
-                        onWishlistToggle: () async {
-                          final inList =
-                              await _storage.isInWishlist(game.appId);
-                          if (inList) {
-                            await _storage.removeFromWishlist(game.appId);
-                          } else {
-                            await _storage
-                                .addToWishlist(WishlistItem.fromGame(game));
-                            await NotificationPermissionHelper.maybeRequestWithRationale(context);
-                          }
-                          setState(() {});
+                        itemCount: _filtered.length,
+                        itemBuilder: (context, index) {
+                          final game = _filtered[index];
+                          return FutureBuilder<bool>(
+                            future: _storage.isInWishlist(game.appId),
+                            builder: (ctx, ws) => GameCard(
+                              game: game,
+                              isInWishlist: ws.data ?? false,
+                              onTap: () => Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => DetailScreen(
+                                      appId: game.appId, initialGame: game),
+                                ),
+                              ),
+                              onWishlistToggle: () async {
+                                final inList =
+                                    await _storage.isInWishlist(game.appId);
+                                if (inList) {
+                                  await _storage.removeFromWishlist(game.appId);
+                                } else {
+                                  await _storage.addToWishlist(
+                                      WishlistItem.fromGame(game));
+                                  await NotificationPermissionHelper
+                                      .maybeRequestWithRationale(context);
+                                }
+                                setState(() {});
+                              },
+                            ),
+                          );
                         },
                       ),
-                    );
-                  },
-                ),
           ),
         ],
       ),

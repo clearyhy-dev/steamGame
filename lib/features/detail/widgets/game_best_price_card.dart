@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/theme/colors.dart';
+import '../../../core/app_remote_config.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../models/game_model.dart';
 import '../../../models/store_offer.dart';
@@ -20,6 +21,8 @@ class GameBestPriceCard extends StatelessWidget {
     this.refreshingDeals = false,
     this.dealsCacheUpdatedAt,
     this.dealsUsingCache = false,
+    this.showRegionWarning = true,
+    this.selectedCountry,
   });
 
   final GameModel game;
@@ -33,6 +36,8 @@ class GameBestPriceCard extends StatelessWidget {
   final bool refreshingDeals;
   final DateTime? dealsCacheUpdatedAt;
   final bool dealsUsingCache;
+  final bool showRegionWarning;
+  final String? selectedCountry;
 
   static const Map<String, String> _sourceName = {
     'steam': 'Steam',
@@ -46,23 +51,6 @@ class GameBestPriceCard extends StatelessWidget {
     'isthereanydeal': 'assets/platforms/isthereanydeal.png',
     'ggdeals': 'assets/platforms/ggdeals.png',
     'cheapshark': 'assets/platforms/cheapshark.png',
-  };
-
-  static const Map<String, String> _countryCurrency = {
-    'US': 'USD',
-    'CN': 'CNY',
-    'JP': 'JPY',
-    'KR': 'KRW',
-    'HK': 'HKD',
-    'SG': 'SGD',
-    'TW': 'TWD',
-    'GB': 'GBP',
-    'DE': 'EUR',
-    'FR': 'EUR',
-    'CA': 'CAD',
-    'AU': 'AUD',
-    'BR': 'BRL',
-    'RU': 'RUB',
   };
 
   static String _storeTitle(AppLocalizations l10n, String store) {
@@ -93,7 +81,10 @@ class GameBestPriceCard extends StatelessWidget {
         child: assetPath.isEmpty
             ? Text(
                 textFallback.characters.take(1).toString(),
-                style: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.w800),
+                style: const TextStyle(
+                    fontSize: 10,
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800),
               )
             : Image.asset(
                 assetPath,
@@ -103,7 +94,10 @@ class GameBestPriceCard extends StatelessWidget {
                 filterQuality: FilterQuality.medium,
                 errorBuilder: (_, __, ___) => Text(
                   textFallback.characters.take(1).toString(),
-                  style: const TextStyle(fontSize: 10, color: Colors.white, fontWeight: FontWeight.w800),
+                  style: const TextStyle(
+                      fontSize: 10,
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800),
                 ),
               ),
       ),
@@ -112,7 +106,8 @@ class GameBestPriceCard extends StatelessWidget {
 
   NumberFormat _currencyForCountry(String? countryCode) {
     final cc = (countryCode ?? '').trim().toUpperCase();
-    final code = _countryCurrency[cc] ?? 'USD';
+    final code =
+        AppRemoteConfig.instance.regionSettings.countryCurrencyMap[cc] ?? 'USD';
     return NumberFormat.simpleCurrency(name: code);
   }
 
@@ -121,10 +116,16 @@ class GameBestPriceCard extends StatelessWidget {
     final l10n = AppLocalizations.of(context);
     final scheme = Theme.of(context).colorScheme;
     final official = priceResult.bestOfficial;
-    if (official == null && (dealLinks ?? const <Map<String, dynamic>>[]).isEmpty) {
+    if (official == null &&
+        (dealLinks ?? const <Map<String, dynamic>>[]).isEmpty) {
       return const SizedBox.shrink();
     }
-    final sourceOrder = const ['steam', 'isthereanydeal', 'ggdeals', 'cheapshark'];
+    final sourceOrder = const [
+      'steam',
+      'isthereanydeal',
+      'ggdeals',
+      'cheapshark'
+    ];
     final otherSourceOrder = const ['isthereanydeal', 'ggdeals', 'cheapshark'];
     final links = (dealLinks ?? const <Map<String, dynamic>>[]);
     Map<String, Map<String, dynamic>> lowestBySource = {};
@@ -132,9 +133,14 @@ class GameBestPriceCard extends StatelessWidget {
       final source = (row['source'] ?? '').toString();
       if (!sourceOrder.contains(source)) continue;
       final current = lowestBySource[source];
-      final nextPrice = row['finalPrice'] is num ? (row['finalPrice'] as num).toDouble() : double.tryParse('${row['finalPrice']}');
-      final curPrice = current?['finalPrice'] is num ? (current!['finalPrice'] as num).toDouble() : double.tryParse('${current?['finalPrice']}');
-      if (current == null || (nextPrice != null && (curPrice == null || nextPrice < curPrice))) {
+      final nextPrice = row['finalPrice'] is num
+          ? (row['finalPrice'] as num).toDouble()
+          : double.tryParse('${row['finalPrice']}');
+      final curPrice = current?['finalPrice'] is num
+          ? (current!['finalPrice'] as num).toDouble()
+          : double.tryParse('${current?['finalPrice']}');
+      if (current == null ||
+          (nextPrice != null && (curPrice == null || nextPrice < curPrice))) {
         lowestBySource[source] = row;
       }
     }
@@ -151,9 +157,12 @@ class GameBestPriceCard extends StatelessWidget {
       final currency = _currencyForCountry(countryCode);
       final parsedFinal = finalPrice?.toDouble();
       final parsedOriginal = originalPrice?.toDouble();
-      final shownFinal = parsedFinal == null ? null : (parsedFinal > 1000 ? parsedFinal / 100.0 : parsedFinal);
-      final shownOriginal =
-          parsedOriginal == null ? null : (parsedOriginal > 1000 ? parsedOriginal / 100.0 : parsedOriginal);
+      final shownFinal = parsedFinal == null
+          ? null
+          : (parsedFinal > 1000 ? parsedFinal / 100.0 : parsedFinal);
+      final shownOriginal = parsedOriginal == null
+          ? null
+          : (parsedOriginal > 1000 ? parsedOriginal / 100.0 : parsedOriginal);
       return Padding(
         padding: const EdgeInsets.only(bottom: 10),
         child: InkWell(
@@ -208,7 +217,9 @@ class GameBestPriceCard extends StatelessWidget {
                       padding: const EdgeInsets.only(bottom: 4),
                       child: _sourceLogo('steam'),
                     ),
-                  if (shownOriginal != null && shownFinal != null && shownOriginal > shownFinal)
+                  if (shownOriginal != null &&
+                      shownFinal != null &&
+                      shownOriginal > shownFinal)
                     Text(
                       currency.format(shownOriginal),
                       style: TextStyle(
@@ -228,7 +239,8 @@ class GameBestPriceCard extends StatelessWidget {
                   if ((discountPercent ?? 0) > 0)
                     Container(
                       margin: const EdgeInsets.only(top: 4),
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 2),
                       decoration: BoxDecoration(
                         color: AppColors.discountRed.withValues(alpha: 0.2),
                         borderRadius: BorderRadius.circular(8),
@@ -250,9 +262,11 @@ class GameBestPriceCard extends StatelessWidget {
       );
     }
 
-    Widget fallbackOfferRow(String label, StoreOffer? offer, {VoidCallback? onTap}) {
+    Widget fallbackOfferRow(String label, StoreOffer? offer,
+        {VoidCallback? onTap}) {
       if (offer == null) return const SizedBox.shrink();
-      final fallbackCountry = (steamRow?['countryCode'] ?? '').toString().trim().toUpperCase();
+      final fallbackCountry =
+          (steamRow?['countryCode'] ?? '').toString().trim().toUpperCase();
       return sourcePriceRow(
         label: label,
         source: offer.store == StoreIds.steam ? 'steam' : offer.store,
@@ -278,7 +292,8 @@ class GameBestPriceCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                const Icon(Icons.local_fire_department_rounded, color: AppColors.itadOrange, size: 22),
+                const Icon(Icons.local_fire_department_rounded,
+                    color: AppColors.itadOrange, size: 22),
                 const SizedBox(width: 8),
                 Text(
                   l10n.get('affiliate_section_best_price'),
@@ -296,9 +311,15 @@ class GameBestPriceCard extends StatelessWidget {
                 label: '',
                 source: 'steam',
                 onTap: onTapSource == null ? null : () => onTapSource!('steam'),
-                originalPrice: steamRow['originalPrice'] is num ? steamRow['originalPrice'] as num : null,
-                finalPrice: steamRow['finalPrice'] is num ? steamRow['finalPrice'] as num : null,
-                discountPercent: steamRow['discountPercent'] is num ? steamRow['discountPercent'] as num : null,
+                originalPrice: steamRow['originalPrice'] is num
+                    ? steamRow['originalPrice'] as num
+                    : null,
+                finalPrice: steamRow['finalPrice'] is num
+                    ? steamRow['finalPrice'] as num
+                    : null,
+                discountPercent: steamRow['discountPercent'] is num
+                    ? steamRow['discountPercent'] as num
+                    : null,
                 countryCode: (steamRow['countryCode'] ?? '').toString(),
               )
             else
@@ -323,30 +344,44 @@ class GameBestPriceCard extends StatelessWidget {
               children: otherSourceOrder.map((source) {
                 final row = lowestBySource[source];
                 final rawFinal = row?['finalPrice'];
-                final currency = _currencyForCountry((row?['countryCode'] ?? '').toString());
-                final rawFinalValue =
-                    rawFinal is num ? rawFinal.toDouble() : double.tryParse('${row?['finalPrice']}');
+                final currency =
+                    _currencyForCountry((row?['countryCode'] ?? '').toString());
+                final rawFinalValue = rawFinal is num
+                    ? rawFinal.toDouble()
+                    : double.tryParse('${row?['finalPrice']}');
                 final rawOriginal = row?['originalPrice'];
-                final rawOriginalValue =
-                    rawOriginal is num ? rawOriginal.toDouble() : double.tryParse('${row?['originalPrice']}');
+                final rawOriginalValue = rawOriginal is num
+                    ? rawOriginal.toDouble()
+                    : double.tryParse('${row?['originalPrice']}');
                 final shownFinal = rawFinalValue == null
                     ? (rawOriginalValue == null
                         ? null
-                        : (rawOriginalValue > 1000 ? rawOriginalValue / 100.0 : rawOriginalValue))
-                    : (rawFinalValue > 1000 ? rawFinalValue / 100.0 : rawFinalValue);
+                        : (rawOriginalValue > 1000
+                            ? rawOriginalValue / 100.0
+                            : rawOriginalValue))
+                    : (rawFinalValue > 1000
+                        ? rawFinalValue / 100.0
+                        : rawFinalValue);
                 final hasPrice = shownFinal != null;
-                final displayPrice = hasPrice ? currency.format(shownFinal) : (refreshingDeals ? '更新中...' : '--');
+                final displayPrice = hasPrice
+                    ? currency.format(shownFinal)
+                    : (refreshingDeals
+                        ? l10n.get('affiliate_price_retrying')
+                        : '--');
                 final displayText = displayPrice;
                 return InkWell(
-                  onTap: onTapSource == null ? null : () => onTapSource!(source),
+                  onTap:
+                      onTapSource == null ? null : () => onTapSource!(source),
                   borderRadius: BorderRadius.circular(10),
                   child: Container(
                     constraints: const BoxConstraints(minWidth: 104),
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                     decoration: BoxDecoration(
                       color: AppColors.cardElevated,
                       borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                      border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.08)),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
@@ -365,7 +400,9 @@ class GameBestPriceCard extends StatelessWidget {
                         Text(
                           displayText,
                           style: TextStyle(
-                            color: hasPrice ? AppColors.itadOrange : Colors.white70,
+                            color: hasPrice
+                                ? AppColors.itadOrange
+                                : Colors.white70,
                             fontSize: 11,
                             fontWeight: FontWeight.w700,
                           ),
@@ -383,7 +420,9 @@ class GameBestPriceCard extends StatelessWidget {
               }).toList(),
             ),
             const SizedBox(height: 10),
-            if (dealsUsingCache || (dealsCacheUpdatedAt != null && !_hasAnyThirdPartyPrice(lowestBySource)))
+            if (dealsUsingCache ||
+                (dealsCacheUpdatedAt != null &&
+                    !_hasAnyThirdPartyPrice(lowestBySource)))
               Text(
                 dealsUsingCache
                     ? '${l10n.get('affiliate_cached_price')} · ${DateFormat('MM-dd HH:mm').format(dealsCacheUpdatedAt ?? DateTime.now())}'
@@ -393,9 +432,21 @@ class GameBestPriceCard extends StatelessWidget {
                   color: scheme.onSurfaceVariant.withValues(alpha: 0.75),
                 ),
               ),
-            if (dealsUsingCache || (dealsCacheUpdatedAt != null && !_hasAnyThirdPartyPrice(lowestBySource)))
+            if (dealsUsingCache ||
+                (dealsCacheUpdatedAt != null &&
+                    !_hasAnyThirdPartyPrice(lowestBySource)))
               const SizedBox(height: 8),
             if (otherSourceOrder.any((s) => lowestBySource[s] != null)) ...[
+              if (showRegionWarning)
+                Text(
+                  'Region restrictions may apply.',
+                  style: TextStyle(
+                    fontSize: 11,
+                    height: 1.3,
+                    color: scheme.onSurfaceVariant.withValues(alpha: 0.75),
+                  ),
+                ),
+              if (showRegionWarning) const SizedBox(height: 6),
               Text(
                 l10n.get('affiliate_third_party_note'),
                 style: TextStyle(
@@ -414,17 +465,31 @@ class GameBestPriceCard extends StatelessWidget {
                 ),
               ),
             ],
+            if (showRegionWarning)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  'Price region: ${(selectedCountry ?? '').trim().isEmpty ? '--' : selectedCountry!.trim().toUpperCase()}',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: scheme.onSurfaceVariant.withValues(alpha: 0.72),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
     );
   }
 
-  bool _hasAnyThirdPartyPrice(Map<String, Map<String, dynamic>> lowestBySource) {
+  bool _hasAnyThirdPartyPrice(
+      Map<String, Map<String, dynamic>> lowestBySource) {
     for (final source in const ['isthereanydeal', 'ggdeals', 'cheapshark']) {
       final row = lowestBySource[source];
       final rawFinal = row?['finalPrice'];
-      final value = rawFinal is num ? rawFinal.toDouble() : double.tryParse('${row?['finalPrice']}');
+      final value = rawFinal is num
+          ? rawFinal.toDouble()
+          : double.tryParse('${row?['finalPrice']}');
       if (value != null && value > 0) return true;
     }
     return false;

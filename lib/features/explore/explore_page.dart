@@ -10,8 +10,10 @@ import '../../../core/utils/country_price.dart';
 import '../../../core/shock_deal_algorithm.dart';
 import '../../../core/utils/score_calculator.dart' as score_util;
 import '../../../core/services/analytics_service.dart';
+import '../../../core/price_region_events.dart';
 import '../../../core/storage_service.dart';
 import '../../../core/schedule_config.dart';
+import '../../../core/utils/price_region_resolver.dart';
 import '../../../data/services/cache_service.dart';
 import '../../../data/services/api_service.dart';
 import '../../../l10n/app_localizations.dart';
@@ -37,11 +39,13 @@ class ExplorePage extends StatefulWidget {
   State<ExplorePage> createState() => _ExplorePageState();
 }
 
-class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStateMixin {
+class _ExplorePageState extends State<ExplorePage>
+    with SingleTickerProviderStateMixin {
   List<GameModel> _deals = [];
   List<GameModel> _freeDeals = [];
   List<GameModel> _mostPlayedGlobal = [];
   DealCategories? _cat;
+
   /// 与首页原逻辑一致：高折扣 + 可联盟购买，供「超值入手」横滑列表（趋势 Tab）。
   List<GameModel> _bestDealsToBuy = [];
   bool _loading = true;
@@ -59,9 +63,15 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
   double _filterMaxPrice = 120;
 
   /// 与 UI Tab 顺序一致：趋势 → 为你推荐 → 深度折扣 → 隐藏佳作
-  static const List<String> _exploreTabKeys = ['trending', 'for_you', 'deep', 'hidden'];
+  static const List<String> _exploreTabKeys = [
+    'trending',
+    'for_you',
+    'deep',
+    'hidden'
+  ];
 
   bool _isPro = false;
+
   /// 深度 Tab：Native 加载失败时在列表底部补 Banner。
   bool _deepBannerFallback = false;
 
@@ -86,10 +96,17 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
       await _load(forceRefresh: false);
       if (mounted) await _loadExploreTab(_tabController.index);
     });
+    PriceRegionEvents.instance.changed.addListener(_onPriceRegionChanged);
     unawaited(_refreshPro());
     _load().then((_) {
       if (mounted) _loadExploreTab(_tabController.index);
     });
+  }
+
+  void _onPriceRegionChanged() {
+    if (!mounted) return;
+    _load(forceRefresh: true)
+        .then((_) => _loadExploreTab(_tabController.index));
   }
 
   Future<void> _refreshPro() async {
@@ -123,13 +140,17 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
     }
     if (mounted) setState(() => _exploreLoading = true);
     try {
+      final region = await PriceRegionResolver.resolve();
       final data = await SteamBackendService().getExploreRecommendations(
         token,
         tab: _exploreTabKeys[index],
+        country: region.country,
       );
       final raw = data['items'] as List<dynamic>? ?? [];
       final games = raw
-          .map((e) => RecommendedItem.fromJson(Map<String, dynamic>.from(e as Map)).toGameModel())
+          .map((e) =>
+              RecommendedItem.fromJson(Map<String, dynamic>.from(e as Map))
+                  .toGameModel())
           .toList();
       if (mounted) {
         setState(() {
@@ -150,6 +171,7 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
   @override
   void dispose() {
     _steamAuthSub?.cancel();
+    PriceRegionEvents.instance.changed.removeListener(_onPriceRegionChanged);
     _tabController.removeListener(_onExploreTabChanged);
     _tabController.dispose();
     _searchController.dispose();
@@ -157,6 +179,7 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
   }
 
   Future<void> _load({bool forceRefresh = false}) async {
+    final region = await PriceRegionResolver.resolve();
     try {
       _backendToken = await StorageService.instance.getSteamBackendToken();
     } catch (_) {
@@ -173,7 +196,8 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
     if (list.isEmpty || isNewDay || forceRefresh) {
       if (canFetch) {
         if (!isNewDay) await StorageService.instance.incrementQueryCountToday();
-        final fetched = await ApiService.fetchDeals(pageSize: 60);
+        final fetched =
+            await ApiService.fetchDeals(pageSize: 60, country: region.country);
         if (fetched.isNotEmpty) {
           list = ShockDealAlgorithm.deduplicateDeals(fetched);
           await CacheService.saveGames(list);
@@ -181,7 +205,8 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
           _showLoadFailed(AppLocalizations.of(context).get('no_deals_refresh'));
         }
       } else if (forceRefresh && !canSearch && !isNewDay && mounted) {
-        _showLoadFailed(AppLocalizations.of(context).get('daily_limit_reached'));
+        _showLoadFailed(
+            AppLocalizations.of(context).get('daily_limit_reached'));
       }
     }
     final api = SteamApiService();
@@ -190,12 +215,14 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
     try {
       final results = await Future.wait<List<GameModel>>([
         api.fetchFreeDeals(pageSize: 30),
-        api.fetchTopGamesByCurrentPlayers(limit: 15),
+        api.fetchTopGamesByCurrentPlayers(limit: 15, country: region.country),
       ]);
       freeList = results[0];
       mostPlayed = results[1];
     } catch (_) {
-      try { freeList = await api.fetchFreeDeals(pageSize: 30); } catch (_) {}
+      try {
+        freeList = await api.fetchFreeDeals(pageSize: 30);
+      } catch (_) {}
     }
     if (!mounted) return;
     final bestBuy = list
@@ -206,13 +233,16 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
       _deals = list;
       _freeDeals = freeList;
       _mostPlayedGlobal = mostPlayed;
-      _cat = list.isNotEmpty ? ShockDealAlgorithm.computeCategories(list) : null;
+      _cat =
+          list.isNotEmpty ? ShockDealAlgorithm.computeCategories(list) : null;
       _bestDealsToBuy = bestBuy;
       _queryLimitReached = list.isEmpty && !canSearch && !isNewDay;
       _loading = false;
     });
     unawaited(_refreshPro());
-    if (list.isNotEmpty) WidgetsBinding.instance.addPostFrameCallback((_) => _fetchCurrentPlayersForTopGames());
+    if (list.isNotEmpty)
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => _fetchCurrentPlayersForTopGames());
   }
 
   void _showLoadFailed(String message) {
@@ -228,7 +258,13 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
     final api = SteamApiService();
     const batchSize = 5;
     for (var i = 0; i < top.length; i += batchSize) {
-      final batch = top.skip(i).take(batchSize).where((g) => g.steamAppID.isNotEmpty && CurrentPlayersCache.get(g.steamAppID) == null).toList();
+      final batch = top
+          .skip(i)
+          .take(batchSize)
+          .where((g) =>
+              g.steamAppID.isNotEmpty &&
+              CurrentPlayersCache.get(g.steamAppID) == null)
+          .toList();
       await Future.wait(batch.map((g) async {
         final c = await api.fetchCurrentPlayers(g.steamAppID);
         if (c != null) CurrentPlayersCache.set(g.steamAppID, c);
@@ -251,19 +287,24 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
         return StatefulBuilder(
           builder: (ctx, setModal) {
             return Padding(
-              padding: EdgeInsets.fromLTRB(20, 16, 20, 24 + MediaQuery.of(ctx).padding.bottom),
+              padding: EdgeInsets.fromLTRB(
+                  20, 16, 20, 24 + MediaQuery.of(ctx).padding.bottom),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Text(
                     l10n.get('explore_filter_title'),
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+                    style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textPrimary),
                   ),
                   const SizedBox(height: 16),
                   Text(
                     '${l10n.get('explore_filter_min_discount')}: ${minD.round()}%',
-                    style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                    style: const TextStyle(
+                        color: AppColors.textSecondary, fontSize: 13),
                   ),
                   Slider(
                     value: minD.clamp(0, 90),
@@ -275,7 +316,8 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
                   ),
                   Text(
                     '${l10n.get('explore_filter_max_price')}: \$${maxP.toStringAsFixed(0)}',
-                    style: const TextStyle(color: AppColors.textSecondary, fontSize: 13),
+                    style: const TextStyle(
+                        color: AppColors.textSecondary, fontSize: 13),
                   ),
                   Slider(
                     value: maxP.clamp(5, 200),
@@ -305,11 +347,14 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
                             _filterMaxPrice = maxP;
                           });
                           AnalyticsService.instance.logExploreFilterApply(
-                            summary: 'minD=${minD.round()} maxP=${maxP.toStringAsFixed(0)}',
+                            summary:
+                                'minD=${minD.round()} maxP=${maxP.toStringAsFixed(0)}',
                           );
                           Navigator.pop(ctx);
                         },
-                        style: FilledButton.styleFrom(backgroundColor: AppColors.itadOrange, foregroundColor: Colors.black),
+                        style: FilledButton.styleFrom(
+                            backgroundColor: AppColors.itadOrange,
+                            foregroundColor: Colors.black),
                         child: Text(l10n.get('explore_filter_apply')),
                       ),
                     ],
@@ -327,7 +372,8 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
     Navigator.of(context).push(
       PageRouteBuilder(
         pageBuilder: (_, __, ___) => GameDetailPage(game: game),
-        transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
+        transitionsBuilder: (_, a, __, c) =>
+            FadeTransition(opacity: a, child: c),
         transitionDuration: const Duration(milliseconds: 200),
       ),
     );
@@ -344,7 +390,8 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
           child: Text(
             l10n.get('explore_for_you_sign_in'),
             textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 14, color: AppColors.textSecondary, height: 1.4),
+            style: const TextStyle(
+                fontSize: 14, color: AppColors.textSecondary, height: 1.4),
           ),
         ),
       );
@@ -363,7 +410,8 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
               Text(
                 l10n.get('rec_empty'),
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 14, color: AppColors.textSecondary, height: 1.4),
+                style: const TextStyle(
+                    fontSize: 14, color: AppColors.textSecondary, height: 1.4),
               ),
               const SizedBox(height: 16),
               TextButton(
@@ -379,7 +427,10 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
     final spaced = <Widget>[];
     for (var i = 0; i < mixed.length; i++) {
       if (i > 0) {
-        final gap = mixed[i] is ExploreNativeAdCard || mixed[i - 1] is ExploreNativeAdCard ? 4.0 : 10.0;
+        final gap = mixed[i] is ExploreNativeAdCard ||
+                mixed[i - 1] is ExploreNativeAdCard
+            ? 4.0
+            : 10.0;
         spaced.add(SizedBox(height: gap));
       }
       spaced.add(mixed[i]);
@@ -539,7 +590,8 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
                     const SizedBox(height: 6),
                     Text(
                       '-${g.discount}%  ${currency.format(g.price)}',
-                      style: const TextStyle(fontSize: 13, color: AppColors.itadOrange),
+                      style: const TextStyle(
+                          fontSize: 13, color: AppColors.itadOrange),
                     ),
                   ],
                 ),
@@ -595,7 +647,8 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
                 fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
                 letterSpacing: -0.2,
                 height: 1.15,
-                color: selected ? AppColors.itadOrange : AppColors.textSecondary,
+                color:
+                    selected ? AppColors.itadOrange : AppColors.textSecondary,
               ),
             ),
           ),
@@ -604,7 +657,8 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
     );
   }
 
-  Widget _section(BuildContext context, String titleKey, List<GameModel> games, {bool showPlayersOnCard = false}) {
+  Widget _section(BuildContext context, String titleKey, List<GameModel> games,
+      {bool showPlayersOnCard = false}) {
     if (games.isEmpty) return const SizedBox.shrink();
     final title = AppLocalizations.of(context).get(titleKey);
     return Column(
@@ -669,7 +723,9 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
                       clipBehavior: Clip.none,
                       alignment: Alignment.center,
                       children: [
-                        Icon(Icons.tune_rounded, color: AppColors.textSecondary.withValues(alpha: 0.9)),
+                        Icon(Icons.tune_rounded,
+                            color:
+                                AppColors.textSecondary.withValues(alpha: 0.9)),
                         if (_filterMinDiscount > 2 || _filterMaxPrice < 115)
                           Positioned(
                             right: -2,
@@ -677,7 +733,9 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
                             child: Container(
                               width: 8,
                               height: 8,
-                              decoration: const BoxDecoration(color: AppColors.itadOrange, shape: BoxShape.circle),
+                              decoration: const BoxDecoration(
+                                  color: AppColors.itadOrange,
+                                  shape: BoxShape.circle),
                             ),
                           ),
                       ],
@@ -693,7 +751,8 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
                 decoration: BoxDecoration(
                   color: AppColors.card,
                   borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                  border:
+                      Border.all(color: Colors.white.withValues(alpha: 0.08)),
                   boxShadow: [
                     BoxShadow(
                       color: Colors.black.withValues(alpha: 0.25),
@@ -709,14 +768,20 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
                     child: TextField(
                       controller: _searchController,
                       textAlignVertical: TextAlignVertical.center,
-                      style: const TextStyle(color: AppColors.textPrimary, fontSize: 15),
+                      style: const TextStyle(
+                          color: AppColors.textPrimary, fontSize: 15),
                       cursorHeight: 20,
                       decoration: InputDecoration(
                         isDense: true,
                         hintText: l10n.get('search_hint'),
-                        hintStyle: TextStyle(color: AppColors.textSecondary.withValues(alpha: 0.85)),
-                        prefixIcon: Icon(Icons.search_rounded, color: AppColors.itadOrange.withValues(alpha: 0.95), size: 22),
-                        prefixIconConstraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+                        hintStyle: TextStyle(
+                            color: AppColors.textSecondary
+                                .withValues(alpha: 0.85)),
+                        prefixIcon: Icon(Icons.search_rounded,
+                            color: AppColors.itadOrange.withValues(alpha: 0.95),
+                            size: 22),
+                        prefixIconConstraints:
+                            const BoxConstraints(minWidth: 48, minHeight: 48),
                         border: InputBorder.none,
                         contentPadding: const EdgeInsets.fromLTRB(0, 0, 16, 0),
                       ),
@@ -725,8 +790,10 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
                         Navigator.of(context).push(
                           PageRouteBuilder(
                             pageBuilder: (_, __, ___) => const SearchScreen(),
-                            transitionsBuilder: (_, a, __, c) => FadeTransition(opacity: a, child: c),
-                            transitionDuration: const Duration(milliseconds: 200),
+                            transitionsBuilder: (_, a, __, c) =>
+                                FadeTransition(opacity: a, child: c),
+                            transitionDuration:
+                                const Duration(milliseconds: 200),
                           ),
                         );
                       },
@@ -771,89 +838,142 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
             const SizedBox(height: 2),
             Expanded(
               child: _tabController.index != 0
-                ? _buildBackendTabBody(context)
-                : _loading
-                    ? const Center(child: CircularProgressIndicator())
-                    : _queryLimitReached
-                        ? Center(
-                            child: Padding(
-                              padding: const EdgeInsets.all(24),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(Icons.workspace_premium_outlined, size: 48, color: AppColors.itadOrange),
-                                  const SizedBox(height: 16),
-                                  Text(AppLocalizations.of(context).get('daily_limit_reached'), style: const TextStyle(color: AppColors.textSecondary)),
-                                  const SizedBox(height: 8),
-                                  ElevatedButton(
-                                    onPressed: () => Navigator.of(context).push(
-                                      MaterialPageRoute(builder: (_) => const SubscriptionPage(paywallSource: 'explore')),
+                  ? _buildBackendTabBody(context)
+                  : _loading
+                      ? const Center(child: CircularProgressIndicator())
+                      : _queryLimitReached
+                          ? Center(
+                              child: Padding(
+                                padding: const EdgeInsets.all(24),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(Icons.workspace_premium_outlined,
+                                        size: 48, color: AppColors.itadOrange),
+                                    const SizedBox(height: 16),
+                                    Text(
+                                        AppLocalizations.of(context)
+                                            .get('daily_limit_reached'),
+                                        style: const TextStyle(
+                                            color: AppColors.textSecondary)),
+                                    const SizedBox(height: 8),
+                                    ElevatedButton(
+                                      onPressed: () =>
+                                          Navigator.of(context).push(
+                                        MaterialPageRoute(
+                                            builder: (_) =>
+                                                const SubscriptionPage(
+                                                    paywallSource: 'explore')),
+                                      ),
+                                      child: Text(AppLocalizations.of(context)
+                                          .get('unlock_unlimited')),
                                     ),
-                                    child: Text(AppLocalizations.of(context).get('unlock_unlimited')),
+                                  ],
+                                ),
+                              ),
+                            )
+                          : _cat == null
+                              ? Center(
+                                  child: Text(
+                                      AppLocalizations.of(context)
+                                          .get('no_deals_refresh'),
+                                      style: const TextStyle(
+                                          color: AppColors.textSecondary)))
+                              : RefreshIndicator(
+                                  onRefresh: () async {
+                                    await _load(forceRefresh: true);
+                                    await _loadExploreTab(0);
+                                  },
+                                  child: ListView(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 16),
+                                    children: () {
+                                      final usedIds = <String>{};
+                                      final mostPlayedRaw = _mostPlayedGlobal
+                                              .isNotEmpty
+                                          ? _mostPlayedGlobal
+                                          : score_util.uniqueList(
+                                              List<GameModel>.from(_deals)
+                                                ..sort((a, b) => (CurrentPlayersCache
+                                                            .get(
+                                                                b.steamAppID) ??
+                                                        0)
+                                                    .compareTo(
+                                                        CurrentPlayersCache.get(
+                                                                a.steamAppID) ??
+                                                            0)),
+                                              usedIds);
+                                      final mostPlayedList =
+                                          mostPlayedRaw.take(15).toList();
+                                      final freeSource = _freeDeals.isNotEmpty
+                                          ? _freeDeals
+                                          : _deals
+                                              .where((g) => g.price <= 0)
+                                              .toList();
+                                      final freeToPlay = List<GameModel>.from(
+                                          freeSource)
+                                        ..sort((a, b) => (b.steamRatingCount)
+                                            .compareTo(a.steamRatingCount));
+                                      final freeList = score_util.uniqueList(
+                                          freeToPlay, usedIds);
+                                      final aiSorted = score_util
+                                          .topDealsByScore(_deals, limit: 30);
+                                      final aiList = score_util.uniqueList(
+                                          aiSorted, usedIds);
+                                      final newR = score_util.uniqueList(
+                                          _cat!.newRelease, usedIds);
+                                      final hidden = score_util.uniqueList(
+                                          _cat!.hiddenGems, usedIds);
+                                      final trend = _cat!.trending;
+                                      final hot = _cat!.todayHot;
+                                      return [
+                                        _section(
+                                            context,
+                                            'section_just_released',
+                                            _filterGames(newR)),
+                                        _section(context, 'section_most_played',
+                                            _filterGames(mostPlayedList),
+                                            showPlayersOnCard: true),
+                                        if (_showExploreAds)
+                                          ExploreNativeAdCard(
+                                            key: const ValueKey<String>(
+                                                'explore_trend_after_most_played'),
+                                            placement:
+                                                'explore_trend_after_most_played',
+                                            enabled: true,
+                                          ),
+                                        _section(context, 'section_ai_picks',
+                                            _filterGames(aiList)),
+                                        _section(
+                                            context,
+                                            'section_trending_now',
+                                            _filterGames(trend)),
+                                        HomeBestDealsToBuySection(
+                                          games: _bestDealsToBuy,
+                                          onOpenDetail: _openDetail,
+                                        ),
+                                        if (_showExploreAds)
+                                          ExploreNativeAdCard(
+                                            key: const ValueKey<String>(
+                                                'explore_trend_after_best_deals'),
+                                            placement:
+                                                'explore_trend_after_best_deals',
+                                            enabled: true,
+                                          ),
+                                        _section(context, 'section_hidden_gems',
+                                            _filterGames(hidden)),
+                                        _section(
+                                            context,
+                                            'section_biggest_discount',
+                                            _filterGames(hot)),
+                                        _section(
+                                            context,
+                                            'section_free_to_play',
+                                            _filterGames(freeList)),
+                                      ];
+                                    }(),
                                   ),
-                                ],
-                              ),
-                            ),
-                          )
-                        : _cat == null
-                            ? Center(child: Text(AppLocalizations.of(context).get('no_deals_refresh'), style: const TextStyle(color: AppColors.textSecondary)))
-                            : RefreshIndicator(
-                                onRefresh: () async {
-                                  await _load(forceRefresh: true);
-                                  await _loadExploreTab(0);
-                                },
-                                child: ListView(
-                                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                                  children: () {
-                            final usedIds = <String>{};
-                            final mostPlayedRaw = _mostPlayedGlobal.isNotEmpty
-                                ? _mostPlayedGlobal
-                                : score_util.uniqueList(
-                                    List<GameModel>.from(_deals)
-                                      ..sort((a, b) => (CurrentPlayersCache.get(b.steamAppID) ?? 0)
-                                          .compareTo(CurrentPlayersCache.get(a.steamAppID) ?? 0)),
-                                    usedIds);
-                            final mostPlayedList = mostPlayedRaw.take(15).toList();
-                            final freeSource = _freeDeals.isNotEmpty
-                                ? _freeDeals
-                                : _deals.where((g) => g.price <= 0).toList();
-                            final freeToPlay = List<GameModel>.from(freeSource)
-                              ..sort((a, b) => (b.steamRatingCount).compareTo(a.steamRatingCount));
-                            final freeList = score_util.uniqueList(freeToPlay, usedIds);
-                            final aiSorted = score_util.topDealsByScore(_deals, limit: 30);
-                            final aiList = score_util.uniqueList(aiSorted, usedIds);
-                            final newR = score_util.uniqueList(_cat!.newRelease, usedIds);
-                            final hidden = score_util.uniqueList(_cat!.hiddenGems, usedIds);
-                            final trend = _cat!.trending;
-                            final hot = _cat!.todayHot;
-                            return [
-                              _section(context, 'section_just_released', _filterGames(newR)),
-                              _section(context, 'section_most_played', _filterGames(mostPlayedList), showPlayersOnCard: true),
-                              if (_showExploreAds)
-                                ExploreNativeAdCard(
-                                  key: const ValueKey<String>('explore_trend_after_most_played'),
-                                  placement: 'explore_trend_after_most_played',
-                                  enabled: true,
                                 ),
-                              _section(context, 'section_ai_picks', _filterGames(aiList)),
-                              _section(context, 'section_trending_now', _filterGames(trend)),
-                              HomeBestDealsToBuySection(
-                                games: _bestDealsToBuy,
-                                onOpenDetail: _openDetail,
-                              ),
-                              if (_showExploreAds)
-                                ExploreNativeAdCard(
-                                  key: const ValueKey<String>('explore_trend_after_best_deals'),
-                                  placement: 'explore_trend_after_best_deals',
-                                  enabled: true,
-                                ),
-                              _section(context, 'section_hidden_gems', _filterGames(hidden)),
-                              _section(context, 'section_biggest_discount', _filterGames(hot)),
-                              _section(context, 'section_free_to_play', _filterGames(freeList)),
-                            ];
-                          }(),
-                        ),
-                      ),
             ),
           ],
         ),
@@ -861,4 +981,3 @@ class _ExplorePageState extends State<ExplorePage> with SingleTickerProviderStat
     );
   }
 }
-

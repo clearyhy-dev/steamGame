@@ -153,7 +153,8 @@ class StorageService {
     if (json == null) return {};
     try {
       final map = jsonDecode(json) as Map<String, dynamic>;
-      return map.map((k, v) => MapEntry(k, (v is int) ? v : (v is num ? v.toInt() : 0)));
+      return map.map(
+          (k, v) => MapEntry(k, (v is int) ? v : (v is num ? v.toInt() : 0)));
     } catch (_) {
       return {};
     }
@@ -189,7 +190,23 @@ class StorageService {
     await _prefs.setString(_keyDetailDealsCache, jsonEncode(map));
   }
 
-  Future<({List<Map<String, dynamic>> rows, DateTime? savedAt})> getDetailDealsCache({
+  Future<void> clearDetailDealsCache() async {
+    if (!_inited) return;
+    await _prefs.remove(_keyDetailDealsCache);
+  }
+
+  Future<void> clearLastDealsCache() async {
+    if (!_inited) return;
+    await _prefs.remove(AppConstants.keyLastDealsCache);
+    await _prefs.remove(AppConstants.keyLastCheckTime);
+    try {
+      await Hive.box(_hiveBoxName).delete(_hiveDealsKey);
+      await Hive.box(_hiveBoxName).delete('last_check_time');
+    } catch (_) {}
+  }
+
+  Future<({List<Map<String, dynamic>> rows, DateTime? savedAt})>
+      getDetailDealsCache({
     required String appid,
     required String countryCode,
   }) async {
@@ -197,15 +214,20 @@ class StorageService {
     final key = '${appid.trim()}_${countryCode.trim().toUpperCase()}';
     if (key == '_') return (rows: <Map<String, dynamic>>[], savedAt: null);
     final raw = _prefs.getString(_keyDetailDealsCache);
-    if (raw == null || raw.isEmpty) return (rows: <Map<String, dynamic>>[], savedAt: null);
+    if (raw == null || raw.isEmpty)
+      return (rows: <Map<String, dynamic>>[], savedAt: null);
     try {
       final map = jsonDecode(raw) as Map<String, dynamic>;
       final record = map[key];
-      if (record is! Map) return (rows: <Map<String, dynamic>>[], savedAt: null);
+      if (record is! Map)
+        return (rows: <Map<String, dynamic>>[], savedAt: null);
       final rowsRaw = record['rows'];
       final savedAtRaw = record['savedAt']?.toString();
       final rows = rowsRaw is List
-          ? rowsRaw.whereType<Map>().map((e) => e.map((k, v) => MapEntry(k.toString(), v))).toList()
+          ? rowsRaw
+              .whereType<Map>()
+              .map((e) => e.map((k, v) => MapEntry(k.toString(), v)))
+              .toList()
           : <Map<String, dynamic>>[];
       DateTime? savedAt;
       if (savedAtRaw != null && savedAtRaw.isNotEmpty) {
@@ -263,7 +285,8 @@ class StorageService {
     final date = DateTime.now().toIso8601String().substring(0, 10);
     final last = _prefs.getString(AppConstants.keyLastInterstitialDate);
     int count = 0;
-    if (last == date) count = _prefs.getInt(AppConstants.keyTodayInterstitialCount) ?? 0;
+    if (last == date)
+      count = _prefs.getInt(AppConstants.keyTodayInterstitialCount) ?? 0;
     await _prefs.setString(AppConstants.keyLastInterstitialDate, date);
     await _prefs.setInt(AppConstants.keyTodayInterstitialCount, count + 1);
   }
@@ -295,10 +318,12 @@ class StorageService {
         if (DateTime.parse(until).isAfter(DateTime.now())) return true;
       } catch (_) {}
     }
-    final backendTrialUntil = _prefs.getString(AppConstants.keyBackendTrialUntil);
+    final backendTrialUntil =
+        _prefs.getString(AppConstants.keyBackendTrialUntil);
     if (backendTrialUntil != null && backendTrialUntil.isNotEmpty) {
       try {
-        if (DateTime.parse(backendTrialUntil).isAfter(DateTime.now())) return true;
+        if (DateTime.parse(backendTrialUntil).isAfter(DateTime.now()))
+          return true;
       } catch (_) {}
     }
     return false;
@@ -307,7 +332,8 @@ class StorageService {
   /// 设置分享奖励的 Pro 截止日（本地 1 天 Pro）
   Future<void> setProFreeUntil(DateTime dateTime) async {
     if (!_inited) return;
-    await _prefs.setString(AppConstants.keyProFreeUntil, dateTime.toIso8601String());
+    await _prefs.setString(
+        AppConstants.keyProFreeUntil, dateTime.toIso8601String());
   }
 
   Future<void> setBackendTrialUntil(DateTime? dateTime) async {
@@ -316,7 +342,8 @@ class StorageService {
       await _prefs.remove(AppConstants.keyBackendTrialUntil);
       return;
     }
-    await _prefs.setString(AppConstants.keyBackendTrialUntil, dateTime.toIso8601String());
+    await _prefs.setString(
+        AppConstants.keyBackendTrialUntil, dateTime.toIso8601String());
   }
 
   Future<DateTime?> getBackendTrialUntil() async {
@@ -355,7 +382,8 @@ class StorageService {
   // --- 二次唤醒：上次打开日期 ---
   Future<void> setLastOpenDate(DateTime date) async {
     if (!_inited) return;
-    await _prefs.setString(AppConstants.keyLastOpenDate, date.toIso8601String().substring(0, 10));
+    await _prefs.setString(
+        AppConstants.keyLastOpenDate, date.toIso8601String().substring(0, 10));
   }
 
   Future<String?> getLastOpenDate() async {
@@ -427,7 +455,8 @@ class StorageService {
     if (!_inited) await init();
     var id = _prefs.getString(AppConstants.keyUserId);
     if (id == null || id.isEmpty) {
-      id = 'u_${DateTime.now().millisecondsSinceEpoch}_${_prefs.getInt(AppConstants.keyAppOpenCount) ?? 0}';
+      id =
+          'u_${DateTime.now().millisecondsSinceEpoch}_${_prefs.getInt(AppConstants.keyAppOpenCount) ?? 0}';
       await _prefs.setString(AppConstants.keyUserId, id);
     }
     return id;
@@ -450,7 +479,8 @@ class StorageService {
     return id != null && id.isNotEmpty;
   }
 
-  Future<void> setAuthUser({required String userId, String? email, String? photoUrl}) async {
+  Future<void> setAuthUser(
+      {required String userId, String? email, String? photoUrl}) async {
     if (!_inited) return;
     await _prefs.setString(AppConstants.keyAuthUserId, userId);
     await _prefs.setString(AppConstants.keyAuthEmail, email ?? '');
@@ -537,7 +567,8 @@ class StorageService {
     final today = DateTime.now().toIso8601String().substring(0, 10);
     final stored = _prefs.getString(AppConstants.keyQueryCountDate);
     int count = 0;
-    if (stored == today) count = _prefs.getInt(AppConstants.keyQueryCountToday) ?? 0;
+    if (stored == today)
+      count = _prefs.getInt(AppConstants.keyQueryCountToday) ?? 0;
     await _prefs.setString(AppConstants.keyQueryCountDate, today);
     await _prefs.setInt(AppConstants.keyQueryCountToday, count + 1);
   }
@@ -570,12 +601,14 @@ class StorageService {
       await _prefs.remove(AppConstants.keySelectedPriceRegion);
       return;
     }
-    await _prefs.setString(AppConstants.keySelectedPriceRegion, countryCode.trim().toUpperCase());
+    await _prefs.setString(
+        AppConstants.keySelectedPriceRegion, countryCode.trim().toUpperCase());
   }
 
   Future<void> setRegionSettingsCache(Map<String, dynamic> data) async {
     if (!_inited) return;
-    await _prefs.setString(AppConstants.keyRegionSettingsCache, jsonEncode(data));
+    await _prefs.setString(
+        AppConstants.keyRegionSettingsCache, jsonEncode(data));
   }
 
   Future<Map<String, dynamic>?> getRegionSettingsCache() async {
@@ -585,7 +618,8 @@ class StorageService {
     try {
       final decoded = jsonDecode(raw);
       if (decoded is Map<String, dynamic>) return decoded;
-      if (decoded is Map) return decoded.map((k, v) => MapEntry(k.toString(), v));
+      if (decoded is Map)
+        return decoded.map((k, v) => MapEntry(k.toString(), v));
     } catch (_) {}
     return null;
   }
@@ -602,7 +636,8 @@ class StorageService {
     try {
       final decoded = jsonDecode(raw);
       if (decoded is Map<String, dynamic>) return decoded;
-      if (decoded is Map) return decoded.map((k, v) => MapEntry(k.toString(), v));
+      if (decoded is Map)
+        return decoded.map((k, v) => MapEntry(k.toString(), v));
       return null;
     } catch (_) {
       return null;

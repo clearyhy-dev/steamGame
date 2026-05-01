@@ -10,6 +10,9 @@ import '../../../core/theme/colors.dart';
 import '../../../core/services/algorithm_service.dart';
 import '../../../core/services/wishlist_service.dart';
 import '../../../core/storage_service.dart';
+import '../../../core/app_remote_config.dart';
+import '../../../core/price_region_events.dart';
+import '../../../core/utils/price_region_resolver.dart';
 import '../../../core/utils/countdown_util.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../services/steam_api_service.dart';
@@ -39,6 +42,7 @@ class _GameDetailPageState extends State<GameDetailPage> {
   int _currentImageIndex = 0;
   List<Map<String, dynamic>> _pricePoints = [];
   List<Map<String, dynamic>> _topReviews = [];
+
   /// Steam `appreviews` 返回的 [query_summary]（总评文案、好评率、条数），与登录 token 无关。
   Map<String, dynamic>? _reviewSummary;
   int? _currentPlayers;
@@ -54,6 +58,7 @@ class _GameDetailPageState extends State<GameDetailPage> {
   bool _autoRefreshedDeals = false;
   DateTime? _dealsCacheUpdatedAt;
   bool _dealsUsingCache = false;
+  String _priceCountry = 'US';
 
   String _resolvedSteamId() {
     final fromSteam = widget.game.steamAppID.trim();
@@ -78,12 +83,28 @@ class _GameDetailPageState extends State<GameDetailPage> {
     _loadBoundDiscountUrl();
     _loadSteamDealLinks();
     _ensureBackendMeta();
-    _priceResult = PriceEngineService().calculateBestPrice(buildMockStoreOffers(widget.game));
+    _priceResult = PriceEngineService()
+        .calculateBestPrice(buildMockStoreOffers(widget.game));
+    PriceRegionEvents.instance.changed.addListener(_onPriceRegionChanged);
+  }
+
+  @override
+  void dispose() {
+    PriceRegionEvents.instance.changed.removeListener(_onPriceRegionChanged);
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  void _onPriceRegionChanged() {
+    _loadSteamDealLinks();
+    _loadBoundDiscountUrl();
   }
 
   Future<void> _ensureBackendMeta() async {
     if (_metaEnsured) return;
-    final steamId = widget.game.steamAppID.trim().isNotEmpty ? widget.game.steamAppID.trim() : widget.game.appId.trim();
+    final steamId = widget.game.steamAppID.trim().isNotEmpty
+        ? widget.game.steamAppID.trim()
+        : widget.game.appId.trim();
     if (steamId.isEmpty) return;
     _metaEnsured = true;
     try {
@@ -94,17 +115,23 @@ class _GameDetailPageState extends State<GameDetailPage> {
   }
 
   Future<void> _loadSteamDealLinks() async {
-    final steamId = widget.game.steamAppID.trim().isNotEmpty ? widget.game.steamAppID.trim() : widget.game.appId.trim();
+    final steamId = widget.game.steamAppID.trim().isNotEmpty
+        ? widget.game.steamAppID.trim()
+        : widget.game.appId.trim();
     if (steamId.isEmpty) return;
     if (mounted) {
       setState(() {
         _refreshingDeals = true;
       });
     }
+    final region = await PriceRegionResolver.resolve();
+    _priceCountry = region.country;
     try {
       final pro = await StorageService.instance.isPro();
-      final data = await _backend.getGameDeals(steamId);
-      final countryCode = (data['countryCode']?.toString() ?? 'US').trim().toUpperCase();
+      final data =
+          await _backend.getGameDeals(steamId, country: region.country);
+      final countryCode =
+          (data['countryCode']?.toString() ?? 'US').trim().toUpperCase();
       final rows = _selectCountryRows(data, countryCode);
       if (!mounted) return;
       setState(() {
@@ -136,9 +163,12 @@ class _GameDetailPageState extends State<GameDetailPage> {
   bool _hasAnyOtherPlatformPrice() {
     for (final d in _dealLinks) {
       final source = (d['source']?.toString() ?? '').toLowerCase();
-      if (source == 'isthereanydeal' || source == 'ggdeals' || source == 'cheapshark') {
+      if (source == 'isthereanydeal' ||
+          source == 'ggdeals' ||
+          source == 'cheapshark') {
         final p = d['finalPrice'];
-        final n = p is num ? p.toDouble() : double.tryParse('${d['finalPrice']}');
+        final n =
+            p is num ? p.toDouble() : double.tryParse('${d['finalPrice']}');
         if (n != null && n > 0) return true;
       }
     }
@@ -152,10 +182,14 @@ class _GameDetailPageState extends State<GameDetailPage> {
     if (steamId.isEmpty) return;
     _autoRefreshedDeals = true;
     if (mounted) setState(() => _refreshingDeals = true);
+    final region = await PriceRegionResolver.resolve();
     try {
-      await _backend.refreshGameDeals(steamId);
-      final data = await _backend.getGameDeals(steamId);
-      final countryCode = (data['countryCode']?.toString() ?? _dealCountryCode).trim().toUpperCase();
+      await _backend.refreshGameDeals(steamId, country: region.country);
+      final data =
+          await _backend.getGameDeals(steamId, country: region.country);
+      final countryCode = (data['countryCode']?.toString() ?? _dealCountryCode)
+          .trim()
+          .toUpperCase();
       final rows = _selectCountryRows(data, countryCode);
       if (!mounted) return;
       setState(() {
@@ -178,10 +212,15 @@ class _GameDetailPageState extends State<GameDetailPage> {
 
   Future<void> _ensureAllDealsLoaded() async {
     if (_allDealsLoaded) return;
-    final steamId = widget.game.steamAppID.trim().isNotEmpty ? widget.game.steamAppID.trim() : widget.game.appId.trim();
+    final steamId = widget.game.steamAppID.trim().isNotEmpty
+        ? widget.game.steamAppID.trim()
+        : widget.game.appId.trim();
     if (steamId.isEmpty) return;
-    final data = await _backend.getGameDeals(steamId);
-    final countryCode = (data['countryCode']?.toString() ?? _dealCountryCode).trim().toUpperCase();
+    final region = await PriceRegionResolver.resolve();
+    final data = await _backend.getGameDeals(steamId, country: region.country);
+    final countryCode = (data['countryCode']?.toString() ?? _dealCountryCode)
+        .trim()
+        .toUpperCase();
     final rows = _selectCountryRows(data, countryCode);
     if (!mounted) return;
     setState(() {
@@ -198,13 +237,16 @@ class _GameDetailPageState extends State<GameDetailPage> {
     );
   }
 
-  List<Map<String, dynamic>> _selectCountryRows(Map<String, dynamic> data, String countryCode) {
+  List<Map<String, dynamic>> _selectCountryRows(
+      Map<String, dynamic> data, String countryCode) {
     final allRows = (data['links'] as List<dynamic>? ?? [])
         .whereType<Map>()
         .map((e) => e.map((k, v) => MapEntry(k.toString(), v)))
         .toList();
     final scopedRows = allRows
-        .where((e) => (e['countryCode']?.toString() ?? '').trim().toUpperCase() == countryCode)
+        .where((e) =>
+            (e['countryCode']?.toString() ?? '').trim().toUpperCase() ==
+            countryCode)
         .toList();
     return scopedRows.isNotEmpty ? scopedRows : allRows;
   }
@@ -229,10 +271,14 @@ class _GameDetailPageState extends State<GameDetailPage> {
   }
 
   Future<void> _loadBoundDiscountUrl() async {
-    final steamId = widget.game.steamAppID.trim().isNotEmpty ? widget.game.steamAppID.trim() : widget.game.appId.trim();
+    final steamId = widget.game.steamAppID.trim().isNotEmpty
+        ? widget.game.steamAppID.trim()
+        : widget.game.appId.trim();
     if (steamId.isEmpty) return;
+    final region = await PriceRegionResolver.resolve();
     try {
-      final url = await _backend.getGameDiscountLink(steamId);
+      final url =
+          await _backend.getGameDiscountLink(steamId, country: region.country);
       if (!mounted) return;
       setState(() {
         _boundDiscountUrl = url.trim();
@@ -272,23 +318,21 @@ class _GameDetailPageState extends State<GameDetailPage> {
     });
   }
 
-  @override
-  void dispose() {
-    _pageController.dispose();
-    super.dispose();
-  }
-
   /// 若当前只有 1 张图且有 steamAppID，从 Steam 商店 API 拉取多张截图用于轮播
   Future<void> _loadMoreImages() async {
     final steamId = _resolvedSteamId();
     if (steamId.isEmpty) return;
+    final region = await PriceRegionResolver.resolve();
     try {
-      final list = await _steamApi.fetchSteamScreenshots(steamId);
+      final list = await _steamApi.fetchSteamScreenshots(steamId,
+          country: region.country);
       if (list.isEmpty || !mounted) return;
-      final fallbackCover = widget.game.image.isNotEmpty ? widget.game.image : '';
+      final fallbackCover =
+          widget.game.image.isNotEmpty ? widget.game.image : '';
       final merged = <String>[
         ...list,
-        if (fallbackCover.isNotEmpty && !list.contains(fallbackCover)) fallbackCover,
+        if (fallbackCover.isNotEmpty && !list.contains(fallbackCover))
+          fallbackCover,
       ];
       setState(() => _imageUrls = merged);
     } catch (_) {}
@@ -300,7 +344,9 @@ class _GameDetailPageState extends State<GameDetailPage> {
   }
 
   String get _storeUrl => widget.game.steamAppID.isNotEmpty
-      ? (_boundDiscountUrl.isNotEmpty ? _boundDiscountUrl : 'https://store.steampowered.com/app/${widget.game.steamAppID}')
+      ? (_boundDiscountUrl.isNotEmpty
+          ? _boundDiscountUrl
+          : 'https://store.steampowered.com/app/${widget.game.steamAppID}')
       : (_boundDiscountUrl.isNotEmpty ? _boundDiscountUrl : '');
 
   String get _steamStoreUrl {
@@ -317,8 +363,10 @@ class _GameDetailPageState extends State<GameDetailPage> {
     final candidates = <Uri>[
       Uri.parse('steam://store/$steamId'),
       Uri.parse('steam://openurl/$webUrl'),
-      Uri.parse('market://details?id=com.valvesoftware.android.steam.community'),
-      Uri.parse('https://play.google.com/store/apps/details?id=com.valvesoftware.android.steam.community'),
+      Uri.parse(
+          'market://details?id=com.valvesoftware.android.steam.community'),
+      Uri.parse(
+          'https://play.google.com/store/apps/details?id=com.valvesoftware.android.steam.community'),
       Uri.parse(webUrl),
     ];
     for (final uri in candidates) {
@@ -366,7 +414,9 @@ class _GameDetailPageState extends State<GameDetailPage> {
       );
       await Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => const SubscriptionPage(paywallSource: 'wishlist_gate')),
+        MaterialPageRoute(
+            builder: (_) =>
+                const SubscriptionPage(paywallSource: 'wishlist_gate')),
       );
       if (!mounted) return;
       setState(() => _isPro = false);
@@ -378,6 +428,26 @@ class _GameDetailPageState extends State<GameDetailPage> {
   }
 
   Future<void> _onTapDealSource(String source) async {
+    final regionCfg = AppRemoteConfig.instance.regionSettings;
+    if (regionCfg.showRegionWarning) {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Region Notice'),
+          content: const Text(
+              'This deal may have activation or purchase restrictions in your selected region.'),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel')),
+            FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Continue')),
+          ],
+        ),
+      );
+      if (ok != true) return;
+    }
     if (source == 'steam') {
       await _openSteam();
       return;
@@ -390,7 +460,9 @@ class _GameDetailPageState extends State<GameDetailPage> {
       );
       await Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => const SubscriptionPage(paywallSource: 'deal_source_gate')),
+        MaterialPageRoute(
+            builder: (_) =>
+                const SubscriptionPage(paywallSource: 'deal_source_gate')),
       );
       if (!mounted) return;
       setState(() => _isPro = false);
@@ -406,7 +478,8 @@ class _GameDetailPageState extends State<GameDetailPage> {
         .toList();
     if (rows.isEmpty) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('该平台当前暂无可用折扣信息')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('该平台当前暂无可用折扣信息')));
       return;
     }
     if (!mounted) return;
@@ -417,7 +490,8 @@ class _GameDetailPageState extends State<GameDetailPage> {
         child: ListView.separated(
           shrinkWrap: true,
           itemCount: rows.length,
-          separatorBuilder: (_, __) => const Divider(height: 1, color: Colors.white12),
+          separatorBuilder: (_, __) =>
+              const Divider(height: 1, color: Colors.white12),
           itemBuilder: (_, i) {
             final r = rows[i];
             final cc = (r['countryCode'] ?? 'US').toString();
@@ -428,19 +502,22 @@ class _GameDetailPageState extends State<GameDetailPage> {
             return ListTile(
               title: Text(
                 '$source ($cc${_dealCountryCode.isNotEmpty ? ' · 当前$_dealCountryCode' : ''})',
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                style: const TextStyle(
+                    color: Colors.white, fontWeight: FontWeight.w600),
               ),
               subtitle: Text(
                 '${discount is num ? '折扣 ${discount.toInt()}%' : '折扣信息'}'
                 '${(original is num || finalPrice is num) ? ' · 原价 ${(original is num ? original.toStringAsFixed(2) : '-')} 现价 ${(finalPrice is num ? finalPrice.toStringAsFixed(2) : '-')}' : ''}',
                 style: const TextStyle(color: Colors.white70),
               ),
-              trailing: const Icon(Icons.open_in_new, color: Colors.white70, size: 18),
+              trailing: const Icon(Icons.open_in_new,
+                  color: Colors.white70, size: 18),
               onTap: () async {
                 if (url.isEmpty) return;
                 final uri = Uri.parse(url);
                 if (await url_launcher.canLaunchUrl(uri)) {
-                  await url_launcher.launchUrl(uri, mode: url_launcher.LaunchMode.externalApplication);
+                  await url_launcher.launchUrl(uri,
+                      mode: url_launcher.LaunchMode.externalApplication);
                 }
               },
             );
@@ -455,7 +532,9 @@ class _GameDetailPageState extends State<GameDetailPage> {
     final game = widget.game;
     final l10n = AppLocalizations.of(context);
     final score = AlgorithmService().calculateScore(game);
-    final imageUrls = _imageUrls.isNotEmpty ? _imageUrls : (game.image.isNotEmpty ? [game.image] : []);
+    final imageUrls = _imageUrls.isNotEmpty
+        ? _imageUrls
+        : (game.image.isNotEmpty ? [game.image] : []);
     final hasImages = imageUrls.isNotEmpty && imageUrls.first.isNotEmpty;
 
     return Scaffold(
@@ -470,13 +549,16 @@ class _GameDetailPageState extends State<GameDetailPage> {
               background: hasImages
                   ? PageView.builder(
                       controller: _pageController,
-                      onPageChanged: (i) => setState(() => _currentImageIndex = i),
+                      onPageChanged: (i) =>
+                          setState(() => _currentImageIndex = i),
                       itemCount: imageUrls.length,
                       itemBuilder: (_, i) => CachedNetworkImage(
                         imageUrl: imageUrls[i],
                         fit: BoxFit.cover,
-                        placeholder: (_, __) => const ColoredBox(color: AppColors.cardDark),
-                        errorWidget: (_, __, ___) => const ColoredBox(color: AppColors.cardDark),
+                        placeholder: (_, __) =>
+                            const ColoredBox(color: AppColors.cardDark),
+                        errorWidget: (_, __, ___) =>
+                            const ColoredBox(color: AppColors.cardDark),
                       ),
                     )
                   : const ColoredBox(color: AppColors.cardDark),
@@ -496,7 +578,9 @@ class _GameDetailPageState extends State<GameDetailPage> {
                             height: 6,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              color: i == _currentImageIndex ? Colors.white : Colors.white24,
+                              color: i == _currentImageIndex
+                                  ? Colors.white
+                                  : Colors.white24,
                             ),
                           ),
                         ),
@@ -506,7 +590,8 @@ class _GameDetailPageState extends State<GameDetailPage> {
                 : null,
             actions: [
               IconButton(
-                icon: Icon(_inWishlist ? Icons.favorite : Icons.favorite_border),
+                icon:
+                    Icon(_inWishlist ? Icons.favorite : Icons.favorite_border),
                 color: _inWishlist ? AppColors.discountRed : Colors.white70,
                 onPressed: _toggleWishlistWithProGate,
               ),
@@ -515,7 +600,9 @@ class _GameDetailPageState extends State<GameDetailPage> {
                 onPressed: () {
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text(l10n.get('share_return_hint')), duration: const Duration(seconds: 4)),
+                      SnackBar(
+                          content: Text(l10n.get('share_return_hint')),
+                          duration: const Duration(seconds: 4)),
                     );
                   }
                   Share.share(
@@ -550,7 +637,8 @@ class _GameDetailPageState extends State<GameDetailPage> {
                   if (game.saleEndTime > 0 || game.lastChange > 0) ...[
                     const SizedBox(height: 10),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 6),
                       decoration: BoxDecoration(
                         color: AppColors.cardDark,
                         borderRadius: BorderRadius.circular(10),
@@ -558,8 +646,11 @@ class _GameDetailPageState extends State<GameDetailPage> {
                       child: Text(
                         game.saleEndTime > 0
                             ? 'Ends in ${formatCountdown(game.saleEndTime)}'
-                            : (game.lastChange > 0 ? formatLastChange(game.lastChange) : ''),
-                        style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                            : (game.lastChange > 0
+                                ? formatLastChange(game.lastChange)
+                                : ''),
+                        style: const TextStyle(
+                            fontSize: 13, color: AppColors.textSecondary),
                       ),
                     ),
                   ],
@@ -567,11 +658,13 @@ class _GameDetailPageState extends State<GameDetailPage> {
                     const SizedBox(height: 10),
                     Row(
                       children: [
-                        Icon(Icons.people_outline, size: 18, color: AppColors.textSecondary),
+                        Icon(Icons.people_outline,
+                            size: 18, color: AppColors.textSecondary),
                         const SizedBox(width: 6),
                         Text(
                           '${_formatPlayerCount(_currentPlayers!)} ${l10n.get('playing_now')}',
-                          style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                          style: const TextStyle(
+                              fontSize: 13, color: AppColors.textSecondary),
                         ),
                       ],
                     ),
@@ -586,21 +679,51 @@ class _GameDetailPageState extends State<GameDetailPage> {
                     refreshingDeals: _refreshingDeals,
                     dealsCacheUpdatedAt: _dealsCacheUpdatedAt,
                     dealsUsingCache: _dealsUsingCache,
+                    showRegionWarning: AppRemoteConfig
+                        .instance.regionSettings.showRegionWarning,
+                    selectedCountry: _priceCountry,
                     onAddToWishlist: () {
                       if (!_inWishlist) _toggleWishlistWithProGate();
                     },
                   ),
                   const SizedBox(height: 16),
+                  if (AppRemoteConfig.instance.regionSettings.showRegionWarning)
+                    Container(
+                      width: double.infinity,
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: AppColors.cardDark,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.white12),
+                      ),
+                      child: const Text(
+                        'Prices may vary by region. Check activation region before purchase.',
+                        style: TextStyle(
+                            fontSize: 12, color: AppColors.textSecondary),
+                      ),
+                    ),
                   SizedBox(
                     width: double.infinity,
                     child: OutlinedButton.icon(
                       onPressed: _toggleWishlistWithProGate,
-                      icon: Icon(_inWishlist ? Icons.favorite : Icons.favorite_border, size: 20),
-                      label: Text(_inWishlist ? l10n.get('remove_from_wishlist') : l10n.get('add_to_wishlist')),
+                      icon: Icon(
+                          _inWishlist ? Icons.favorite : Icons.favorite_border,
+                          size: 20),
+                      label: Text(_inWishlist
+                          ? l10n.get('remove_from_wishlist')
+                          : l10n.get('add_to_wishlist')),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: _inWishlist ? AppColors.discountRed : AppColors.itadOrange,
-                        side: BorderSide(color: _inWishlist ? AppColors.discountRed : AppColors.itadOrange),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        foregroundColor: _inWishlist
+                            ? AppColors.discountRed
+                            : AppColors.itadOrange,
+                        side: BorderSide(
+                            color: _inWishlist
+                                ? AppColors.discountRed
+                                : AppColors.itadOrange),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14)),
                         padding: const EdgeInsets.symmetric(vertical: 14),
                       ),
                     ),
@@ -626,7 +749,10 @@ class _GameDetailPageState extends State<GameDetailPage> {
                           onPressed: () {
                             if (mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text(l10n.get('share_return_hint')), duration: const Duration(seconds: 4)),
+                                SnackBar(
+                                    content:
+                                        Text(l10n.get('share_return_hint')),
+                                    duration: const Duration(seconds: 4)),
                               );
                             }
                             Share.share(
@@ -637,8 +763,10 @@ class _GameDetailPageState extends State<GameDetailPage> {
                           label: Text(l10n.get('share')),
                           style: OutlinedButton.styleFrom(
                             foregroundColor: AppColors.textPrimary,
-                            side: const BorderSide(color: AppColors.textSecondary),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                            side: const BorderSide(
+                                color: AppColors.textSecondary),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14)),
                             padding: const EdgeInsets.symmetric(vertical: 14),
                           ),
                         ),
@@ -661,7 +789,8 @@ class _GameDetailPageState extends State<GameDetailPage> {
 
   static String _formatPlayerCount(int n) {
     if (n < 1000) return '$n';
-    if (n < 1000000) return '${(n / 1000).toStringAsFixed(1).replaceAll(RegExp(r'\.0$'), '')}K';
+    if (n < 1000000)
+      return '${(n / 1000).toStringAsFixed(1).replaceAll(RegExp(r'\.0$'), '')}K';
     return '${(n / 1000000).toStringAsFixed(1).replaceAll(RegExp(r'\.0$'), '')}M';
   }
 
@@ -676,13 +805,20 @@ class _GameDetailPageState extends State<GameDetailPage> {
         onTap: game.steamAppID.isNotEmpty ? _openSteam : null,
       );
     }
-    final spots = points.asMap().entries.map((e) => FlSpot(e.key.toDouble(), (e.value['price'] as num).toDouble())).toList();
+    final spots = points
+        .asMap()
+        .entries
+        .map((e) =>
+            FlSpot(e.key.toDouble(), (e.value['price'] as num).toDouble()))
+        .toList();
     final prices = points.map((p) => (p['price'] as num).toDouble()).toList();
     final minP = prices.reduce((a, b) => a < b ? a : b);
     final maxP = prices.reduce((a, b) => a > b ? a : b);
     final minY = (minP - 1).clamp(0.0, double.infinity);
     final maxY = maxP + 1;
-    final showBottomAt = <int>{0, points.length ~/ 2, points.length - 1}.where((i) => i >= 0 && i < points.length).toSet();
+    final showBottomAt = <int>{0, points.length ~/ 2, points.length - 1}
+        .where((i) => i >= 0 && i < points.length)
+        .toSet();
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -717,24 +853,55 @@ class _GameDetailPageState extends State<GameDetailPage> {
                     color: AppColors.itadOrange,
                     barWidth: 2,
                     dotData: const FlDotData(show: true),
-                    belowBarData: BarAreaData(show: true, color: AppColors.itadOrange.withOpacity(0.15)),
+                    belowBarData: BarAreaData(
+                        show: true,
+                        color: AppColors.itadOrange.withOpacity(0.15)),
                   ),
                 ],
                 titlesData: FlTitlesData(
-                  leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 36, getTitlesWidget: (v, _) => Text('\$${v.toStringAsFixed(v.truncateToDouble() == v ? 0 : 1)}', style: const TextStyle(color: AppColors.textSecondary, fontSize: 10)))),
-                  bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 28, getTitlesWidget: (v, _) {
-                    final i = v.toInt();
-                    if (i < 0 || i >= points.length || !showBottomAt.contains(i)) return const SizedBox.shrink();
-                    final t = points[i]['t'];
-                    final tMs = t is int ? t : (t is num ? t.toInt() : 0);
-                    final dateStr = tMs > 0 ? _formatPriceHistoryDate(tMs) : '';
-                    final price = (points[i]['price'] as num).toStringAsFixed(2);
-                    return Text('$dateStr\n\$$price', style: const TextStyle(color: AppColors.textSecondary, fontSize: 9), textAlign: TextAlign.center, maxLines: 2);
-                  })),
-                  topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                  rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  leftTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                          showTitles: true,
+                          reservedSize: 36,
+                          getTitlesWidget: (v, _) => Text(
+                              '\$${v.toStringAsFixed(v.truncateToDouble() == v ? 0 : 1)}',
+                              style: const TextStyle(
+                                  color: AppColors.textSecondary,
+                                  fontSize: 10)))),
+                  bottomTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                          showTitles: true,
+                          reservedSize: 28,
+                          getTitlesWidget: (v, _) {
+                            final i = v.toInt();
+                            if (i < 0 ||
+                                i >= points.length ||
+                                !showBottomAt.contains(i))
+                              return const SizedBox.shrink();
+                            final t = points[i]['t'];
+                            final tMs =
+                                t is int ? t : (t is num ? t.toInt() : 0);
+                            final dateStr =
+                                tMs > 0 ? _formatPriceHistoryDate(tMs) : '';
+                            final price =
+                                (points[i]['price'] as num).toStringAsFixed(2);
+                            return Text('$dateStr\n\$$price',
+                                style: const TextStyle(
+                                    color: AppColors.textSecondary,
+                                    fontSize: 9),
+                                textAlign: TextAlign.center,
+                                maxLines: 2);
+                          })),
+                  topTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false)),
+                  rightTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false)),
                 ),
-                gridData: FlGridData(show: true, drawVerticalLine: false, getDrawingHorizontalLine: (_) => FlLine(color: AppColors.textSecondary.withOpacity(0.2))),
+                gridData: FlGridData(
+                    show: true,
+                    drawVerticalLine: false,
+                    getDrawingHorizontalLine: (_) => FlLine(
+                        color: AppColors.textSecondary.withOpacity(0.2))),
                 borderData: FlBorderData(show: false),
               ),
               duration: const Duration(milliseconds: 200),
@@ -754,7 +921,8 @@ class _GameDetailPageState extends State<GameDetailPage> {
                 return Padding(
                   padding: const EdgeInsets.only(right: 12),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                     decoration: BoxDecoration(
                       color: AppColors.cardElevated.withOpacity(0.6),
                       borderRadius: BorderRadius.circular(8),
@@ -764,8 +932,14 @@ class _GameDetailPageState extends State<GameDetailPage> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(dateStr, style: const TextStyle(color: AppColors.textSecondary, fontSize: 10)),
-                        Text('\$$price', style: const TextStyle(color: AppColors.itadOrangeLight, fontSize: 12, fontWeight: FontWeight.w600)),
+                        Text(dateStr,
+                            style: const TextStyle(
+                                color: AppColors.textSecondary, fontSize: 10)),
+                        Text('\$$price',
+                            style: const TextStyle(
+                                color: AppColors.itadOrangeLight,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600)),
                       ],
                     ),
                   ),
@@ -780,9 +954,14 @@ class _GameDetailPageState extends State<GameDetailPage> {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(l10n.get('view_full_history_steam'), style: const TextStyle(fontSize: 12, color: AppColors.itadOrange, fontWeight: FontWeight.w600)),
+                  Text(l10n.get('view_full_history_steam'),
+                      style: const TextStyle(
+                          fontSize: 12,
+                          color: AppColors.itadOrange,
+                          fontWeight: FontWeight.w600)),
                   const SizedBox(width: 4),
-                  const Icon(Icons.open_in_new, size: 12, color: AppColors.itadOrange),
+                  const Icon(Icons.open_in_new,
+                      size: 12, color: AppColors.itadOrange),
                 ],
               ),
             ),
@@ -792,7 +971,8 @@ class _GameDetailPageState extends State<GameDetailPage> {
     );
   }
 
-  Widget _sectionCard(String title, String value, String subtitle, {Color? valueColor, VoidCallback? onTap}) {
+  Widget _sectionCard(String title, String value, String subtitle,
+      {Color? valueColor, VoidCallback? onTap}) {
     final card = Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -823,7 +1003,8 @@ class _GameDetailPageState extends State<GameDetailPage> {
           const SizedBox(height: 2),
           Text(
             subtitle,
-            style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+            style:
+                const TextStyle(fontSize: 12, color: AppColors.textSecondary),
           ),
         ],
       ),
@@ -841,14 +1022,20 @@ class _GameDetailPageState extends State<GameDetailPage> {
   Widget _reviewsSection(BuildContext context, GameModel game) {
     final l10n = AppLocalizations.of(context);
     final hasSteam = game.steamAppID.isNotEmpty;
-    final reviewsUrl = hasSteam ? 'https://store.steampowered.com/app/${game.steamAppID}/#app_reviews_hash' : '';
+    final reviewsUrl = hasSteam
+        ? 'https://store.steampowered.com/app/${game.steamAppID}/#app_reviews_hash'
+        : '';
     final sm = _reviewSummary;
     final desc = sm?['review_score_desc']?.toString() ?? '';
     final pctVal = sm?['positive_percent'];
     final totalVal = sm?['total_reviews'];
-    final pct = pctVal is int ? pctVal : (pctVal is num ? pctVal.toInt() : null);
-    final totalAll = totalVal is int ? totalVal : (totalVal is num ? totalVal.toInt() : null);
-    final showAggregate = sm != null && pct != null && totalAll != null && totalAll > 0;
+    final pct =
+        pctVal is int ? pctVal : (pctVal is num ? pctVal.toInt() : null);
+    final totalAll = totalVal is int
+        ? totalVal
+        : (totalVal is num ? totalVal.toInt() : null);
+    final showAggregate =
+        sm != null && pct != null && totalAll != null && totalAll > 0;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -875,16 +1062,19 @@ class _GameDetailPageState extends State<GameDetailPage> {
               if (showAggregate)
                 Flexible(
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                     decoration: BoxDecoration(
                       color: AppColors.itadOrange.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: AppColors.itadOrange.withValues(alpha: 0.35)),
+                      border: Border.all(
+                          color: AppColors.itadOrange.withValues(alpha: 0.35)),
                     ),
                     child: Text(
                       l10n
                           .get('reviews_aggregate_hint')
-                          .replaceAll('{label}', desc.isNotEmpty ? desc : 'Steam')
+                          .replaceAll(
+                              '{label}', desc.isNotEmpty ? desc : 'Steam')
                           .replaceAll('{pct}', '$pct')
                           .replaceAll('{total}', '$totalAll'),
                       textAlign: TextAlign.right,
@@ -903,22 +1093,38 @@ class _GameDetailPageState extends State<GameDetailPage> {
             Padding(
               padding: const EdgeInsets.only(top: 6),
               child: Text(
-                l10n.get('reviews_showing_latest').replaceAll('{n}', '${_topReviews.length}'),
-                style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
+                l10n
+                    .get('reviews_showing_latest')
+                    .replaceAll('{n}', '${_topReviews.length}'),
+                style: const TextStyle(
+                    fontSize: 11, color: AppColors.textSecondary),
               ),
             )
           else if (game.steamRatingText.isNotEmpty) ...[
             const SizedBox(height: 4),
             Text(
               game.steamRatingText,
-              style: const TextStyle(fontSize: 13, color: AppColors.textPrimary, fontWeight: FontWeight.w600),
+              style: const TextStyle(
+                  fontSize: 13,
+                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.w600),
             ),
-            if (game.steamRatingCount > 0) Text('${game.steamRatingCount} ${l10n.get('reviews_count')}', style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+            if (game.steamRatingCount > 0)
+              Text('${game.steamRatingCount} ${l10n.get('reviews_count')}',
+                  style: const TextStyle(
+                      fontSize: 11, color: AppColors.textSecondary)),
           ],
           if (_topReviews.isEmpty && hasSteam)
             const Padding(
-              padding: EdgeInsets.only(top: 8),
-              child: SizedBox(height: 24, child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))))),
+                padding: EdgeInsets.only(top: 8),
+                child: SizedBox(
+                    height: 24,
+                    child: Center(
+                        child: SizedBox(
+                            width: 20,
+                            height: 20,
+                            child:
+                                CircularProgressIndicator(strokeWidth: 2))))),
           ..._topReviews.map((r) => _reviewTile(r, l10n)),
           if (hasSteam) ...[
             const SizedBox(height: 10),
@@ -927,15 +1133,21 @@ class _GameDetailPageState extends State<GameDetailPage> {
                 if (reviewsUrl.isEmpty) return;
                 final uri = Uri.parse(reviewsUrl);
                 if (await url_launcher.canLaunchUrl(uri)) {
-                  await url_launcher.launchUrl(uri, mode: url_launcher.LaunchMode.externalApplication);
+                  await url_launcher.launchUrl(uri,
+                      mode: url_launcher.LaunchMode.externalApplication);
                 }
               },
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(l10n.get('see_more_on_steam'), style: const TextStyle(fontSize: 13, color: AppColors.itadOrange, fontWeight: FontWeight.w600)),
+                  Text(l10n.get('see_more_on_steam'),
+                      style: const TextStyle(
+                          fontSize: 13,
+                          color: AppColors.itadOrange,
+                          fontWeight: FontWeight.w600)),
                   const SizedBox(width: 4),
-                  const Icon(Icons.open_in_new, size: 14, color: AppColors.itadOrange),
+                  const Icon(Icons.open_in_new,
+                      size: 14, color: AppColors.itadOrange),
                 ],
               ),
             ),
@@ -948,7 +1160,8 @@ class _GameDetailPageState extends State<GameDetailPage> {
   Widget _reviewTile(Map<String, dynamic> r, AppLocalizations l10n) {
     final content = (r['content'] as String?) ?? '';
     if (content.isEmpty) return const SizedBox.shrink();
-    final text = content.length > 200 ? '${content.substring(0, 200)}…' : content;
+    final text =
+        content.length > 200 ? '${content.substring(0, 200)}…' : content;
     final votes = (r['votes_up'] as int?) ?? 0;
     final votedUp = r['voted_up'] == true;
     final language = (r['language'] as String?) ?? '';
@@ -958,36 +1171,58 @@ class _GameDetailPageState extends State<GameDetailPage> {
       final dt = DateTime.fromMillisecondsSinceEpoch(ts * 1000);
       final now = DateTime.now();
       final diff = now.difference(dt);
-      if (diff.inDays > 365) timeStr = '${(diff.inDays / 365).floor()}y ago';
-      else if (diff.inDays > 30) timeStr = '${diff.inDays ~/ 30}mo ago';
-      else if (diff.inDays > 0) timeStr = '${diff.inDays}d ago';
-      else if (diff.inHours > 0) timeStr = '${diff.inHours}h ago';
-      else if (diff.inMinutes > 0) timeStr = '${diff.inMinutes}m ago';
-      else timeStr = l10n.get('just_now');
+      if (diff.inDays > 365)
+        timeStr = '${(diff.inDays / 365).floor()}y ago';
+      else if (diff.inDays > 30)
+        timeStr = '${diff.inDays ~/ 30}mo ago';
+      else if (diff.inDays > 0)
+        timeStr = '${diff.inDays}d ago';
+      else if (diff.inHours > 0)
+        timeStr = '${diff.inHours}h ago';
+      else if (diff.inMinutes > 0)
+        timeStr = '${diff.inMinutes}m ago';
+      else
+        timeStr = l10n.get('just_now');
     }
     return Padding(
       padding: const EdgeInsets.only(top: 12),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(votedUp ? Icons.thumb_up : Icons.thumb_down, size: 14, color: votedUp ? AppColors.itadOrange : AppColors.textSecondary),
+          Icon(votedUp ? Icons.thumb_up : Icons.thumb_down,
+              size: 14,
+              color: votedUp ? AppColors.itadOrange : AppColors.textSecondary),
           const SizedBox(width: 6),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(text, style: const TextStyle(fontSize: 13, color: AppColors.textPrimary, height: 1.35)),
+                Text(text,
+                    style: const TextStyle(
+                        fontSize: 13,
+                        color: AppColors.textPrimary,
+                        height: 1.35)),
                 const SizedBox(height: 4),
                 Row(
                   children: [
-                    Text('$votes ${l10n.get('reviews_helpful')}', style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                    Text('$votes ${l10n.get('reviews_helpful')}',
+                        style: const TextStyle(
+                            fontSize: 11, color: AppColors.textSecondary)),
                     if (timeStr.isNotEmpty) ...[
-                      const Text(' · ', style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
-                      Text(timeStr, style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                      const Text(' · ',
+                          style: TextStyle(
+                              fontSize: 11, color: AppColors.textSecondary)),
+                      Text(timeStr,
+                          style: const TextStyle(
+                              fontSize: 11, color: AppColors.textSecondary)),
                     ],
                     if (language.isNotEmpty) ...[
-                      const Text(' · ', style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
-                      Text(language, style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+                      const Text(' · ',
+                          style: TextStyle(
+                              fontSize: 11, color: AppColors.textSecondary)),
+                      Text(language,
+                          style: const TextStyle(
+                              fontSize: 11, color: AppColors.textSecondary)),
                     ],
                   ],
                 ),
@@ -1001,10 +1236,11 @@ class _GameDetailPageState extends State<GameDetailPage> {
 
   Widget _priceSection() {
     final game = widget.game;
-    final Map<String, dynamic>? steamRow = _dealLinks.cast<Map<String, dynamic>?>().firstWhere(
-          (d) => (d?['source']?.toString() ?? '') == 'steam',
-          orElse: () => null,
-        );
+    final Map<String, dynamic>? steamRow =
+        _dealLinks.cast<Map<String, dynamic>?>().firstWhere(
+              (d) => (d?['source']?.toString() ?? '') == 'steam',
+              orElse: () => null,
+            );
     double current = game.price;
     double original = game.originalPrice;
     int discount = game.discount;
@@ -1049,7 +1285,10 @@ class _GameDetailPageState extends State<GameDetailPage> {
               ),
               child: Text(
                 '-$discount%',
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12),
               ),
             ),
           ],
@@ -1067,9 +1306,9 @@ class _GameDetailPageState extends State<GameDetailPage> {
       ),
       child: Text(
         'AI ${score.toStringAsFixed(1)}',
-        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+        style: const TextStyle(
+            color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
       ),
     );
   }
-
 }

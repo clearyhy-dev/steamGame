@@ -81,7 +81,8 @@ Future<void> _handleSteamAuthDeepLink(Uri? uri) async {
         final endsAtRaw = trial['endsAt']?.toString() ?? '';
         if (endsAtRaw.isNotEmpty) {
           try {
-            await StorageService.instance.setBackendTrialUntil(DateTime.parse(endsAtRaw));
+            await StorageService.instance
+                .setBackendTrialUntil(DateTime.parse(endsAtRaw));
           } catch (_) {}
         }
       }
@@ -134,7 +135,9 @@ Future<void> _handleSteamAuthDeepLink(Uri? uri) async {
         if (ctx == null) return;
         failSnackShown = true;
         ScaffoldMessenger.of(ctx).showSnackBar(
-          SnackBar(content: Text('Steam 登录失败：$reason'), duration: const Duration(seconds: 5)),
+          SnackBar(
+              content: Text('Steam 登录失败：$reason'),
+              duration: const Duration(seconds: 5)),
         );
       }
 
@@ -156,7 +159,8 @@ Future<void> _syncTrialFromBackendIfLoggedIn() async {
       final endsAtRaw = trial['endsAt']?.toString() ?? '';
       if (endsAtRaw.isNotEmpty) {
         try {
-          await StorageService.instance.setBackendTrialUntil(DateTime.parse(endsAtRaw));
+          await StorageService.instance
+              .setBackendTrialUntil(DateTime.parse(endsAtRaw));
         } catch (_) {}
       }
     }
@@ -196,7 +200,8 @@ void main() async {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.warning_amber_rounded, size: 48, color: Colors.orange),
+              const Icon(Icons.warning_amber_rounded,
+                  size: 48, color: Colors.orange),
               const SizedBox(height: 16),
               Text(
                 'Something went wrong.',
@@ -205,7 +210,10 @@ void main() async {
               ),
               if (kDebugMode) ...[
                 const SizedBox(height: 12),
-                Text(details.exceptionAsString(), style: TextStyle(color: Colors.grey[500], fontSize: 12), maxLines: 3, overflow: TextOverflow.ellipsis),
+                Text(details.exceptionAsString(),
+                    style: TextStyle(color: Colors.grey[500], fontSize: 12),
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis),
               ],
             ],
           ),
@@ -242,7 +250,7 @@ Future<void> _init() async {
   try {
     await AppRemoteConfig.instance.loadRegionSettings(ApiConstants.baseUrl);
     final region = await PriceRegionResolver.resolve();
-    AppRemoteConfig.instance.setActivePriceRegion(region);
+    AppRemoteConfig.instance.setActivePriceRegion(region.country);
   } catch (e) {
     debugPrint('AppRemoteConfig.loadRegionSettings: $e');
     AppRemoteConfig.instance.setActivePriceRegion('US');
@@ -318,8 +326,10 @@ Future<void> _init() async {
       final storage = StorageService.instance;
       await storage.init();
       final locale = await storage.getPreferredLocale();
-      final title = AppLocalizations.getStringForLocale(locale, 'notification_on_enabled_title');
-      final body = AppLocalizations.getStringForLocale(locale, 'notification_on_enabled_body');
+      final title = AppLocalizations.getStringForLocale(
+          locale, 'notification_on_enabled_title');
+      final body = AppLocalizations.getStringForLocale(
+          locale, 'notification_on_enabled_body');
       await NotificationService.instance.showNotification(
         title,
         body,
@@ -338,7 +348,10 @@ Future<void> _init() async {
     await storage.init();
     final lastScheduled = await storage.getLastDailyTaskScheduledAt();
     final shouldSchedule = lastScheduled == null ||
-        DateTime.now().difference(DateTime.tryParse(lastScheduled) ?? DateTime(0)).inHours >= 20;
+        DateTime.now()
+                .difference(DateTime.tryParse(lastScheduled) ?? DateTime(0))
+                .inHours >=
+            20;
     if (shouldSchedule) {
       final locale = await storage.getPreferredLocale();
       final delay = ScheduleConfig.delayUntilNextSlot(locale);
@@ -348,13 +361,17 @@ Future<void> _init() async {
         initialDelay: delay,
         existingWorkPolicy: ExistingWorkPolicy.replace,
       );
-      await storage.setLastDailyTaskScheduledAt(DateTime.now().toUtc().toIso8601String());
+      await storage.setLastDailyTaskScheduledAt(
+          DateTime.now().toUtc().toIso8601String());
     }
 
     // Pro 愿望单：每天 11:00 / 17:00 / 20:00（按语言时区）
     final lastWishlist = await storage.getLastWishlistTaskScheduledAt();
     final shouldScheduleWishlist = lastWishlist == null ||
-        DateTime.now().difference(DateTime.tryParse(lastWishlist) ?? DateTime(0)).inHours >= 20;
+        DateTime.now()
+                .difference(DateTime.tryParse(lastWishlist) ?? DateTime(0))
+                .inHours >=
+            20;
     if (shouldScheduleWishlist) {
       final locale = await storage.getPreferredLocale();
       final delayWishlist = ScheduleConfig.delayUntilNextSlot(locale);
@@ -364,7 +381,8 @@ Future<void> _init() async {
         initialDelay: delayWishlist,
         existingWorkPolicy: ExistingWorkPolicy.replace,
       );
-      await storage.setLastWishlistTaskScheduledAt(DateTime.now().toUtc().toIso8601String());
+      await storage.setLastWishlistTaskScheduledAt(
+          DateTime.now().toUtc().toIso8601String());
     }
   } catch (e) {
     debugPrint('Workmanager.init: $e');

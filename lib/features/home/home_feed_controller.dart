@@ -6,6 +6,7 @@ import '../../core/services/algorithm_service.dart';
 import '../../core/services/cache_service.dart';
 import '../../core/services/game_service.dart';
 import '../../core/storage_service.dart';
+import '../../core/utils/price_region_resolver.dart';
 import '../../core/utils/score_calculator.dart';
 import '../../models/game_model.dart';
 import '../../services/steam_backend_service.dart';
@@ -70,7 +71,9 @@ class HomeFeedController extends ChangeNotifier {
       dealsLoading = true;
       notifyListeners();
       try {
-        final latest = await _gameService.fetchGames(pageSize: 60);
+        final region = await PriceRegionResolver.resolve();
+        final latest = await _gameService.fetchGames(
+            pageSize: 60, country: region.country);
         if (latest.isNotEmpty) {
           final deduped = deduplicateDeals(latest);
           await cache.saveGames(deduped);
@@ -93,7 +96,9 @@ class HomeFeedController extends ChangeNotifier {
       statsLoading = false;
       steamFriendCount = null;
       steamFriendsOnline = null;
-      welcomeDisplayName = (prof['personaName'] ?? '').trim().isEmpty ? null : prof['personaName'];
+      welcomeDisplayName = (prof['personaName'] ?? '').trim().isEmpty
+          ? null
+          : prof['personaName'];
       steamLinkedUi = sid.isNotEmpty;
       notifyListeners();
       return;
@@ -136,7 +141,8 @@ class HomeFeedController extends ChangeNotifier {
       for (final f in friends) {
         if (f is! Map) continue;
         final ps = f['personaState'];
-        final n = ps is num ? ps.toInt() : int.tryParse(ps?.toString() ?? '') ?? 0;
+        final n =
+            ps is num ? ps.toInt() : int.tryParse(ps?.toString() ?? '') ?? 0;
         if (n != 0) online++;
       }
       steamFriendsOnline = online;

@@ -5,15 +5,19 @@ import '../../services/steam_api_service.dart';
 class ApiService {
   static final _api = SteamApiService();
 
-  static Future<List<GameModel>> fetchDeals({int pageSize = 60, int pageNumber = 0}) async {
-    return _api.fetchDeals(pageSize: pageSize, pageNumber: pageNumber);
+  static Future<List<GameModel>> fetchDeals(
+      {int pageSize = 60, int pageNumber = 0, String? country}) async {
+    return _api.fetchDeals(
+        pageSize: pageSize, pageNumber: pageNumber, country: country);
   }
 
-  static Future<GameModel> fetchGameById(String dealId) async {
-    return _api.fetchGameById(dealId);
+  static Future<GameModel> fetchGameById(String dealId,
+      {String? country}) async {
+    return _api.fetchGameById(dealId, country: country);
   }
 
-  static Future<List<GameModel>> searchGames(String title, {int pageSize = 20}) async {
-    return _api.searchGames(title, pageSize: pageSize);
+  static Future<List<GameModel>> searchGames(String title,
+      {int pageSize = 20, String? country}) async {
+    return _api.searchGames(title, pageSize: pageSize, country: country);
   }
 }
