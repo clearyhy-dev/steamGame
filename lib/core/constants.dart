@@ -90,6 +90,10 @@ class AppConstants {
 
   /// 用户选择的语言（如 en, zh），空表示跟随系统
   static const String keyPreferredLocale = 'preferred_locale';
+  /// 用户手动选择的价格区域（如 US, JP）
+  static const String keySelectedPriceRegion = 'selected_price_region';
+  /// 后端 region settings 缓存
+  static const String keyRegionSettingsCache = 'region_settings_cache_v1';
 
   /// 是否开启前台服务（常驻通知 + 后台收折扣），默认 true
   static const String keyForegroundServiceEnabled = 'foreground_service_enabled';

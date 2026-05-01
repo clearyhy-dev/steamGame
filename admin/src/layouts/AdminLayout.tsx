@@ -23,6 +23,7 @@ const items = [
   { key: '/steam-games', icon: <AppstoreOutlined />, label: 'App Games' },
   { key: '/users', icon: <TeamOutlined />, label: 'Users' },
   { key: '/settings', icon: <SettingOutlined />, label: 'Settings' },
+  { key: '/price-region-settings', icon: <SettingOutlined />, label: 'Price & Region' },
 ];
 
 export function AdminLayout() {

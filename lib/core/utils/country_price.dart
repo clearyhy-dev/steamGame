@@ -1,29 +1,16 @@
 import 'package:intl/intl.dart';
 
 import '../app_remote_config.dart';
-import '../constants.dart';
-import '../storage_service.dart';
+import 'price_region_resolver.dart';
 
 class CountryPrice {
-  static Set<String> get supportedCountries => AppRemoteConfig.instance.supportedDealCountries.toSet();
+  static Set<String> get supportedCountries => AppRemoteConfig.instance.regionSettings.enabledCountries.toSet();
   static Map<String, String> get _countryCurrency => AppRemoteConfig.instance.countryCurrencyMap;
-  static Map<String, String> get _localeToCountry => AppRemoteConfig.instance.countryMap;
 
   static String resolveCountryCode() {
-    final storage = StorageService.instance;
-    if (!storage.isInitialized) return 'US';
-    final raw = (storage.prefs.getString(AppConstants.keyPreferredLocale) ?? '').trim();
-    if (raw.isEmpty) return 'US';
-    final normalized = raw.replaceAll('-', '_');
-    final parts = normalized.split('_').where((e) => e.isNotEmpty).toList();
-    final direct = raw.toUpperCase();
-    if (supportedCountries.contains(direct)) return direct;
-    if (parts.length >= 2) {
-      final cc = parts[1].toUpperCase();
-      if (supportedCountries.contains(cc)) return cc;
-    }
-    final locale = (parts.isNotEmpty ? parts.first : raw).toLowerCase();
-    return _localeToCountry[locale.toUpperCase()] ?? _localeToCountry[locale] ?? 'US';
+    final cc = PriceRegionResolver.resolveSync().toUpperCase();
+    if (supportedCountries.contains(cc)) return cc;
+    return AppRemoteConfig.instance.regionSettings.defaultCountry.toUpperCase();
   }
 
   static NumberFormat formatter({String? countryCode}) {

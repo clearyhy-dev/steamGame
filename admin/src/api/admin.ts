@@ -12,6 +12,7 @@ import type {
   VideoSourceRow,
   SteamSyncJobRow,
   DiscountProvidersSettings,
+  RegionSettings,
   RuntimeEffectiveSettings,
   RuntimeSettingsResponse,
 } from '../types';
@@ -51,6 +52,9 @@ export const adminApi = {
   getRuntimeSettings: () => unwrap(api.get<ApiEnvelope<RuntimeSettingsResponse>>('/api/admin/settings/runtime')),
   patchRuntimeSettings: (body: Partial<RuntimeEffectiveSettings> & { steamAutoSyncEnabled?: boolean }) =>
     unwrap(api.patch<ApiEnvelope<RuntimeSettingsResponse>>('/api/admin/settings/runtime', body)),
+  getRegionSettings: () => unwrap(api.get<ApiEnvelope<RegionSettings>>('/api/admin/settings/region-settings')),
+  patchRegionSettings: (body: Partial<RegionSettings>) =>
+    unwrap(api.patch<ApiEnvelope<RegionSettings>>('/api/admin/settings/region-settings', body)),
 
   videoSources: (params?: { sourceType?: string; gameId?: string }) =>
     unwrap(api.get<ApiEnvelope<VideoSourceRow[]>>('/api/admin/video-sources', { params })),

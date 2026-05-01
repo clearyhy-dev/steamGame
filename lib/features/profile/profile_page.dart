@@ -16,6 +16,7 @@ import '../onboarding/onboarding_page.dart';
 import '../../core/app_remote_config.dart';
 import '../../core/constants/api_constants.dart';
 import '../../services/steam_backend_service.dart';
+import '../../core/utils/price_region_resolver.dart';
 import '../../core/services/analytics_service.dart';
 import '../../core/steam_auth_events.dart';
 import 'package:url_launcher/url_launcher.dart' as url_launcher;
@@ -35,6 +36,7 @@ class _ProfilePageState extends State<ProfilePage> {
   bool _isPro = false;
   Map<String, String>? _user;
   String? _currentLocaleCode;
+  String? _currentPriceRegion;
 
   String? _steamId;
   String? _steamPersonaName;
@@ -73,6 +75,8 @@ class _ProfilePageState extends State<ProfilePage> {
     final pro = await StorageService.instance.isPro();
     final user = await AuthService().getCurrentUser();
     final localeCode = await StorageService.instance.getPreferredLocale();
+    final selectedPriceRegion = await StorageService.instance.getSelectedPriceRegion();
+    final resolvedPriceRegion = selectedPriceRegion ?? await PriceRegionResolver.resolve();
 
     String? steamToken;
     try {
@@ -114,6 +118,7 @@ class _ProfilePageState extends State<ProfilePage> {
         _isPro = pro;
         _user = user;
         _currentLocaleCode = localeCode;
+        _currentPriceRegion = resolvedPriceRegion;
         _steamId = steamId;
         _steamPersonaName = steamPersonaName;
         _statsSummary = statsSummary;
@@ -226,6 +231,54 @@ class _ProfilePageState extends State<ProfilePage> {
     await NotificationService.instance.rescheduleDaily();
     await widget.onLocaleChanged?.call();
     if (mounted) _load();
+  }
+
+  Future<void> _showPriceRegionPicker() async {
+    const preferredOrder = ['US', 'IN', 'JP', 'BR', 'PL', 'FR', 'DE', 'CN'];
+    final enabled = AppRemoteConfig.instance.regionSettings.enabledCountries.toSet();
+    final options = preferredOrder.where((c) => enabled.contains(c)).toList();
+    if (options.isEmpty) {
+      options.addAll(preferredOrder);
+    }
+    final selected = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.cardDark,
+        title: const Text(
+          'Price Region',
+          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+        ),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: options.length,
+            itemBuilder: (_, index) {
+              final code = options[index];
+              final isSelected = code == (_currentPriceRegion ?? '');
+              final currency = AppRemoteConfig.instance.regionSettings.countryCurrencyMap[code] ?? 'USD';
+              return ListTile(
+                title: Text(
+                  '$code ($currency)',
+                  style: const TextStyle(color: AppColors.textPrimary, fontSize: 16),
+                ),
+                trailing: isSelected ? const Icon(Icons.check, color: AppColors.itadOrange) : null,
+                onTap: () => Navigator.pop(ctx, code),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+    if (selected == null || selected == _currentPriceRegion) return;
+    await StorageService.instance.setSelectedPriceRegion(selected);
+    AppRemoteConfig.instance.setActivePriceRegion(selected);
+    if (mounted) {
+      setState(() => _currentPriceRegion = selected);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Price Region 已切换为 $selected')),
+      );
+    }
   }
 
   Future<void> _startSteamLogin({required bool bindMode}) async {
@@ -615,6 +668,19 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: _showRegionPicker,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.attach_money),
+                title: const Text('Price Region'),
+                subtitle: Text(
+                  _currentPriceRegion ?? AppRemoteConfig.instance.regionSettings.defaultCountry,
+                  style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: _showPriceRegionPicker,
               ),
             ),
             const SizedBox(height: 16),

@@ -1,13 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:ui' as ui;
 
 import 'package:http/http.dart' as http;
 
 import '../core/app_remote_config.dart';
 import '../core/constants/api_constants.dart';
-import '../core/region_config.dart';
 import '../core/storage_service.dart';
+import '../core/utils/price_region_resolver.dart';
 
 class SteamBackendException implements Exception {
   final String code;
@@ -33,23 +32,6 @@ class SteamBackendService {
         _baseUrl = baseUrl ?? AppRemoteConfig.instance.resolveApiBase(ApiConstants.baseUrl);
 
   Uri _uri(String path) => Uri.parse('$_baseUrl$path');
-
-  Set<String> get _supportedDiscountCountries => AppRemoteConfig.instance.supportedDealCountries.toSet();
-  Map<String, String> get _localeToSupportedCountry =>
-      AppRemoteConfig.instance.countryMap.map((k, v) => MapEntry(k.toLowerCase(), v.toUpperCase()));
-
-  static final Map<String, String> _localeToCountryFallback = () {
-    final m = <String, String>{};
-    // Build from full region list so every configured country is covered.
-    for (final r in RegionConfig.allRegions) {
-      m.putIfAbsent(r.localeCode.toLowerCase(), () => r.id.toUpperCase());
-    }
-    // Keep deterministic defaults for common ambiguous locales.
-    m['en'] = 'US';
-    m['pt'] = m['pt'] ?? 'BR';
-    m['zh'] = m['zh'] ?? 'CN';
-    return m;
-  }();
 
   Future<http.Response> _requestWithRetry({
     required Future<http.Response> Function() request,
@@ -83,61 +65,11 @@ class SteamBackendService {
 
   Future<String?> _resolveCountryCode() async {
     try {
-      final candidates = <String>[
-        (await StorageService.instance.getPreferredLocale())?.trim() ?? '',
-        '${ui.PlatformDispatcher.instance.locale.languageCode}_${ui.PlatformDispatcher.instance.locale.countryCode ?? ''}'.trim(),
-        ui.PlatformDispatcher.instance.locale.toLanguageTag().trim(),
-      ];
-      for (final raw in candidates) {
-        if (raw.isEmpty) continue;
-        // New format: region id (e.g. JP/US/CN).
-        final direct = raw.toUpperCase();
-        if (RegionConfig.isRegionId(direct)) {
-          final mapped = _mapToSupportedCountry(direct);
-          if (mapped != null) return mapped;
-        }
-
-        // Locale-like inputs, e.g. ja / ja_JP / ja-JP / en_US.
-        final normalized = raw.replaceAll('-', '_');
-        final parts = normalized.split('_').where((e) => e.isNotEmpty).toList();
-        if (parts.length >= 2) {
-          final countryPart = parts[1].toUpperCase();
-          if (RegionConfig.isRegionId(countryPart)) {
-            final mapped = _mapToSupportedCountry(countryPart);
-            if (mapped != null) return mapped;
-          }
-        }
-        final localePart = (parts.isNotEmpty ? parts.first : raw).toLowerCase();
-        if (_localeToCountryFallback.containsKey(localePart)) {
-          final mapped = _mapToSupportedCountry(_localeToCountryFallback[localePart]!);
-          if (mapped != null) return mapped;
-        }
-        if (raw.length == 2 && RegionConfig.isRegionId(direct)) {
-          final mapped = _mapToSupportedCountry(direct);
-          if (mapped != null) return mapped;
-        }
-      }
-      return 'US';
+      final selected = await PriceRegionResolver.resolve();
+      return selected.trim().isEmpty ? 'US' : selected.toUpperCase();
     } catch (_) {
       return 'US';
     }
-  }
-
-  String? _mapToSupportedCountry(String countryCode) {
-    final cc = countryCode.trim().toUpperCase();
-    if (cc.isEmpty) return null;
-    if (_supportedDiscountCountries.contains(cc)) return cc;
-    final region = RegionConfig.allRegions.where((r) => r.id == cc).cast<dynamic>().firstWhere(
-      (_) => true,
-      orElse: () => null,
-    );
-    if (region != null) {
-      final localeCode = (region.localeCode as String).toLowerCase();
-      if (_localeToSupportedCountry.containsKey(localeCode)) {
-        return _localeToSupportedCountry[localeCode];
-      }
-    }
-    return 'US';
   }
 
   Future<Map<String, String>> _authHeaders() async {

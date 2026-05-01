@@ -37,6 +37,8 @@ export function createAdminApiRouter(env: Env) {
   secured.get('/dashboard/stats', asyncHandler(dashboard.stats));
   secured.get('/settings/discount-providers', asyncHandler(settings.getDiscountProviders));
   secured.patch('/settings/discount-providers', asyncHandler(settings.patchDiscountProviders));
+  secured.get('/settings/region-settings', asyncHandler(settings.getRegionSettings));
+  secured.patch('/settings/region-settings', asyncHandler(settings.patchRegionSettings));
   secured.get('/settings/runtime', asyncHandler(settings.getRuntime));
   secured.patch('/settings/runtime', asyncHandler(settings.patchRuntime));
 

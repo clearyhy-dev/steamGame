@@ -557,6 +557,39 @@ class StorageService {
     }
   }
 
+  Future<String?> getSelectedPriceRegion() async {
+    if (!_inited) return null;
+    final v = _prefs.getString(AppConstants.keySelectedPriceRegion);
+    if (v == null || v.trim().isEmpty) return null;
+    return v.trim().toUpperCase();
+  }
+
+  Future<void> setSelectedPriceRegion(String? countryCode) async {
+    if (!_inited) return;
+    if (countryCode == null || countryCode.trim().isEmpty) {
+      await _prefs.remove(AppConstants.keySelectedPriceRegion);
+      return;
+    }
+    await _prefs.setString(AppConstants.keySelectedPriceRegion, countryCode.trim().toUpperCase());
+  }
+
+  Future<void> setRegionSettingsCache(Map<String, dynamic> data) async {
+    if (!_inited) return;
+    await _prefs.setString(AppConstants.keyRegionSettingsCache, jsonEncode(data));
+  }
+
+  Future<Map<String, dynamic>?> getRegionSettingsCache() async {
+    if (!_inited) return null;
+    final raw = _prefs.getString(AppConstants.keyRegionSettingsCache);
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<String, dynamic>) return decoded;
+      if (decoded is Map) return decoded.map((k, v) => MapEntry(k.toString(), v));
+    } catch (_) {}
+    return null;
+  }
+
   Future<void> setRemoteConfigCache(Map<String, dynamic> data) async {
     if (!_inited) return;
     await _prefs.setString(_keyRemoteConfigCache, jsonEncode(data));

@@ -55,6 +55,20 @@ export type RuntimeSettingsResponse = {
   stored: Record<string, unknown>;
 };
 
+export type RegionSettings = {
+  enabledCountries: string[];
+  defaultCountry: string;
+  fallbackCountry: string;
+  countryCurrencyMap: Record<string, string>;
+  countryLanguageMap: Record<string, string>;
+  priceSources: string[];
+  cacheHours: number;
+  showKeyshopDeals: boolean;
+  showRegionWarning: boolean;
+  updatedAt?: string;
+  createdAt?: string;
+};
+
 export type SteamSyncJobRow = {
   jobId: string;
   trigger: 'worker' | 'manual_app_list' | 'manual_detail_batch';

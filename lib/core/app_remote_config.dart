@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'region_settings.dart';
 import 'storage_service.dart';
 
 /// Values from GET `/api/config` (merged Firestore + env on server). Loaded once at startup.
@@ -43,6 +44,8 @@ class AppRemoteConfig {
     'BR': 'BRL',
     'RU': 'RUB',
   };
+  RegionSettings regionSettings = RegionSettings.defaults;
+  String activePriceRegion = 'US';
   bool loaded = false;
 
   /// Prefer server-reported [publicAppBaseUrl] after [loadFromBackend], else the compile-time default.
@@ -73,10 +76,39 @@ class AppRemoteConfig {
     }
   }
 
+  Future<void> loadRegionSettings(String baseUrl, {http.Client? client}) async {
+    final c = client ?? http.Client();
+    final root = baseUrl.replaceAll(RegExp(r'/+$'), '');
+    final uri = Uri.parse('$root/api/v1/config/region-settings');
+    try {
+      await _loadRegionFromCache();
+      final res = await c.get(uri).timeout(const Duration(seconds: 6));
+      if (res.statusCode != 200) return;
+      final map = jsonDecode(res.body) as Map<String, dynamic>;
+      if (map['success'] != true) return;
+      final data = map['data'] as Map<String, dynamic>?;
+      if (data == null) return;
+      _applyRegionData(data);
+      await StorageService.instance.setRegionSettingsCache(data);
+    } catch (_) {
+      await _loadRegionFromCache();
+      // final fallback always available
+      if (regionSettings.enabledCountries.isEmpty) {
+        _applyRegionData(RegionSettings.defaults.toJson());
+      }
+    }
+  }
+
   Future<void> _loadFromCache() async {
     final cached = await StorageService.instance.getRemoteConfigCache();
     if (cached == null || cached.isEmpty) return;
     _applyData(cached);
+  }
+
+  Future<void> _loadRegionFromCache() async {
+    final cached = await StorageService.instance.getRegionSettingsCache();
+    if (cached == null || cached.isEmpty) return;
+    _applyRegionData(cached);
   }
 
   void _applyData(Map<String, dynamic> data) {
@@ -113,7 +145,56 @@ class AppRemoteConfig {
         countryCurrencyMap = parsed.map((k, v) => MapEntry(k.toUpperCase(), v.toUpperCase()));
       }
     }
+    // Keep old /api/config compatibility: if region settings endpoint has not been loaded yet,
+    // sync defaults from existing app-level mapping fields.
+    if (regionSettings == RegionSettings.defaults) {
+      final enabled = supportedDealCountries.isNotEmpty
+          ? supportedDealCountries
+          : RegionSettings.defaults.enabledCountries;
+      final defaultCountry = enabled.contains('US') ? 'US' : enabled.first;
+      regionSettings = RegionSettings(
+        enabledCountries: enabled,
+        defaultCountry: defaultCountry,
+        fallbackCountry: defaultCountry,
+        countryCurrencyMap: {
+          ...RegionSettings.defaults.countryCurrencyMap,
+          ...countryCurrencyMap,
+        },
+        countryLanguageMap: {
+          ...RegionSettings.defaults.countryLanguageMap,
+          ...countryMap.map((k, v) => MapEntry(v.toUpperCase(), k.toLowerCase())),
+        },
+        priceSources: RegionSettings.defaults.priceSources,
+        cacheHours: RegionSettings.defaults.cacheHours,
+        showKeyshopDeals: RegionSettings.defaults.showKeyshopDeals,
+        showRegionWarning: RegionSettings.defaults.showRegionWarning,
+      );
+    }
     loaded = true;
+  }
+
+  void _applyRegionData(Map<String, dynamic> data) {
+    regionSettings = RegionSettings.fromJson(data);
+    supportedDealCountries = [...regionSettings.enabledCountries];
+    countryCurrencyMap = {...regionSettings.countryCurrencyMap};
+    final regionCountryMap = <String, String>{};
+    regionSettings.countryLanguageMap.forEach((country, lang) {
+      regionCountryMap[lang.toUpperCase()] = country.toUpperCase();
+    });
+    countryMap = {
+      ...countryMap,
+      ...regionCountryMap,
+    };
+    if (!regionSettings.enabledCountries.contains(activePriceRegion)) {
+      activePriceRegion = regionSettings.defaultCountry;
+    }
+  }
+
+  void setActivePriceRegion(String countryCode) {
+    final c = countryCode.trim().toUpperCase();
+    if (regionSettings.enabledCountries.contains(c)) {
+      activePriceRegion = c;
+    }
   }
 
   static Map<String, String> _parseStringMap(String raw) {
