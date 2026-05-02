@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../../core/theme/colors.dart';
-import '../../../core/utils/country_price.dart';
+import '../../../core/utils/price_formatter.dart';
+import '../../../core/utils/price_region_resolver.dart';
 import '../../../core/utils/score_calculator.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../models/game_model.dart';
@@ -30,7 +31,7 @@ class _TopDealBannerState extends State<TopDealBanner> {
       );
     }
     final g = widget.game!;
-    final currency = CountryPrice.formatter();
+    final region = PriceRegionResolver.resolveSync();
 
     return SizedBox(
       height: bannerH,
@@ -127,7 +128,7 @@ class _TopDealBannerState extends State<TopDealBanner> {
                         Row(
                           children: [
                             Text(
-                              currency.format(g.price),
+                              formatRegionalPrice(amount: g.price, currency: region.currency),
                               style: const TextStyle(
                                 color: AppColors.itadOrangeLight,
                                 fontSize: 22,
@@ -154,7 +155,7 @@ class _TopDealBannerState extends State<TopDealBanner> {
                         ),
                         if (g.originalPrice > 0)
                           Text(
-                            currency.format(g.originalPrice),
+                            formatRegionalPrice(amount: g.originalPrice, currency: region.currency),
                             style: TextStyle(
                               color: Colors.white.withOpacity(0.8),
                               fontSize: 14,

@@ -71,7 +71,7 @@ class HomeFeedController extends ChangeNotifier {
       dealsLoading = true;
       notifyListeners();
       try {
-        final region = await PriceRegionResolver.resolve();
+        final region = await PriceRegionResolver.resolveContext();
         final latest = await _gameService.fetchGames(
             pageSize: 60, country: region.country);
         if (latest.isNotEmpty) {

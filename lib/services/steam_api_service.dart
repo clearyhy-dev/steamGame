@@ -68,7 +68,7 @@ class SteamApiService {
       {String? country}) async {
     if (appId.isEmpty) return null;
     try {
-      final region = await PriceRegionResolver.resolve();
+      final region = await PriceRegionResolver.resolveContext();
       final cc = (country ?? region.country).trim().toUpperCase();
       final language = region.language.trim().toLowerCase();
       final uri =
@@ -130,7 +130,7 @@ class SteamApiService {
   /// 拉取当前折扣列表（分页），5 秒超时防止卡死
   Future<List<GameModel>> fetchDeals(
       {int pageSize = 25, int pageNumber = 0, String? country}) async {
-    final region = await PriceRegionResolver.resolve();
+    final region = await PriceRegionResolver.resolveContext();
     final uri = Uri.parse('$_baseUrl/deals').replace(
       queryParameters: <String, String>{
         'pageSize': pageSize.toString(),
@@ -170,7 +170,7 @@ class SteamApiService {
   Future<GameModel> fetchGameById(String dealId, {String? country}) async {
     if (dealId.isEmpty) return _emptyGame('');
     try {
-      final region = await PriceRegionResolver.resolve();
+      final region = await PriceRegionResolver.resolveContext();
       final uri = Uri.parse('$_baseUrl/deals').replace(
         queryParameters: <String, String>{
           'id': dealId,
@@ -215,7 +215,7 @@ class SteamApiService {
       {String? country}) async {
     if (steamAppID.isEmpty) return [];
     try {
-      final region = await PriceRegionResolver.resolve();
+      final region = await PriceRegionResolver.resolveContext();
       final cc = (country ?? region.country).trim().toUpperCase();
       final language = region.language.trim().toLowerCase();
       final uri =
@@ -501,7 +501,7 @@ class SteamApiService {
   Future<List<GameModel>> searchGames(String title,
       {int pageSize = 20, String? country}) async {
     try {
-      final region = await PriceRegionResolver.resolve();
+      final region = await PriceRegionResolver.resolveContext();
       final uri = Uri.parse('$_baseUrl/games').replace(
         queryParameters: <String, String>{
           'title': title,

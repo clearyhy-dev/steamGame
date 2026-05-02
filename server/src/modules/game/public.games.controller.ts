@@ -32,6 +32,12 @@ export class PublicGamesController {
     return /^[A-Z]{2}$/.test(s) ? s : undefined;
   }
 
+  private normalizeLanguageCode(v: unknown): string | undefined {
+    const s = String(v ?? '').trim().toLowerCase();
+    if (!s) return undefined;
+    return /^[a-z]{2}(-[a-z]{2})?$/.test(s) ? s : undefined;
+  }
+
   private async resolveCountryCode(req: Request): Promise<string> {
     const fromQuery = this.normalizeCountryCode(req.query.country ?? req.query.cc);
     if (fromQuery) return fromQuery;
@@ -54,6 +60,27 @@ export class PublicGamesController {
     }
     return 'US';
   }
+
+  steamPrice = async (req: Request, res: Response): Promise<void> => {
+    const appid = String(req.params.appid ?? '').trim();
+    if (!appid) {
+      sendAdminFail(res, 400, 'appid required');
+      return;
+    }
+    const country = this.normalizeCountryCode(req.query.country ?? req.query.cc) ?? (await this.resolveCountryCode(req));
+    const language = this.normalizeLanguageCode(req.query.language ?? req.query.l) ?? 'en';
+
+    try {
+      const row = await this.store.fetchRegionalPrice(appid, country, language);
+      if (!row) {
+        sendAdminFail(res, 404, 'Steam price not found');
+        return;
+      }
+      sendAdminOk(res, row);
+    } catch (e) {
+      sendAdminFail(res, 500, e instanceof Error ? e.message : 'steam price failed');
+    }
+  };
 
   discountLink = async (req: Request, res: Response): Promise<void> => {
     const appid = String(req.params.appid ?? '').trim();

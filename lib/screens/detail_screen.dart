@@ -7,6 +7,8 @@ import '../core/notification_permission_helper.dart';
 import '../core/storage_service.dart';
 import '../core/interstitial_helper.dart';
 import '../core/price_region_events.dart';
+import '../core/utils/price_formatter.dart';
+import '../core/utils/price_region_resolver.dart';
 import '../core/theme/colors.dart';
 import '../core/utils/countdown_util.dart';
 import '../core/utils/score_calculator.dart';
@@ -14,7 +16,6 @@ import '../models/game_model.dart';
 import '../models/wishlist_model.dart';
 import '../services/steam_api_service.dart';
 import '../services/steam_backend_service.dart';
-import '../core/utils/price_region_resolver.dart';
 import '../widgets/discount_badge.dart';
 import '../widgets/ad_banner.dart';
 
@@ -55,7 +56,7 @@ class _DetailScreenState extends State<DetailScreen> {
   }
 
   Future<void> _load() async {
-    final region = await PriceRegionResolver.resolve();
+    final region = await PriceRegionResolver.resolveContext();
     String id = widget.appId.trim();
     if (id.contains('%')) id = Uri.decodeComponent(id);
     GameModel game = await _api.fetchGameById(id, country: region.country);
@@ -230,7 +231,7 @@ class _DetailScreenState extends State<DetailScreen> {
                   ? 'https://store.steampowered.com/app/${game.steamAppID}'
                   : '';
               Share.share(
-                '🔥 ${game.name}\nNow \$${game.price.toStringAsFixed(2)}\n$steamUrl',
+                '🔥 ${game.name}\nNow ${formatRegionalPrice(amount: game.price, currency: PriceRegionResolver.resolveSync().currency)}\n$steamUrl',
               );
             },
           ),
@@ -310,7 +311,7 @@ class _DetailScreenState extends State<DetailScreen> {
                     textBaseline: TextBaseline.alphabetic,
                     children: [
                       Text(
-                        '\$${game.price.toStringAsFixed(2)}',
+                        formatRegionalPrice(amount: game.price, currency: PriceRegionResolver.resolveSync().currency),
                         style: const TextStyle(
                           fontSize: 26,
                           color: AppColors.accent,
@@ -320,7 +321,7 @@ class _DetailScreenState extends State<DetailScreen> {
                       if (game.originalPrice > 0) ...[
                         const SizedBox(width: 12),
                         Text(
-                          '\$${game.originalPrice.toStringAsFixed(2)}',
+                          formatRegionalPrice(amount: game.originalPrice, currency: PriceRegionResolver.resolveSync().currency),
                           style: TextStyle(
                             decoration: TextDecoration.lineThrough,
                             color: AppColors.textSecondary,

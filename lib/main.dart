@@ -249,7 +249,7 @@ Future<void> _init() async {
   }
   try {
     await AppRemoteConfig.instance.loadRegionSettings(ApiConstants.baseUrl);
-    final region = await PriceRegionResolver.resolve();
+    final region = await PriceRegionResolver.resolveContext();
     AppRemoteConfig.instance.setActivePriceRegion(region.country);
   } catch (e) {
     debugPrint('AppRemoteConfig.loadRegionSettings: $e');

@@ -25,6 +25,16 @@ export type SteamStoreGameDetail = {
   currentPlayers?: number;
 };
 
+export type SteamRegionalPrice = {
+  appid: string;
+  country: string;
+  currency: string;
+  regularPrice: number;
+  salePrice: number;
+  discountPercent: number;
+  fallbackUsed: boolean;
+};
+
 export type SteamReviewRow = {
   reviewId: string;
   authorSteamId: string;
@@ -130,6 +140,73 @@ export class SteamStoreService {
       steamDiscounted: intField(price.discount_percent) > 0,
       currentPlayers: (await this.fetchCurrentPlayers(appid)) ?? undefined,
     };
+  }
+
+  private normalizeLanguageCode(v: unknown): string {
+    const s = String(v ?? '').trim().toLowerCase();
+    if (!s) return 'en';
+    return /^[a-z]{2}(-[a-z]{2})?$/.test(s) ? s : 'en';
+  }
+
+  private normalizeCountryCode(v: unknown): string {
+    const s = String(v ?? '').trim().toUpperCase();
+    if (!s) return 'US';
+    return /^[A-Z]{2}$/.test(s) ? s : 'US';
+  }
+
+  private parseSteamPriceOverView(appid: string, country: string, payload: any): SteamRegionalPrice | null {
+    const row = payload?.[appid];
+    if (!row?.success || !row?.data) return null;
+    const po = row.data?.price_overview;
+    if (!po) return null;
+    const currency = String(po.currency ?? '').trim().toUpperCase() || 'USD';
+    const initial = intField(po.initial);
+    const finalP = intField(po.final);
+    const discount = intField(po.discount_percent);
+    return {
+      appid,
+      country,
+      currency,
+      regularPrice: initial,
+      salePrice: finalP,
+      discountPercent: discount,
+      fallbackUsed: false,
+    };
+  }
+
+  async fetchRegionalPrice(appid: string, country?: string, language?: string): Promise<SteamRegionalPrice | null> {
+    const e = await getEffectiveEnv(this.env);
+    const url = 'https://store.steampowered.com/api/appdetails';
+    const cc = this.normalizeCountryCode(country);
+    const lang = this.normalizeLanguageCode(language);
+
+    const req = async (countryCode: string) =>
+      axios.get<Record<string, any>>(url, {
+        params: {
+          appids: appid,
+          cc: countryCode,
+          l: lang,
+          filters: 'price_overview',
+        },
+        timeout: Math.max(e.steamHttpTimeoutMs, 15000),
+        validateStatus: () => true,
+      });
+
+    const first = await req(cc);
+    const firstParsed = this.parseSteamPriceOverView(appid, cc, first.data);
+    if (firstParsed) return firstParsed;
+
+    if (cc !== 'US') {
+      const fallback = await req('US');
+      const us = this.parseSteamPriceOverView(appid, 'US', fallback.data);
+      if (us) {
+        return {
+          ...us,
+          fallbackUsed: true,
+        };
+      }
+    }
+    return null;
   }
 
   async fetchAppListPage(input?: { lastAppId?: number; maxResults?: number }): Promise<{

@@ -7,6 +7,7 @@ import 'schedule_config.dart';
 import 'storage_service.dart';
 import 'notification_service.dart';
 import 'shock_deal_algorithm.dart';
+import 'utils/price_formatter.dart';
 import 'utils/price_region_resolver.dart';
 import 'utils/score_calculator.dart' show calculateScore;
 
@@ -21,7 +22,7 @@ void callbackDispatcher() {
     await storage.init();
     await notification.init();
     final locale = await storage.getPreferredLocale();
-    final region = await PriceRegionResolver.resolve();
+    final region = await PriceRegionResolver.resolveContext();
 
     final isWishlistTask = task == AppConstants.taskWishlistCheck;
     final isDaily = task == AppConstants.taskDailyDealCheck;
@@ -46,7 +47,8 @@ void callbackDispatcher() {
         final currentDiscount = latest.discount;
         if (lastDiscount != null && currentDiscount > lastDiscount) {
           final priceStr = latest.price > 0
-              ? '\$${latest.price.toStringAsFixed(2)}'
+              ? formatRegionalPrice(
+                  amount: latest.price, currency: region.currency)
               : '$currentDiscount% OFF';
           final title = '🔥 $priceDropTitle';
           final body = bodyTpl
@@ -92,7 +94,7 @@ void callbackDispatcher() {
         final index = dayOfYear % topN.length;
         final game = topN[index];
         final priceStr = game.price > 0
-            ? '\$${game.price.toStringAsFixed(2)}'
+            ? formatRegionalPrice(amount: game.price, currency: region.currency)
             : '${game.discount}% OFF';
         final title =
             '🔥 ${titleTpl.replaceAll('{gameName}', game.name).replaceAll('{discount}', '${game.discount}').replaceAll('{price}', priceStr)}';

@@ -41,17 +41,9 @@ class PriceRegionResolver {
     );
   }
 
-  static Future<PriceRegionContext> resolve() async {
+  static Future<PriceRegionContext> resolveContext() async {
     final cfg = AppRemoteConfig.instance.regionSettings;
     final enabled = cfg.enabledCountries.toSet();
-    final storedLanguage = (await StorageService.instance.getPreferredLocale())
-        ?.trim()
-        .toLowerCase();
-    final deviceLanguage =
-        ui.PlatformDispatcher.instance.locale.languageCode.trim().toLowerCase();
-    final language = (storedLanguage != null && storedLanguage.isNotEmpty)
-        ? storedLanguage
-        : (deviceLanguage.isEmpty ? 'en' : deviceLanguage);
 
     final manual = (await StorageService.instance.getSelectedPriceRegion())
             ?.trim()
@@ -62,7 +54,7 @@ class PriceRegionResolver {
       return PriceRegionContext(
         country: manual,
         currency: cfg.countryCurrencyMap[manual] ?? 'USD',
-        language: language,
+        language: cfg.countryLanguageMap[manual] ?? 'en',
         showRegionWarning: cfg.showRegionWarning,
         showKeyshopDeals: cfg.showKeyshopDeals,
         source: 'manual',
@@ -76,10 +68,10 @@ class PriceRegionResolver {
       return PriceRegionContext(
         country: localeCountry,
         currency: cfg.countryCurrencyMap[localeCountry] ?? 'USD',
-        language: language,
+        language: cfg.countryLanguageMap[localeCountry] ?? 'en',
         showRegionWarning: cfg.showRegionWarning,
         showKeyshopDeals: cfg.showKeyshopDeals,
-        source: 'device',
+        source: 'device_country',
       );
     }
 
@@ -92,10 +84,10 @@ class PriceRegionResolver {
           return PriceRegionContext(
             country: entry.key,
             currency: cfg.countryCurrencyMap[entry.key] ?? 'USD',
-            language: language,
+            language: cfg.countryLanguageMap[entry.key] ?? 'en',
             showRegionWarning: cfg.showRegionWarning,
             showKeyshopDeals: cfg.showKeyshopDeals,
-            source: 'device',
+            source: 'device_language',
           );
         }
       }
@@ -107,7 +99,7 @@ class PriceRegionResolver {
       return PriceRegionContext(
         country: defaultCountry,
         currency: cfg.countryCurrencyMap[defaultCountry] ?? 'USD',
-        language: language,
+        language: cfg.countryLanguageMap[defaultCountry] ?? 'en',
         showRegionWarning: cfg.showRegionWarning,
         showKeyshopDeals: cfg.showKeyshopDeals,
         source: 'default',
@@ -120,7 +112,7 @@ class PriceRegionResolver {
       return PriceRegionContext(
         country: fallback,
         currency: cfg.countryCurrencyMap[fallback] ?? 'USD',
-        language: language,
+        language: cfg.countryLanguageMap[fallback] ?? 'en',
         showRegionWarning: cfg.showRegionWarning,
         showKeyshopDeals: cfg.showKeyshopDeals,
         source: 'fallback',
@@ -131,10 +123,14 @@ class PriceRegionResolver {
     return PriceRegionContext(
       country: _defaultCountry,
       currency: 'USD',
-      language: language.isEmpty ? 'en' : language,
+      language: cfg.countryLanguageMap[_defaultCountry] ?? 'en',
       showRegionWarning: cfg.showRegionWarning,
       showKeyshopDeals: cfg.showKeyshopDeals,
       source: 'fallback',
     );
+  }
+
+  static Future<String> resolve() async {
+    return (await resolveContext()).country;
   }
 }

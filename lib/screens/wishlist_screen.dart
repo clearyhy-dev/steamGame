@@ -85,7 +85,7 @@ class _WishlistScreenState extends State<WishlistScreen> {
     if (!StorageService.instance.isInitialized)
       await StorageService.instance.init();
     List<WishlistItem> items = await _storage.getWishlistItems();
-    final region = await PriceRegionResolver.resolve();
+    final region = await PriceRegionResolver.resolveContext();
     final deals = await _api.fetchDeals(pageSize: 100, country: region.country);
     final lastDiscounts = await _storage.getLastKnownDiscounts();
 

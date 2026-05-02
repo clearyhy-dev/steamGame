@@ -6,7 +6,7 @@ import '../../../core/ad_config.dart';
 import '../../../core/access_control.dart';
 import '../../../core/current_players_cache.dart';
 import '../../../core/theme/colors.dart';
-import '../../../core/utils/country_price.dart';
+import '../../../core/utils/price_formatter.dart';
 import '../../../core/shock_deal_algorithm.dart';
 import '../../../core/utils/score_calculator.dart' as score_util;
 import '../../../core/services/analytics_service.dart';
@@ -140,7 +140,7 @@ class _ExplorePageState extends State<ExplorePage>
     }
     if (mounted) setState(() => _exploreLoading = true);
     try {
-      final region = await PriceRegionResolver.resolve();
+      final region = await PriceRegionResolver.resolveContext();
       final data = await SteamBackendService().getExploreRecommendations(
         token,
         tab: _exploreTabKeys[index],
@@ -179,7 +179,7 @@ class _ExplorePageState extends State<ExplorePage>
   }
 
   Future<void> _load({bool forceRefresh = false}) async {
-    final region = await PriceRegionResolver.resolve();
+    final region = await PriceRegionResolver.resolveContext();
     try {
       _backendToken = await StorageService.instance.getSteamBackendToken();
     } catch (_) {
@@ -315,7 +315,7 @@ class _ExplorePageState extends State<ExplorePage>
                     onChanged: (v) => setModal(() => minD = v),
                   ),
                   Text(
-                    '${l10n.get('explore_filter_max_price')}: \$${maxP.toStringAsFixed(0)}',
+                    '${l10n.get('explore_filter_max_price')}: ${formatRegionalPrice(amount: maxP, currency: PriceRegionResolver.resolveSync().currency)}',
                     style: const TextStyle(
                         color: AppColors.textSecondary, fontSize: 13),
                   ),
@@ -537,7 +537,7 @@ class _ExplorePageState extends State<ExplorePage>
   }
 
   Widget _buildExploreBackendGameTile(GameModel g) {
-    final currency = CountryPrice.formatter();
+    final region = PriceRegionResolver.resolveSync();
     return Material(
       color: AppColors.cardDark,
       borderRadius: BorderRadius.circular(14),
@@ -589,7 +589,7 @@ class _ExplorePageState extends State<ExplorePage>
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      '-${g.discount}%  ${currency.format(g.price)}',
+                      '-${g.discount}%  ${formatRegionalPrice(amount: g.price, currency: region.currency)}',
                       style: const TextStyle(
                           fontSize: 13, color: AppColors.itadOrange),
                     ),

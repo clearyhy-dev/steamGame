@@ -2,7 +2,8 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/colors.dart';
-import '../../../core/utils/country_price.dart';
+import '../../../core/utils/price_formatter.dart';
+import '../../../core/utils/price_region_resolver.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../models/game_model.dart';
 import '../../../models/store_offer.dart';
@@ -76,7 +77,7 @@ class _BuyCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final currency = CountryPrice.formatter();
+    final region = PriceRegionResolver.resolveSync();
     final img = game.image.isNotEmpty ? game.image : '';
     return Material(
       color: AppColors.cardDark,
@@ -163,7 +164,7 @@ class _BuyCard extends StatelessWidget {
               const SizedBox(height: 4),
               if (game.originalPrice > 0)
                 Text(
-                  currency.format(game.originalPrice),
+                  formatRegionalPrice(amount: game.originalPrice, currency: region.currency),
                   style: const TextStyle(
                     fontSize: 10,
                     color: AppColors.textSecondary,
@@ -171,7 +172,7 @@ class _BuyCard extends StatelessWidget {
                   ),
                 ),
               Text(
-                currency.format(game.price),
+                formatRegionalPrice(amount: game.price, currency: region.currency),
                 style: const TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w700,

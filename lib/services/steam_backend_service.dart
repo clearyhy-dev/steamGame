@@ -71,12 +71,30 @@ class SteamBackendService {
   Future<String?> _resolveCountryCode() async {
     try {
       final selected = await PriceRegionResolver.resolve();
-      return selected.country.trim().isEmpty
-          ? 'US'
-          : selected.country.toUpperCase();
+      return selected.trim().isEmpty ? 'US' : selected.toUpperCase();
     } catch (_) {
       return 'US';
     }
+  }
+
+  Future<Map<String, dynamic>> getSteamRegionalPrice(String appid) async {
+    final id = appid.trim();
+    if (id.isEmpty) {
+      throw SteamBackendException(code: 'INVALID_APPID', message: 'appid required');
+    }
+    final region = await PriceRegionResolver.resolveContext();
+    final uri = _uri('/api/v1/games/$id/steam-price').replace(
+      queryParameters: {
+        'country': region.country,
+        'language': region.language,
+      },
+    );
+    final res = await _client
+        .get(uri, headers: await _authHeaders())
+        .timeout(ApiConstants.receiveTimeout, onTimeout: () {
+      throw SteamBackendException(code: 'REQUEST_TIMEOUT', message: 'Request timeout');
+    });
+    return _parseData<Map<String, dynamic>>(res);
   }
 
   Future<Map<String, String>> _authHeaders() async {

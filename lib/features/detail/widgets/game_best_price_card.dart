@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 
 import '../../../core/theme/colors.dart';
 import '../../../core/app_remote_config.dart';
+import '../../../core/utils/price_formatter.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../models/game_model.dart';
 import '../../../models/store_offer.dart';
@@ -53,21 +54,6 @@ class GameBestPriceCard extends StatelessWidget {
     'cheapshark': 'assets/platforms/cheapshark.png',
   };
 
-  static String _storeTitle(AppLocalizations l10n, String store) {
-    switch (store) {
-      case StoreIds.steam:
-        return l10n.get('store_name_steam');
-      case StoreIds.fanatical:
-        return l10n.get('store_name_fanatical');
-      case StoreIds.gmg:
-        return l10n.get('store_name_gmg');
-      case StoreIds.cdkeys:
-        return l10n.get('store_name_cdkeys');
-      default:
-        return store;
-    }
-  }
-
   Widget _sourceLogo(String source) {
     final assetPath = _sourceLogoAsset[source] ?? '';
     final textFallback = _sourceName[source] ?? source.toUpperCase();
@@ -104,11 +90,9 @@ class GameBestPriceCard extends StatelessWidget {
     );
   }
 
-  NumberFormat _currencyForCountry(String? countryCode) {
+  String _currencyForCountry(String? countryCode) {
     final cc = (countryCode ?? '').trim().toUpperCase();
-    final code =
-        AppRemoteConfig.instance.regionSettings.countryCurrencyMap[cc] ?? 'USD';
-    return NumberFormat.simpleCurrency(name: code);
+    return AppRemoteConfig.instance.regionSettings.countryCurrencyMap[cc] ?? 'USD';
   }
 
   @override
@@ -221,7 +205,7 @@ class GameBestPriceCard extends StatelessWidget {
                       shownFinal != null &&
                       shownOriginal > shownFinal)
                     Text(
-                      currency.format(shownOriginal),
+                      formatRegionalPrice(amount: shownOriginal, currency: currency),
                       style: TextStyle(
                         fontSize: 12,
                         decoration: TextDecoration.lineThrough,
@@ -229,7 +213,7 @@ class GameBestPriceCard extends StatelessWidget {
                       ),
                     ),
                   Text(
-                    shownFinal == null ? '--' : currency.format(shownFinal),
+                    shownFinal == null ? '--' : formatRegionalPrice(amount: shownFinal, currency: currency),
                     style: const TextStyle(
                       fontSize: 17,
                       fontWeight: FontWeight.bold,
@@ -364,10 +348,13 @@ class GameBestPriceCard extends StatelessWidget {
                         : rawFinalValue);
                 final hasPrice = shownFinal != null;
                 final displayPrice = hasPrice
-                    ? currency.format(shownFinal)
+                    ? formatRegionalPrice(amount: shownFinal, currency: currency)
                     : (refreshingDeals
                         ? l10n.get('affiliate_price_retrying')
                         : '--');
+                final selected = (selectedCountry ?? '').trim().toUpperCase();
+                final rowCc = (row?['countryCode'] ?? '').toString().trim().toUpperCase();
+                final regionMatched = selected.isEmpty || rowCc.isEmpty || selected == rowCc;
                 final displayText = displayPrice;
                 return InkWell(
                   onTap:
@@ -398,9 +385,9 @@ class GameBestPriceCard extends StatelessWidget {
                         ),
                         const SizedBox(width: 6),
                         Text(
-                          displayText,
+                          regionMatched ? displayText : 'No regional deal available',
                           style: TextStyle(
-                            color: hasPrice
+                            color: regionMatched && hasPrice
                                 ? AppColors.itadOrange
                                 : Colors.white70,
                             fontSize: 11,

@@ -35,6 +35,7 @@ export function createRouter(env: Env) {
   const v1 = express.Router();
   v1.get('/config/region-settings', asyncHandler(regionSettings.getRegionSettings));
   v1.use('/recommendations', recommendationsRouter(env));
+  v1.use('/games', createPublicGamesRouter(env));
   v1.use('/wishlist', wishlistRouter(env));
   v1.use('/stats', statsRouter(env));
   v1.use('/events', eventsRouter(env));

@@ -79,7 +79,7 @@ class _ProfilePageState extends State<ProfilePage> {
     final localeCode = await StorageService.instance.getPreferredLocale();
     final selectedPriceRegion =
         await StorageService.instance.getSelectedPriceRegion();
-    final resolvedCtx = await PriceRegionResolver.resolve();
+    final resolvedCtx = await PriceRegionResolver.resolveContext();
     final resolvedPriceRegion = selectedPriceRegion ?? resolvedCtx.country;
 
     String? steamToken;
@@ -309,6 +309,7 @@ class _ProfilePageState extends State<ProfilePage> {
     if (selected == null || selected == _currentPriceRegion) return;
     await StorageService.instance.setSelectedPriceRegion(selected);
     AppRemoteConfig.instance.setActivePriceRegion(selected);
+    await PriceRegionResolver.resolveContext();
     await StorageService.instance.clearDetailDealsCache();
     await StorageService.instance.clearLastDealsCache();
     await CacheService.clearLastCheckTime();

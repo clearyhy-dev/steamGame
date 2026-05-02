@@ -3,6 +3,8 @@ import 'package:in_app_purchase/in_app_purchase.dart';
 import '../../core/services/billing_service.dart';
 import '../../core/services/analytics_service.dart';
 import '../../core/theme/colors.dart';
+import '../../core/utils/price_formatter.dart';
+import '../../core/utils/price_region_resolver.dart';
 import '../../l10n/app_localizations.dart';
 import 'subscription_viewmodel.dart';
 
@@ -170,13 +172,15 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
     final weekly = _productById(BillingService.trialWeekId);
     final monthly = _productById(BillingService.monthlyId);
     final yearly = _productById(BillingService.yearlyId);
+    final currency = PriceRegionResolver.resolveSync().currency;
     return Row(
       children: [
         Expanded(
           child: _planCard(
             productId: BillingService.trialWeekId,
             title: l10n.get('sub_weekly'),
-            price: weekly?.price ?? '\$0.99',
+            price: weekly?.price ??
+                formatRegionalPrice(amount: 0.99, currency: currency),
             badge: l10n.get('sub_trial_hook'),
             vm: vm,
             onTap: () => setState(() => _selectedProductId = BillingService.trialWeekId),
@@ -187,7 +191,11 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
           child: _planCard(
             productId: BillingService.monthlyId,
             title: l10n.get('sub_monthly'),
-            price: monthly?.price ?? '\$2.99',
+            price: monthly?.price ??
+                l10n.subscriptionPriceLabel(
+                  'monthly_299',
+                  formatRegionalPrice(amount: 2.99, currency: currency),
+                ),
             badge: '🔥 ${l10n.get('sub_most_popular')}',
             vm: vm,
             onTap: () => setState(() => _selectedProductId = BillingService.monthlyId),
@@ -198,7 +206,11 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
           child: _planCard(
             productId: BillingService.yearlyId,
             title: l10n.get('sub_yearly'),
-            price: yearly?.price ?? '\$16.99',
+            price: yearly?.price ??
+                l10n.subscriptionPriceLabel(
+                  'yearly_1699',
+                  formatRegionalPrice(amount: 16.99, currency: currency),
+                ),
             badge: l10n.get('sub_best_value'),
             vm: vm,
             onTap: () => setState(() => _selectedProductId = BillingService.yearlyId),

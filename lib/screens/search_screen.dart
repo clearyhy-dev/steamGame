@@ -38,7 +38,7 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Future<void> _loadDeals() async {
-    final region = await PriceRegionResolver.resolve();
+    final region = await PriceRegionResolver.resolveContext();
     final list = await _api.fetchDeals(country: region.country);
     if (mounted) {
       setState(() {
@@ -62,7 +62,7 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Future<void> _searchFromApi(String query) async {
-    final region = await PriceRegionResolver.resolve();
+    final region = await PriceRegionResolver.resolveContext();
     final list =
         await _api.searchGames(query, pageSize: 25, country: region.country);
     if (mounted) {

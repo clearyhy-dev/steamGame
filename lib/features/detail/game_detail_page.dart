@@ -13,6 +13,7 @@ import '../../../core/storage_service.dart';
 import '../../../core/app_remote_config.dart';
 import '../../../core/price_region_events.dart';
 import '../../../core/utils/price_region_resolver.dart';
+import '../../../core/utils/price_formatter.dart';
 import '../../../core/utils/countdown_util.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../services/steam_api_service.dart';
@@ -59,6 +60,7 @@ class _GameDetailPageState extends State<GameDetailPage> {
   DateTime? _dealsCacheUpdatedAt;
   bool _dealsUsingCache = false;
   String _priceCountry = 'US';
+  Map<String, dynamic>? _steamRegionalPrice;
 
   String _resolvedSteamId() {
     final fromSteam = widget.game.steamAppID.trim();
@@ -81,6 +83,7 @@ class _GameDetailPageState extends State<GameDetailPage> {
     _loadReviews();
     _loadCurrentPlayers();
     _loadBoundDiscountUrl();
+    _loadSteamRegionalPrice();
     _loadSteamDealLinks();
     _ensureBackendMeta();
     _priceResult = PriceEngineService()
@@ -96,6 +99,7 @@ class _GameDetailPageState extends State<GameDetailPage> {
   }
 
   void _onPriceRegionChanged() {
+    _loadSteamRegionalPrice();
     _loadSteamDealLinks();
     _loadBoundDiscountUrl();
   }
@@ -124,7 +128,7 @@ class _GameDetailPageState extends State<GameDetailPage> {
         _refreshingDeals = true;
       });
     }
-    final region = await PriceRegionResolver.resolve();
+    final region = await PriceRegionResolver.resolveContext();
     _priceCountry = region.country;
     try {
       final pro = await StorageService.instance.isPro();
@@ -160,6 +164,23 @@ class _GameDetailPageState extends State<GameDetailPage> {
     }
   }
 
+  Future<void> _loadSteamRegionalPrice() async {
+    final steamId = _resolvedSteamId();
+    if (steamId.isEmpty) return;
+    try {
+      final data = await _backend.getSteamRegionalPrice(steamId);
+      if (!mounted) return;
+      setState(() {
+        _steamRegionalPrice = data;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _steamRegionalPrice = null;
+      });
+    }
+  }
+
   bool _hasAnyOtherPlatformPrice() {
     for (final d in _dealLinks) {
       final source = (d['source']?.toString() ?? '').toLowerCase();
@@ -182,7 +203,7 @@ class _GameDetailPageState extends State<GameDetailPage> {
     if (steamId.isEmpty) return;
     _autoRefreshedDeals = true;
     if (mounted) setState(() => _refreshingDeals = true);
-    final region = await PriceRegionResolver.resolve();
+    final region = await PriceRegionResolver.resolveContext();
     try {
       await _backend.refreshGameDeals(steamId, country: region.country);
       final data =
@@ -216,7 +237,7 @@ class _GameDetailPageState extends State<GameDetailPage> {
         ? widget.game.steamAppID.trim()
         : widget.game.appId.trim();
     if (steamId.isEmpty) return;
-    final region = await PriceRegionResolver.resolve();
+    final region = await PriceRegionResolver.resolveContext();
     final data = await _backend.getGameDeals(steamId, country: region.country);
     final countryCode = (data['countryCode']?.toString() ?? _dealCountryCode)
         .trim()
@@ -275,7 +296,7 @@ class _GameDetailPageState extends State<GameDetailPage> {
         ? widget.game.steamAppID.trim()
         : widget.game.appId.trim();
     if (steamId.isEmpty) return;
-    final region = await PriceRegionResolver.resolve();
+    final region = await PriceRegionResolver.resolveContext();
     try {
       final url =
           await _backend.getGameDiscountLink(steamId, country: region.country);
@@ -322,7 +343,7 @@ class _GameDetailPageState extends State<GameDetailPage> {
   Future<void> _loadMoreImages() async {
     final steamId = _resolvedSteamId();
     if (steamId.isEmpty) return;
-    final region = await PriceRegionResolver.resolve();
+    final region = await PriceRegionResolver.resolveContext();
     try {
       final list = await _steamApi.fetchSteamScreenshots(steamId,
           country: region.country);
@@ -435,7 +456,7 @@ class _GameDetailPageState extends State<GameDetailPage> {
         builder: (_) => AlertDialog(
           title: const Text('Region Notice'),
           content: const Text(
-              'This deal may have activation or purchase restrictions in your selected region.'),
+              'This deal may have activation restrictions.'),
           actions: [
             TextButton(
                 onPressed: () => Navigator.pop(context, false),
@@ -499,6 +520,12 @@ class _GameDetailPageState extends State<GameDetailPage> {
             final url = (r['url'] ?? '').toString();
             final original = r['originalPrice'];
             final finalPrice = r['finalPrice'];
+            final ctx = PriceRegionResolver.resolveSync();
+            final rowCurrency = (r['currency']?.toString() ?? '').trim().toUpperCase();
+            final currency = rowCurrency.isNotEmpty ? rowCurrency : ctx.currency;
+            final originalNum = original is num ? original.toDouble() : double.tryParse('$original');
+            final finalNum = finalPrice is num ? finalPrice.toDouble() : double.tryParse('$finalPrice');
+            final sameRegion = cc.toUpperCase() == ctx.country.toUpperCase();
             return ListTile(
               title: Text(
                 '$source ($cc${_dealCountryCode.isNotEmpty ? ' · 当前$_dealCountryCode' : ''})',
@@ -506,8 +533,10 @@ class _GameDetailPageState extends State<GameDetailPage> {
                     color: Colors.white, fontWeight: FontWeight.w600),
               ),
               subtitle: Text(
-                '${discount is num ? '折扣 ${discount.toInt()}%' : '折扣信息'}'
-                '${(original is num || finalPrice is num) ? ' · 原价 ${(original is num ? original.toStringAsFixed(2) : '-')} 现价 ${(finalPrice is num ? finalPrice.toStringAsFixed(2) : '-')}' : ''}',
+                !sameRegion
+                    ? 'No regional deal available'
+                    : '${discount is num ? '折扣 ${discount.toInt()}%' : '折扣信息'}'
+                        '${(originalNum != null || finalNum != null) ? ' · 原价 ${formatRegionalPrice(amount: originalNum, currency: currency)} 现价 ${formatRegionalPrice(amount: finalNum, currency: currency)}' : ''}',
                 style: const TextStyle(color: Colors.white70),
               ),
               trailing: const Icon(Icons.open_in_new,
@@ -531,6 +560,7 @@ class _GameDetailPageState extends State<GameDetailPage> {
   Widget build(BuildContext context) {
     final game = widget.game;
     final l10n = AppLocalizations.of(context);
+    final regionCtx = PriceRegionResolver.resolveSync();
     final score = AlgorithmService().calculateScore(game);
     final imageUrls = _imageUrls.isNotEmpty
         ? _imageUrls
@@ -606,7 +636,7 @@ class _GameDetailPageState extends State<GameDetailPage> {
                     );
                   }
                   Share.share(
-                    'Check this deal: ${game.name} 🔥\n\$${game.price.toStringAsFixed(2)}\n$_storeUrl',
+                    'Check this deal: ${game.name} 🔥\n${formatRegionalPrice(amount: game.price, currency: regionCtx.currency)}\n$_storeUrl',
                   );
                 },
               ),
@@ -627,6 +657,14 @@ class _GameDetailPageState extends State<GameDetailPage> {
                     ),
                   ),
                   const SizedBox(height: 10),
+                  const Text(
+                    'Steam Store Price',
+                    style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textSecondary),
+                  ),
+                  const SizedBox(height: 4),
                   Row(
                     children: [
                       _priceSection(),
@@ -704,6 +742,20 @@ class _GameDetailPageState extends State<GameDetailPage> {
                             fontSize: 12, color: AppColors.textSecondary),
                       ),
                     ),
+                  if (_steamRegionalPrice != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      'Region: ${(_steamRegionalPrice!['country'] ?? regionCtx.country).toString().toUpperCase()}',
+                      style: const TextStyle(
+                          fontSize: 12, color: AppColors.textSecondary),
+                    ),
+                    if (_steamRegionalPrice!['fallbackUsed'] == true)
+                      const Text(
+                        'Price shown in US region.',
+                        style: TextStyle(
+                            fontSize: 12, color: AppColors.textSecondary),
+                      ),
+                  ],
                   SizedBox(
                     width: double.infinity,
                     child: OutlinedButton.icon(
@@ -756,7 +808,7 @@ class _GameDetailPageState extends State<GameDetailPage> {
                               );
                             }
                             Share.share(
-                              'Check this deal: ${game.name} 🔥\n\$${game.price.toStringAsFixed(2)}\n$_storeUrl',
+                              'Check this deal: ${game.name} 🔥\n${formatRegionalPrice(amount: game.price, currency: regionCtx.currency)}\n$_storeUrl',
                             );
                           },
                           icon: const Icon(Icons.share, size: 20),
@@ -796,6 +848,7 @@ class _GameDetailPageState extends State<GameDetailPage> {
 
   Widget _priceHistoryCard(BuildContext context, GameModel game) {
     final l10n = AppLocalizations.of(context);
+    final priceRegion = PriceRegionResolver.resolveSync();
     final points = _pricePoints;
     if (points.isEmpty) {
       return _sectionCard(
@@ -864,7 +917,8 @@ class _GameDetailPageState extends State<GameDetailPage> {
                           showTitles: true,
                           reservedSize: 36,
                           getTitlesWidget: (v, _) => Text(
-                              '\$${v.toStringAsFixed(v.truncateToDouble() == v ? 0 : 1)}',
+                              formatRegionalPrice(
+                                  amount: v, currency: priceRegion.currency),
                               style: const TextStyle(
                                   color: AppColors.textSecondary,
                                   fontSize: 10)))),
@@ -883,9 +937,10 @@ class _GameDetailPageState extends State<GameDetailPage> {
                                 t is int ? t : (t is num ? t.toInt() : 0);
                             final dateStr =
                                 tMs > 0 ? _formatPriceHistoryDate(tMs) : '';
-                            final price =
-                                (points[i]['price'] as num).toStringAsFixed(2);
-                            return Text('$dateStr\n\$$price',
+                            final priceLabel = formatRegionalPrice(
+                                amount: (points[i]['price'] as num).toDouble(),
+                                currency: priceRegion.currency);
+                            return Text('$dateStr\n$priceLabel',
                                 style: const TextStyle(
                                     color: AppColors.textSecondary,
                                     fontSize: 9),
@@ -917,7 +972,9 @@ class _GameDetailPageState extends State<GameDetailPage> {
                 final t = points[i]['t'];
                 final tMs = t is int ? t : (t is num ? t.toInt() : 0);
                 final dateStr = tMs > 0 ? _formatPriceHistoryDate(tMs) : '—';
-                final price = (points[i]['price'] as num).toStringAsFixed(2);
+                final priceLabel = formatRegionalPrice(
+                    amount: (points[i]['price'] as num).toDouble(),
+                    currency: priceRegion.currency);
                 return Padding(
                   padding: const EdgeInsets.only(right: 12),
                   child: Container(
@@ -935,7 +992,7 @@ class _GameDetailPageState extends State<GameDetailPage> {
                         Text(dateStr,
                             style: const TextStyle(
                                 color: AppColors.textSecondary, fontSize: 10)),
-                        Text('\$$price',
+                        Text(priceLabel,
                             style: const TextStyle(
                                 color: AppColors.itadOrangeLight,
                                 fontSize: 12,
@@ -1236,29 +1293,49 @@ class _GameDetailPageState extends State<GameDetailPage> {
 
   Widget _priceSection() {
     final game = widget.game;
+    final regionCtx = PriceRegionResolver.resolveSync();
     final Map<String, dynamic>? steamRow =
         _dealLinks.cast<Map<String, dynamic>?>().firstWhere(
               (d) => (d?['source']?.toString() ?? '') == 'steam',
               orElse: () => null,
             );
-    double current = game.price;
-    double original = game.originalPrice;
+    double? current = game.price;
+    double? original = game.originalPrice;
     int discount = game.discount;
+    var currency = regionCtx.currency;
+
+    if (_steamRegionalPrice != null) {
+      final steamCurrency =
+          (_steamRegionalPrice!['currency']?.toString() ?? '').trim().toUpperCase();
+      final saleRaw = _steamRegionalPrice!['salePrice'];
+      final regularRaw = _steamRegionalPrice!['regularPrice'];
+      final saleNum = saleRaw is num ? saleRaw.toDouble() : double.tryParse('$saleRaw');
+      final regularNum = regularRaw is num ? regularRaw.toDouble() : double.tryParse('$regularRaw');
+      if (saleNum != null) current = saleNum > 1000 ? saleNum / 100.0 : saleNum;
+      if (regularNum != null) original = regularNum > 1000 ? regularNum / 100.0 : regularNum;
+      if (_steamRegionalPrice!['discountPercent'] is num) {
+        discount = (_steamRegionalPrice!['discountPercent'] as num).toInt();
+      }
+      if (steamCurrency.isNotEmpty) currency = steamCurrency;
+    }
+
     if (steamRow != null) {
       final f = steamRow['finalPrice'];
       final o = steamRow['originalPrice'];
       final d = steamRow['discountPercent'];
       final fv = f is num ? f.toDouble() : double.tryParse(f?.toString() ?? '');
       final ov = o is num ? o.toDouble() : double.tryParse(o?.toString() ?? '');
-      // Steam backend may return cents.
-      if (fv != null) current = fv > 1000 ? fv / 100.0 : fv;
-      if (ov != null) original = ov > 1000 ? ov / 100.0 : ov;
+      // fallback to deals data when steam regional price API is unavailable.
+      if (_steamRegionalPrice == null) {
+        if (fv != null) current = fv > 1000 ? fv / 100.0 : fv;
+        if (ov != null) original = ov > 1000 ? ov / 100.0 : ov;
+      }
       if (d is num) discount = d.toInt();
     }
     return Row(
       children: [
         Text(
-          '\$${current.toStringAsFixed(2)}',
+          formatRegionalPrice(amount: current, currency: currency),
           style: const TextStyle(
             fontSize: 20,
             color: AppColors.itadOrangeLight,
@@ -1268,7 +1345,7 @@ class _GameDetailPageState extends State<GameDetailPage> {
         if (original > 0) ...[
           const SizedBox(width: 8),
           Text(
-            '\$${original.toStringAsFixed(2)}',
+            formatRegionalPrice(amount: original, currency: currency),
             style: const TextStyle(
               decoration: TextDecoration.lineThrough,
               color: AppColors.textSecondary,

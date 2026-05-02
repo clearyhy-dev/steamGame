@@ -1,7 +1,11 @@
+import 'price_formatter.dart';
+import 'price_region_resolver.dart';
+
 /// 价格、折扣等展示格式化
 String formatPrice(double price) {
   if (price <= 0) return 'Free';
-  return '\$${price.toStringAsFixed(2)}';
+  final region = PriceRegionResolver.resolveSync();
+  return formatRegionalPrice(amount: price, currency: region.currency);
 }
 
 String formatDiscount(int percent) {
