@@ -56,6 +56,18 @@ export const adminApi = {
   patchRegionSettings: (body: Partial<RegionSettings>) =>
     unwrap(api.patch<ApiEnvelope<RegionSettings>>('/api/admin/settings/region-settings', body)),
 
+  regionCountriesList: () =>
+    unwrap(api.get<ApiEnvelope<Record<string, unknown>[]>>(`/api/admin/region-countries`)),
+  regionCountriesUpsert: (body: Record<string, unknown>) =>
+    unwrap(api.post<ApiEnvelope<Record<string, unknown>>>(`/api/admin/region-countries`, body)),
+  regionCountriesSetEnabled: (countryCode: string, enabled: boolean) =>
+    unwrap(
+      api.patch<ApiEnvelope<{ countryCode: string; enabled: boolean }>>(
+        `/api/admin/region-countries/${encodeURIComponent(countryCode)}/enabled`,
+        { enabled },
+      ),
+    ),
+
   videoSources: (params?: { sourceType?: string; gameId?: string }) =>
     unwrap(api.get<ApiEnvelope<VideoSourceRow[]>>('/api/admin/video-sources', { params })),
 

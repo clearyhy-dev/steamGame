@@ -47,8 +47,7 @@ void callbackDispatcher() {
         final currentDiscount = latest.discount;
         if (lastDiscount != null && currentDiscount > lastDiscount) {
           final priceStr = latest.price > 0
-              ? formatRegionalPrice(
-                  amount: latest.price, currency: region.currency)
+              ? formatGameListSalePrice(latest, region.currency)
               : '$currentDiscount% OFF';
           final title = '🔥 $priceDropTitle';
           final body = bodyTpl
@@ -94,7 +93,7 @@ void callbackDispatcher() {
         final index = dayOfYear % topN.length;
         final game = topN[index];
         final priceStr = game.price > 0
-            ? formatRegionalPrice(amount: game.price, currency: region.currency)
+            ? formatGameListSalePrice(game, region.currency)
             : '${game.discount}% OFF';
         final title =
             '🔥 ${titleTpl.replaceAll('{gameName}', game.name).replaceAll('{discount}', '${game.discount}').replaceAll('{price}', priceStr)}';

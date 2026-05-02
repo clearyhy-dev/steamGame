@@ -68,6 +68,7 @@ class RecommendedItem {
       discount: discountPercent,
       steamAppID: steamAppId,
       images: capsuleImage.isNotEmpty ? [capsuleImage] : const [],
+      priceIsGlobalUsd: true,
     );
   }
 }

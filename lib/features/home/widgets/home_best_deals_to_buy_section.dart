@@ -164,7 +164,7 @@ class _BuyCard extends StatelessWidget {
               const SizedBox(height: 4),
               if (game.originalPrice > 0)
                 Text(
-                  formatRegionalPrice(amount: game.originalPrice, currency: region.currency),
+                  formatGameListOriginalPrice(game, region.currency),
                   style: const TextStyle(
                     fontSize: 10,
                     color: AppColors.textSecondary,
@@ -172,7 +172,7 @@ class _BuyCard extends StatelessWidget {
                   ),
                 ),
               Text(
-                formatRegionalPrice(amount: game.price, currency: region.currency),
+                formatGameListSalePrice(game, region.currency),
                 style: const TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w700,

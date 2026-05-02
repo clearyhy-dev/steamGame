@@ -2,6 +2,7 @@ import type { Env } from '../config/env';
 import express from 'express';
 import { asyncHandler } from '../utils/asyncHandler';
 import { PublicConfigController } from '../modules/config/public.config.controller';
+import { PublicRegionCountriesController } from '../modules/config/public.region-countries.controller';
 import { RegionSettingsController } from '../modules/config/region-settings.controller';
 
 import { authRouter } from '../modules/auth/auth.routes';
@@ -21,6 +22,7 @@ export function createRouter(env: Env) {
   const r = express.Router();
 
   const publicConfig = new PublicConfigController(env);
+  const publicRegionCountries = new PublicRegionCountriesController();
   const regionSettings = new RegionSettingsController(env);
   r.get('/api/config', asyncHandler(publicConfig.getClientConfig));
 
@@ -33,6 +35,7 @@ export function createRouter(env: Env) {
   r.use('/api/favorites', favoritesRouter(env));
 
   const v1 = express.Router();
+  v1.get('/config/countries', asyncHandler(publicRegionCountries.getCountries));
   v1.get('/config/region-settings', asyncHandler(regionSettings.getRegionSettings));
   v1.use('/recommendations', recommendationsRouter(env));
   v1.use('/games', createPublicGamesRouter(env));

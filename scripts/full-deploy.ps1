@@ -7,13 +7,16 @@ param(
   [string]$SteamApiKey = "",
   [string]$FirebaseProjectId = "steamdeal",
   [string]$AdminUsername = "admin",
-  [string]$AdminPassword = ""
+  [string]$AdminPassword = "",
+  [switch]$PreserveCloudRunEnv
 )
 
 $ErrorActionPreference = "Stop"
 $scriptPath = Join-Path $PSScriptRoot "deploy-cloud-run.ps1"
 
-powershell -ExecutionPolicy Bypass -File $scriptPath `
+# Same process as parent so JWT_SECRET / STEAM_API_KEY / ADMIN_PASSWORD from User env
+# and server\.env are visible to deploy-cloud-run.ps1; avoids nested powershell arg bugs.
+& $scriptPath `
   -ProjectId $ProjectId `
   -Region $Region `
   -Service $Service `
@@ -23,7 +26,8 @@ powershell -ExecutionPolicy Bypass -File $scriptPath `
   -FirebaseProjectId $FirebaseProjectId `
   -AdminUsername $AdminUsername `
   -AdminPassword $AdminPassword `
-  -CostOptimized
+  -CostOptimized `
+  -PreserveCloudRunEnv:$PreserveCloudRunEnv
 
 if ($LASTEXITCODE -ne 0) {
   exit $LASTEXITCODE

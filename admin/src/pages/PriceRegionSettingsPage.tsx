@@ -73,7 +73,6 @@ export function PriceRegionSettingsPage() {
         countryLanguageMap: parseJsonMap(values.countryLanguageMapJson ?? '', 'countryLanguageMap'),
         priceSources: (values.priceSources ?? []).map((s) => String(s).trim().toLowerCase()),
         cacheHours: Number(values.cacheHours ?? 6),
-        showKeyshopDeals: !!values.showKeyshopDeals,
         showRegionWarning: !!values.showRegionWarning,
       };
       await adminApi.patchRegionSettings(payload);
@@ -122,9 +121,6 @@ export function PriceRegionSettingsPage() {
         </Form.Item>
         <Form.Item label="cacheHours" name="cacheHours" rules={[{ required: true, message: '请输入 cacheHours' }]}>
           <InputNumber min={1} max={168} style={{ width: '100%' }} />
-        </Form.Item>
-        <Form.Item label="showKeyshopDeals" name="showKeyshopDeals" valuePropName="checked">
-          <Switch />
         </Form.Item>
         <Form.Item label="showRegionWarning" name="showRegionWarning" valuePropName="checked">
           <Switch />

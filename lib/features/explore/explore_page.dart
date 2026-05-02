@@ -315,7 +315,7 @@ class _ExplorePageState extends State<ExplorePage>
                     onChanged: (v) => setModal(() => minD = v),
                   ),
                   Text(
-                    '${l10n.get('explore_filter_max_price')}: ${formatRegionalPrice(amount: maxP, currency: PriceRegionResolver.resolveSync().currency)}',
+                    '${l10n.get('explore_filter_max_price')}: \$${maxP.toStringAsFixed(0)} · ${l10n.get('global_price_tag')}',
                     style: const TextStyle(
                         color: AppColors.textSecondary, fontSize: 13),
                   ),
@@ -589,7 +589,7 @@ class _ExplorePageState extends State<ExplorePage>
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      '-${g.discount}%  ${formatRegionalPrice(amount: g.price, currency: region.currency)}',
+                      '-${g.discount}%  ${formatGameListSalePrice(g, region.currency)}',
                       style: const TextStyle(
                           fontSize: 13, color: AppColors.itadOrange),
                     ),

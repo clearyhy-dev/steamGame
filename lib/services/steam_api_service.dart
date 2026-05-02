@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import '../core/constants.dart';
 import '../core/current_players_cache.dart';
 import '../core/utils/price_region_resolver.dart';
+import '../core/utils/steam_ui_language.dart';
 import '../models/game_model.dart';
 
 /// 使用 CheapShark 公开 API 获取折扣列表与详情
@@ -70,12 +71,12 @@ class SteamApiService {
     try {
       final region = await PriceRegionResolver.resolveContext();
       final cc = (country ?? region.country).trim().toUpperCase();
-      final language = region.language.trim().toLowerCase();
+      final l = steamAppDetailsLanguageParameter(region.uiLanguageCode);
       final uri =
           Uri.parse('https://store.steampowered.com/api/appdetails').replace(
         queryParameters: <String, String>{
           'appids': appId,
-          if (language.isNotEmpty) 'l': language,
+          'l': l,
           if (cc.isNotEmpty) 'cc': cc,
         },
       );
@@ -207,6 +208,7 @@ class SteamApiService {
       price: 0,
       originalPrice: 0,
       discount: 0,
+      priceIsGlobalUsd: false,
     );
   }
 
@@ -217,12 +219,12 @@ class SteamApiService {
     try {
       final region = await PriceRegionResolver.resolveContext();
       final cc = (country ?? region.country).trim().toUpperCase();
-      final language = region.language.trim().toLowerCase();
+      final l = steamAppDetailsLanguageParameter(region.uiLanguageCode);
       final uri =
           Uri.parse('https://store.steampowered.com/api/appdetails').replace(
         queryParameters: <String, String>{
           'appids': steamAppID,
-          if (language.isNotEmpty) 'l': language,
+          'l': l,
           if (cc.isNotEmpty) 'cc': cc,
         },
       );
@@ -537,6 +539,7 @@ class SteamApiService {
                 originalPrice: 0,
                 discount: 0,
                 steamAppID: steamId ?? '',
+                priceIsGlobalUsd: true,
               ));
             }
           }

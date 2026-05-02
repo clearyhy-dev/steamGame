@@ -1,6 +1,7 @@
 import axios from 'axios';
 import type { Env } from '../../config/env';
 import { getEffectiveEnv } from '../../config/runtime-config';
+import { mapToSteamAppDetailsLang } from './steam-language.util';
 
 export type SteamStoreGameDetail = {
   appid: string;
@@ -33,6 +34,24 @@ export type SteamRegionalPrice = {
   salePrice: number;
   discountPercent: number;
   fallbackUsed: boolean;
+  /** Present when Steam returned formatted strings or server formatted from minor units. */
+  initialFormatted?: string;
+  finalFormatted?: string;
+  priceSource?: 'steam' | 'fallback_format';
+};
+
+/** Parsed regional price for API responses — amounts are Steam minor units until formatted for display. */
+export type SteamRegionalPriceDetail = {
+  currency: string;
+  initial: number;
+  final: number;
+  initialFormatted: string;
+  finalFormatted: string;
+  discountPercent: number;
+  fallbackUsed: boolean;
+  /** Steam returned formatted strings vs server-side Intl fallback */
+  source: 'steam' | 'fallback_format';
+  isFree?: boolean;
 };
 
 export type SteamReviewRow = {
@@ -154,6 +173,31 @@ export class SteamStoreService {
     return /^[A-Z]{2}$/.test(s) ? s : 'US';
   }
 
+  /** Steam returns minor units (cents) for most currencies; JPY is whole yen. */
+  minorUnitsToDisplayAmount(amount: number, currency: string): number {
+    const c = String(currency ?? 'USD').trim().toUpperCase();
+    if (c === 'JPY') return amount;
+    return amount / 100;
+  }
+
+  formatMinorUnitsFallback(amountMinor: number, currency: string): string {
+    const c = String(currency ?? 'USD').trim().toUpperCase();
+    const display = this.minorUnitsToDisplayAmount(amountMinor, c);
+    const intLike = new Set(['JPY', 'KRW', 'VND', 'CLP', 'IDR', 'HUF', 'ISK', 'UGX']);
+    const frac = intLike.has(c) ? 0 : 2;
+    try {
+      return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: c,
+        currencyDisplay: 'symbol',
+        minimumFractionDigits: frac,
+        maximumFractionDigits: frac,
+      }).format(display);
+    } catch {
+      return `${c} ${display}`;
+    }
+  }
+
   private parseSteamPriceOverView(appid: string, country: string, payload: any): SteamRegionalPrice | null {
     const row = payload?.[appid];
     if (!row?.success || !row?.data) return null;
@@ -163,22 +207,143 @@ export class SteamStoreService {
     const initial = intField(po.initial);
     const finalP = intField(po.final);
     const discount = intField(po.discount_percent);
+    const initFmt = String(po.initial_formatted ?? '').trim();
+    const finFmt = String(po.final_formatted ?? '').trim();
+    const priceSource: 'steam' | 'fallback_format' =
+      initFmt.length > 0 && finFmt.length > 0 ? 'steam' : 'fallback_format';
     return {
       appid,
       country,
       currency,
-      regularPrice: initial,
-      salePrice: finalP,
+      regularPrice: this.minorUnitsToDisplayAmount(initial, currency),
+      salePrice: this.minorUnitsToDisplayAmount(finalP, currency),
       discountPercent: discount,
       fallbackUsed: false,
+      initialFormatted:
+        initFmt || this.formatMinorUnitsFallback(initial, currency),
+      finalFormatted: finFmt || this.formatMinorUnitsFallback(finalP, currency),
+      priceSource,
     };
+  }
+
+  private parseSteamRegionalPriceDetail(
+    appid: string,
+    payload: any,
+    fallbackUsed: boolean,
+  ): SteamRegionalPriceDetail | null {
+    const row = payload?.[appid];
+    if (!row?.success || !row?.data) return null;
+    const d = row.data as Record<string, any>;
+    if (d.is_free === true) {
+      return {
+        currency: '',
+        initial: 0,
+        final: 0,
+        initialFormatted: '',
+        finalFormatted: '',
+        discountPercent: 0,
+        fallbackUsed,
+        source: 'steam',
+        isFree: true,
+      };
+    }
+    const po = d.price_overview;
+    if (!po) return null;
+    const currency = String(po.currency ?? '').trim().toUpperCase() || 'USD';
+    const initial = intField(po.initial);
+    const finalP = intField(po.final);
+    const discount = intField(po.discount_percent);
+    const initFmt = String(po.initial_formatted ?? '').trim();
+    const finFmt = String(po.final_formatted ?? '').trim();
+    const source: 'steam' | 'fallback_format' =
+      initFmt.length > 0 && finFmt.length > 0 ? 'steam' : 'fallback_format';
+    return {
+      currency,
+      initial,
+      final: finalP,
+      initialFormatted:
+        initFmt || this.formatMinorUnitsFallback(initial, currency),
+      finalFormatted: finFmt || this.formatMinorUnitsFallback(finalP, currency),
+      discountPercent: discount,
+      fallbackUsed,
+      source,
+    };
+  }
+
+  /**
+   * Fetches `price_overview` (+ `basic` for is_free) using Steam Store cc + configured language.
+   * Prefers Steam `*_formatted` strings; otherwise formats minor units server-side.
+   */
+  async fetchRegionalPriceDetail(
+    appid: string,
+    steamCc: string,
+    steamLanguageShort: string,
+    opts?: { fallbackSteamCc?: string },
+  ): Promise<SteamRegionalPriceDetail | null> {
+    const e = await getEffectiveEnv(this.env);
+    const url = 'https://store.steampowered.com/api/appdetails';
+    const cc = this.normalizeCountryCode(steamCc);
+    const langToken = mapToSteamAppDetailsLang(steamLanguageShort);
+
+    const req = async (countryCode: string) =>
+      axios.get<Record<string, any>>(url, {
+        params: {
+          appids: appid,
+          cc: this.normalizeCountryCode(countryCode),
+          l: langToken,
+          filters: 'price_overview,basic',
+        },
+        timeout: Math.max(e.steamHttpTimeoutMs, 15000),
+        validateStatus: () => true,
+      });
+
+    const first = await req(cc);
+    let detail = this.parseSteamRegionalPriceDetail(appid, first.data, false);
+    if (detail && !detail.isFree && detail.currency) return detail;
+    if (detail?.isFree) return detail;
+
+    const fb = String(opts?.fallbackSteamCc ?? 'US').trim().toUpperCase();
+    if (fb && fb !== cc) {
+      const second = await req(fb);
+      detail = this.parseSteamRegionalPriceDetail(appid, second.data, true);
+      if (detail && !detail.isFree && detail.currency) return detail;
+      if (detail?.isFree) return { ...detail, fallbackUsed: true };
+    }
+    return null;
+  }
+
+  /** Maps app UI language codes (en, zh, …) to Steam appdetails `l` tokens. */
+  private clientUiLangToSteamL(v?: string): string {
+    const s = String(v ?? 'en').trim().toLowerCase();
+    if (s === 'zh' || s === 'zh-cn' || s === 'zh-hans') return 'schinese';
+    if (s === 'zh-tw' || s === 'zh-hk' || s === 'zh-hant') return 'tchinese';
+    if (s === 'ja') return 'japanese';
+    if (s === 'ko') return 'koreana';
+    if (s === 'de') return 'german';
+    if (s === 'fr') return 'french';
+    if (s === 'es') return 'spanish';
+    if (s === 'pt' || s === 'pt-br') return 'portuguese';
+    if (s === 'ru') return 'russian';
+    if (s === 'pl') return 'polish';
+    if (s === 'it') return 'italian';
+    if (s === 'tr') return 'turkish';
+    if (s === 'th') return 'thai';
+    if (s === 'vi') return 'vietnamese';
+    if (s === 'ar') return 'arabic';
+    if (s === 'he') return 'hebrew';
+    if (s === 'el') return 'greek';
+    if (s === 'hi') return 'hindi';
+    if (s === 'id') return 'indonesian';
+    if (s === 'nl') return 'dutch';
+    if (s === 'sv') return 'swedish';
+    return 'english';
   }
 
   async fetchRegionalPrice(appid: string, country?: string, language?: string): Promise<SteamRegionalPrice | null> {
     const e = await getEffectiveEnv(this.env);
     const url = 'https://store.steampowered.com/api/appdetails';
     const cc = this.normalizeCountryCode(country);
-    const lang = this.normalizeLanguageCode(language);
+    const lang = this.clientUiLangToSteamL(language);
 
     const req = async (countryCode: string) =>
       axios.get<Record<string, any>>(url, {

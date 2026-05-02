@@ -6,6 +6,7 @@ import { PublicGamesController } from './public.games.controller';
 export function createPublicGamesRouter(env: Env) {
   const router = express.Router();
   const c = new PublicGamesController(env);
+  router.get('/:appid/regional-detail', asyncHandler(c.regionalDetail));
   router.get('/:appid/steam-price', asyncHandler(c.steamPrice));
   router.get('/:appid/discount-link', asyncHandler(c.discountLink));
   router.get('/:appid/deals', asyncHandler(c.listDeals));

@@ -105,7 +105,7 @@ class TopListItem extends StatelessWidget {
                       ),
                       if (game.originalPrice > 0)
                         Text(
-                          formatRegionalPrice(amount: game.originalPrice, currency: region.currency),
+                          formatGameListOriginalPrice(game, region.currency),
                           style: const TextStyle(
                             color: AppColors.textSecondary,
                             fontSize: 12,
@@ -115,7 +115,7 @@ class TopListItem extends StatelessWidget {
                       Row(
                         children: [
                           Text(
-                            formatRegionalPrice(amount: game.price, currency: region.currency),
+                            formatGameListSalePrice(game, region.currency),
                             style: const TextStyle(
                               color: AppColors.itadOrangeLight,
                               fontSize: 18,

@@ -17,6 +17,7 @@ import '../subscription/subscription_page.dart';
 import '../onboarding/onboarding_page.dart';
 import '../../core/app_remote_config.dart';
 import '../../core/constants/api_constants.dart';
+import '../../core/country_catalog_service.dart';
 import '../../services/steam_backend_service.dart';
 import '../../core/utils/price_region_resolver.dart';
 import '../../core/services/analytics_service.dart';
@@ -38,7 +39,7 @@ class _ProfilePageState extends State<ProfilePage> {
   bool _isPro = false;
   Map<String, String>? _user;
   String? _currentLocaleCode;
-  String? _currentPriceRegion;
+  String? _appCountryCode;
 
   String? _steamId;
   String? _steamPersonaName;
@@ -77,10 +78,10 @@ class _ProfilePageState extends State<ProfilePage> {
     final pro = await StorageService.instance.isPro();
     final user = await AuthService().getCurrentUser();
     final localeCode = await StorageService.instance.getPreferredLocale();
-    final selectedPriceRegion =
-        await StorageService.instance.getSelectedPriceRegion();
+    await CountryCatalogService.instance.ensureLoaded(ApiConstants.baseUrl);
     final resolvedCtx = await PriceRegionResolver.resolveContext();
-    final resolvedPriceRegion = selectedPriceRegion ?? resolvedCtx.country;
+    final storedCountry = await StorageService.instance.getAppCountry();
+    final resolvedAppCountry = storedCountry ?? resolvedCtx.country;
 
     String? steamToken;
     try {
@@ -132,7 +133,7 @@ class _ProfilePageState extends State<ProfilePage> {
         _isPro = pro;
         _user = user;
         _currentLocaleCode = localeCode;
-        _currentPriceRegion = resolvedPriceRegion;
+        _appCountryCode = resolvedAppCountry;
         _steamId = steamId;
         _steamPersonaName = steamPersonaName;
         _statsSummary = statsSummary;
@@ -260,54 +261,79 @@ class _ProfilePageState extends State<ProfilePage> {
     if (mounted) _load();
   }
 
-  Future<void> _showPriceRegionPicker() async {
-    const preferredOrder = ['US', 'IN', 'JP', 'BR', 'PL', 'FR', 'DE', 'CN'];
-    final enabled =
-        AppRemoteConfig.instance.regionSettings.enabledCountries.toSet();
-    final options = preferredOrder.where((c) => enabled.contains(c)).toList();
-    if (options.isEmpty) {
-      options.addAll(preferredOrder);
+  Future<void> _showAppCountryPicker() async {
+    await CountryCatalogService.instance.ensureLoaded(ApiConstants.baseUrl);
+    final cat = CountryCatalogService.instance;
+    var entries = List<CountryCatalogEntry>.from(cat.countries);
+    if (entries.isEmpty) {
+      for (final c
+          in AppRemoteConfig.instance.regionSettings.enabledCountries) {
+        entries.add(CountryCatalogEntry(
+          countryCode: c,
+          countryName: c,
+          nativeName: null,
+          steamCc: c,
+          steamLanguage: 'en',
+          defaultCurrency: AppRemoteConfig
+                  .instance.regionSettings.countryCurrencyMap[c] ??
+              'USD',
+          currencySymbol: '',
+        ));
+      }
+    }
+    if (entries.isEmpty) {
+      return;
     }
     final selected = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.cardDark,
-        title: const Text(
-          'Price Region',
-          style: TextStyle(
+        title: Text(
+          AppLocalizations.of(ctx).get('app_country_title'),
+          style: const TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.w600,
               color: AppColors.textPrimary),
         ),
         content: SizedBox(
           width: double.maxFinite,
-          child: ListView.builder(
-            shrinkWrap: true,
-            itemCount: options.length,
-            itemBuilder: (_, index) {
-              final code = options[index];
-              final isSelected = code == (_currentPriceRegion ?? '');
-              final currency = AppRemoteConfig
-                      .instance.regionSettings.countryCurrencyMap[code] ??
-                  'USD';
-              return ListTile(
-                title: Text(
-                  '$code ($currency)',
-                  style: const TextStyle(
-                      color: AppColors.textPrimary, fontSize: 16),
-                ),
-                trailing: isSelected
-                    ? const Icon(Icons.check, color: AppColors.itadOrange)
-                    : null,
-                onTap: () => Navigator.pop(ctx, code),
-              );
-            },
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(ctx).size.height * 0.6),
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: entries.length,
+              itemBuilder: (_, index) {
+                final e = entries[index];
+                final name = e.nativeName != null && e.nativeName!.isNotEmpty
+                    ? '${e.countryName} · ${e.nativeName}'
+                    : e.countryName;
+                final isSelected = e.countryCode == (_appCountryCode ?? '');
+                return ListTile(
+                  title: Text(
+                    name,
+                    style: const TextStyle(
+                        color: AppColors.textPrimary, fontSize: 16),
+                  ),
+                  subtitle: Text(
+                    '${e.countryCode} · ${e.defaultCurrency}${e.currencySymbol.isNotEmpty ? ' (${e.currencySymbol})' : ''}',
+                    style: TextStyle(
+                        color: AppColors.textSecondary.withOpacity(0.9),
+                        fontSize: 12),
+                  ),
+                  trailing: isSelected
+                      ? const Icon(Icons.check, color: AppColors.itadOrange)
+                      : null,
+                  onTap: () => Navigator.pop(ctx, e.countryCode),
+                );
+              },
+            ),
           ),
         ),
       ),
     );
-    if (selected == null || selected == _currentPriceRegion) return;
-    await StorageService.instance.setSelectedPriceRegion(selected);
+    if (selected == null || selected == _appCountryCode) return;
+    await StorageService.instance.setAppCountry(selected);
     AppRemoteConfig.instance.setActivePriceRegion(selected);
     await PriceRegionResolver.resolveContext();
     await StorageService.instance.clearDetailDealsCache();
@@ -315,11 +341,30 @@ class _ProfilePageState extends State<ProfilePage> {
     await CacheService.clearLastCheckTime();
     PriceRegionEvents.instance.notifyChanged();
     if (mounted) {
-      setState(() => _currentPriceRegion = selected);
+      setState(() => _appCountryCode = selected);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Price Region 已切换为 $selected')),
+        SnackBar(
+          content: Text(
+            AppLocalizations.of(context)
+                .get('app_country_switched')
+                .replaceAll('{code}', selected),
+          ),
+        ),
       );
     }
+  }
+
+  String _appCountrySubtitle(AppLocalizations l10n) {
+    final code = _appCountryCode ??
+        AppRemoteConfig.instance.regionSettings.defaultCountry;
+    for (final e in CountryCatalogService.instance.countries) {
+      if (e.countryCode == code) {
+        return e.nativeName != null && e.nativeName!.isNotEmpty
+            ? '${e.countryName} · ${e.nativeName}'
+            : e.countryName;
+      }
+    }
+    return code;
   }
 
   Future<void> _startSteamLogin({required bool bindMode}) async {
@@ -749,16 +794,15 @@ class _ProfilePageState extends State<ProfilePage> {
             const SizedBox(height: 12),
             Card(
               child: ListTile(
-                leading: const Icon(Icons.attach_money),
-                title: const Text('Price Region'),
+                leading: const Icon(Icons.flag_outlined),
+                title: Text(l10n.get('app_country_subtitle')),
                 subtitle: Text(
-                  _currentPriceRegion ??
-                      AppRemoteConfig.instance.regionSettings.defaultCountry,
+                  _appCountrySubtitle(l10n),
                   style:
                       TextStyle(fontSize: 13, color: AppColors.textSecondary),
                 ),
                 trailing: const Icon(Icons.chevron_right),
-                onTap: _showPriceRegionPicker,
+                onTap: _showAppCountryPicker,
               ),
             ),
             const SizedBox(height: 16),

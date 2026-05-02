@@ -13,6 +13,7 @@ import { SteamGamesPage } from './pages/SteamGamesPage';
 import { UsersPage } from './pages/UsersPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { PriceRegionSettingsPage } from './pages/PriceRegionSettingsPage';
+import { CountryRegionMappingPage } from './pages/CountryRegionMappingPage';
 
 function RequireAuth() {
   if (!getToken()) return <Navigate to="/login" replace />;
@@ -37,6 +38,7 @@ export default function App() {
               <Route path="users" element={<UsersPage />} />
               <Route path="settings" element={<SettingsPage />} />
               <Route path="price-region-settings" element={<PriceRegionSettingsPage />} />
+              <Route path="country-region-mapping" element={<CountryRegionMappingPage />} />
             </Route>
           </Route>
           <Route path="*" element={<Navigate to="/login" replace />} />

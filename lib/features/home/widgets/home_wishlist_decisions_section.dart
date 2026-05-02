@@ -86,6 +86,7 @@ class HomeWishlistDecisionsSection extends StatelessWidget {
                       discount: disc,
                       steamAppID: appid,
                       images: img.isNotEmpty ? [img] : [],
+                      priceIsGlobalUsd: true,
                     );
                     onOpenDetail!(g);
                   },

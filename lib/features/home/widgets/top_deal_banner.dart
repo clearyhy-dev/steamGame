@@ -128,7 +128,7 @@ class _TopDealBannerState extends State<TopDealBanner> {
                         Row(
                           children: [
                             Text(
-                              formatRegionalPrice(amount: g.price, currency: region.currency),
+                              formatGameListSalePrice(g, region.currency),
                               style: const TextStyle(
                                 color: AppColors.itadOrangeLight,
                                 fontSize: 22,
@@ -155,7 +155,7 @@ class _TopDealBannerState extends State<TopDealBanner> {
                         ),
                         if (g.originalPrice > 0)
                           Text(
-                            formatRegionalPrice(amount: g.originalPrice, currency: region.currency),
+                            formatGameListOriginalPrice(g, region.currency),
                             style: TextStyle(
                               color: Colors.white.withOpacity(0.8),
                               fontSize: 14,

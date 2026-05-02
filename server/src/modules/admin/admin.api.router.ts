@@ -11,6 +11,7 @@ import { AdminSteamGamesController } from './admin.steam-games.controller';
 import { AdminUsersController } from './admin.users.controller';
 import { AdminGamesController } from './admin.games.controller';
 import { AdminSettingsController } from './admin.settings.controller';
+import { AdminRegionCountriesController } from './admin.region-countries.controller';
 
 /** Mount at `/api/admin` — routes below are relative (e.g. `/auth/login`). */
 export function createAdminApiRouter(env: Env) {
@@ -25,6 +26,7 @@ export function createAdminApiRouter(env: Env) {
   const users = new AdminUsersController(env);
   const games = new AdminGamesController(env);
   const settings = new AdminSettingsController(env);
+  const regionCountries = new AdminRegionCountriesController();
 
   router.post('/auth/login', asyncHandler(auth.login));
 
@@ -41,6 +43,10 @@ export function createAdminApiRouter(env: Env) {
   secured.patch('/settings/region-settings', asyncHandler(settings.patchRegionSettings));
   secured.get('/settings/runtime', asyncHandler(settings.getRuntime));
   secured.patch('/settings/runtime', asyncHandler(settings.patchRuntime));
+
+  secured.get('/region-countries', asyncHandler(regionCountries.list));
+  secured.post('/region-countries', asyncHandler(regionCountries.upsert));
+  secured.patch('/region-countries/:countryCode/enabled', asyncHandler(regionCountries.patchEnabled));
 
   secured.get('/video-sources', asyncHandler(sources.list));
   secured.post('/video-sources/youtube', asyncHandler(sources.createYoutube));

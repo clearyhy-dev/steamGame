@@ -579,6 +579,12 @@ class StorageService {
     return _prefs.getString(AppConstants.keyPreferredLocale);
   }
 
+  /// Sync read after [init] — for price region + Steam `l` without mixing into MaterialApp locale.
+  String? getPreferredLocaleSync() {
+    if (!_inited) return null;
+    return _prefs.getString(AppConstants.keyPreferredLocale);
+  }
+
   Future<void> setPreferredLocale(String? languageCode) async {
     if (!_inited) return;
     if (languageCode == null || languageCode.isEmpty) {
@@ -603,6 +609,61 @@ class StorageService {
     }
     await _prefs.setString(
         AppConstants.keySelectedPriceRegion, countryCode.trim().toUpperCase());
+  }
+
+  /// One-time: copy legacy [keySelectedPriceRegion] → [keyAppCountry].
+  Future<void> migratePriceRegionToAppCountryOnce() async {
+    if (!_inited) return;
+    if (_prefs.getBool(AppConstants.keyAppCountryMigrated) == true) return;
+    final existing = _prefs.getString(AppConstants.keyAppCountry);
+    if (existing != null && existing.trim().isNotEmpty) {
+      await _prefs.setBool(AppConstants.keyAppCountryMigrated, true);
+      return;
+    }
+    final old = _prefs.getString(AppConstants.keySelectedPriceRegion);
+    if (old != null && old.trim().isNotEmpty) {
+      await _prefs.setString(
+          AppConstants.keyAppCountry, old.trim().toUpperCase());
+    }
+    await _prefs.setBool(AppConstants.keyAppCountryMigrated, true);
+  }
+
+  Future<String?> getAppCountry() async {
+    if (!_inited) return null;
+    await migratePriceRegionToAppCountryOnce();
+    final v = _prefs.getString(AppConstants.keyAppCountry);
+    if (v == null || v.trim().isEmpty) return null;
+    return v.trim().toUpperCase();
+  }
+
+  Future<void> setAppCountry(String? countryCode) async {
+    if (!_inited) return;
+    if (countryCode == null || countryCode.trim().isEmpty) {
+      await _prefs.remove(AppConstants.keyAppCountry);
+      return;
+    }
+    await _prefs.setString(
+        AppConstants.keyAppCountry, countryCode.trim().toUpperCase());
+  }
+
+  Future<void> setCountryCatalogCache(Map<String, dynamic> envelope) async {
+    if (!_inited) return;
+    await _prefs.setString(
+        AppConstants.keyCountryCatalogCache, jsonEncode(envelope));
+  }
+
+  Future<Map<String, dynamic>?> getCountryCatalogCache() async {
+    if (!_inited) return null;
+    final raw = _prefs.getString(AppConstants.keyCountryCatalogCache);
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map<String, dynamic>) return decoded;
+      if (decoded is Map) {
+        return decoded.map((k, v) => MapEntry(k.toString(), v));
+      }
+    } catch (_) {}
+    return null;
   }
 
   Future<void> setRegionSettingsCache(Map<String, dynamic> data) async {

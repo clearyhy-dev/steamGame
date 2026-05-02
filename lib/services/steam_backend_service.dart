@@ -77,6 +77,29 @@ class SteamBackendService {
     }
   }
 
+  /// Aggregated regional detail: Steam formatted prices + local/global deals (backend-classified).
+  Future<Map<String, dynamic>> getGameRegionalDetail(String appid,
+      {String? country}) async {
+    final id = appid.trim();
+    if (id.isEmpty) {
+      throw SteamBackendException(
+          code: 'INVALID_APPID', message: 'appid required');
+    }
+    final cc = (country ?? await _resolveCountryCode())?.trim().toUpperCase();
+    final uri = _uri('/api/v1/games/$id/regional-detail').replace(
+      queryParameters: {
+        if (cc != null && cc.isNotEmpty) 'country': cc,
+      },
+    );
+    final res = await _client
+        .get(uri, headers: await _authHeaders())
+        .timeout(ApiConstants.receiveTimeout, onTimeout: () {
+      throw SteamBackendException(
+          code: 'REQUEST_TIMEOUT', message: 'Request timeout');
+    });
+    return _parseData<Map<String, dynamic>>(res);
+  }
+
   Future<Map<String, dynamic>> getSteamRegionalPrice(String appid) async {
     final id = appid.trim();
     if (id.isEmpty) {
@@ -86,7 +109,7 @@ class SteamBackendService {
     final uri = _uri('/api/v1/games/$id/steam-price').replace(
       queryParameters: {
         'country': region.country,
-        'language': region.language,
+        'language': region.uiLanguageCode,
       },
     );
     final res = await _client

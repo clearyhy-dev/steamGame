@@ -7,13 +7,14 @@ param(
   [string]$SteamApiKey = "",
   [string]$FirebaseProjectId = "steamdeal",
   [string]$AdminUsername = "admin",
-  [string]$AdminPassword = ""
+  [string]$AdminPassword = "",
+  [switch]$PreserveCloudRunEnv
 )
 
 $ErrorActionPreference = "Stop"
 $scriptPath = Join-Path $PSScriptRoot "deploy-cloud-run.ps1"
 
-powershell -ExecutionPolicy Bypass -File $scriptPath `
+& $scriptPath `
   -ProjectId $ProjectId `
   -Region $Region `
   -Service $Service `
@@ -24,7 +25,8 @@ powershell -ExecutionPolicy Bypass -File $scriptPath `
   -AdminUsername $AdminUsername `
   -AdminPassword $AdminPassword `
   -SkipBuild `
-  -CostOptimized
+  -CostOptimized `
+  -PreserveCloudRunEnv:$PreserveCloudRunEnv
 
 if ($LASTEXITCODE -ne 0) {
   exit $LASTEXITCODE

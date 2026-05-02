@@ -2,19 +2,66 @@ import type { Request, Response } from 'express';
 import type { Env } from '../../config/env';
 import { sendAdminFail, sendAdminOk } from '../../utils/adminJson';
 import { GameCatalogRepository } from './game-catalog.repository';
-import { GameDealLinkRepository } from './game-deal-link.repository';
+import { GameDealLinkRepository, type GameDealLinkDoc } from './game-deal-link.repository';
 import { verifyJwt } from '../../config/jwt';
 import { UsersRepository } from '../users/users.repository';
 import { SteamRepository } from '../steam/steam.repository';
 import { SteamStoreService } from '../steam/steam-store.service';
 import { AdminSettingsRepository } from '../admin/admin.settings.repository';
 import { GameDiscountSyncService } from './game-discount-sync.service';
+import { RegionCountryRepository } from '../config/region-country.repository';
+
+function serializeDealLink(d: GameDealLinkDoc): Record<string, unknown> {
+  return {
+    dealId: d.dealId,
+    appid: d.appid,
+    source: d.source,
+    url: d.url,
+    isAffiliate: d.isAffiliate,
+    isActive: d.isActive,
+    priority: d.priority,
+    countryCode: d.countryCode,
+    currency: d.currency,
+    originalPrice: d.originalPrice,
+    finalPrice: d.finalPrice,
+    discountPercent: d.discountPercent,
+    offerStatus: d.offerStatus,
+    startAt: d.startAt ? d.startAt.toDate().toISOString() : null,
+    endAt: d.endAt ? d.endAt.toDate().toISOString() : null,
+    lastPriceSyncAt: d.lastPriceSyncAt ? d.lastPriceSyncAt.toDate().toISOString() : null,
+  };
+}
+
+/** Deal matches local storefront when country aligns or currency matches Steam listing currency. */
+function isLocalDeal(d: GameDealLinkDoc, appCountry: string, steamCurrency: string): boolean {
+  const cc = String(d.countryCode ?? '').trim().toUpperCase();
+  const cur = String(d.currency ?? '').trim().toUpperCase();
+  const sc = String(steamCurrency ?? '').trim().toUpperCase();
+  if (cc && cc === appCountry) return true;
+  if (cur && sc && cur === sc) return true;
+  return false;
+}
+
+function pickLowestPriced(
+  deals: GameDealLinkDoc[],
+  dealRepo: GameDealLinkRepository,
+): GameDealLinkDoc | null {
+  const nowMs = Date.now();
+  const active = deals.filter((l) => dealRepo.isActiveNow(l, nowMs));
+  const priced = active.filter(
+    (l) => typeof l.finalPrice === 'number' && l.finalPrice > 0,
+  );
+  if (priced.length === 0) return null;
+  priced.sort((a, b) => (a.finalPrice! - b.finalPrice!) || a.priority - b.priority);
+  return priced[0] ?? null;
+}
 
 export class PublicGamesController {
   private users = new UsersRepository();
   private steamRepo = new SteamRepository();
   private store: SteamStoreService;
   private settings = new AdminSettingsRepository();
+  private regionCountries = new RegionCountryRepository();
   private discountSync: GameDiscountSyncService;
 
   constructor(
@@ -61,6 +108,91 @@ export class PublicGamesController {
     return 'US';
   }
 
+  /** Full regional detail: Steam formatted prices + local vs global third-party deals. */
+  regionalDetail = async (req: Request, res: Response): Promise<void> => {
+    const appid = String(req.params.appid ?? '').trim();
+    if (!appid) {
+      sendAdminFail(res, 400, 'appid required');
+      return;
+    }
+    const fromQuery = this.normalizeCountryCode(req.query.country);
+    const country = fromQuery ?? (await this.resolveCountryCode(req));
+    const appCountry = (country || 'US').toUpperCase();
+    const rs = await this.settings.getRegionSettings();
+    const fallbackCc = (String(rs.fallbackCountry ?? 'US').trim().toUpperCase() || 'US') as string;
+    const resolved = await this.regionCountries.resolveForRegionalDetail(appCountry);
+    try {
+      const detail = await this.store.fetchRegionalPriceDetail(
+        appid,
+        resolved.steamCc,
+        resolved.steamLanguage,
+        { fallbackSteamCc: fallbackCc },
+      );
+      const links = await this.deals.listByAppid(appid);
+      const steamCur =
+        detail && !detail.isFree && detail.currency
+          ? String(detail.currency).trim().toUpperCase()
+          : String(resolved.defaultCurrency ?? 'USD')
+              .trim()
+              .toUpperCase();
+      const localDeals: GameDealLinkDoc[] = [];
+      const globalDeals: GameDealLinkDoc[] = [];
+      for (const d of links) {
+        if (isLocalDeal(d, appCountry, steamCur)) localDeals.push(d);
+        else globalDeals.push(d);
+      }
+      const localBest = pickLowestPriced(localDeals, this.deals);
+      const globalBest = pickLowestPriced(globalDeals, this.deals);
+
+      let steamPrice: Record<string, unknown> | null = null;
+      if (detail?.isFree) {
+        steamPrice = {
+          currency: '',
+          initial: 0,
+          final: 0,
+          initialFormatted: '',
+          finalFormatted: '',
+          discountPercent: 0,
+          fallbackUsed: detail.fallbackUsed,
+          source: 'steam' as const,
+          isFree: true,
+        };
+      } else if (detail && detail.currency) {
+        steamPrice = {
+          currency: detail.currency,
+          initial: detail.initial,
+          final: detail.final,
+          initialFormatted: detail.initialFormatted,
+          finalFormatted: detail.finalFormatted,
+          discountPercent: detail.discountPercent,
+          fallbackUsed: detail.fallbackUsed,
+          source: detail.source,
+        };
+      }
+
+      sendAdminOk(res, {
+        appid,
+        country: {
+          countryCode: resolved.countryCode,
+          countryName: resolved.countryName,
+          steamCc: resolved.steamCc,
+          steamLanguage: resolved.steamLanguage,
+          currencySymbol: resolved.currencySymbol,
+        },
+        steamPrice,
+        localDeals: localDeals.map(serializeDealLink),
+        globalDeals: globalDeals.map(serializeDealLink),
+        localBestDeal: localBest ? serializeDealLink(localBest) : null,
+        globalLowestDeal: globalBest ? serializeDealLink(globalBest) : null,
+        warnings: {
+          showRegionWarning: rs.showRegionWarning === true,
+        },
+      });
+    } catch (e) {
+      sendAdminFail(res, 500, e instanceof Error ? e.message : 'regional detail failed');
+    }
+  };
+
   steamPrice = async (req: Request, res: Response): Promise<void> => {
     const appid = String(req.params.appid ?? '').trim();
     if (!appid) {
@@ -68,7 +200,7 @@ export class PublicGamesController {
       return;
     }
     const country = this.normalizeCountryCode(req.query.country ?? req.query.cc) ?? (await this.resolveCountryCode(req));
-    const language = this.normalizeLanguageCode(req.query.language ?? req.query.l) ?? 'en';
+    const language = String(req.query.language ?? req.query.l ?? 'en').trim() || 'en';
 
     try {
       const row = await this.store.fetchRegionalPrice(appid, country, language);

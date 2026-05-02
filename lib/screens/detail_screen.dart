@@ -231,7 +231,7 @@ class _DetailScreenState extends State<DetailScreen> {
                   ? 'https://store.steampowered.com/app/${game.steamAppID}'
                   : '';
               Share.share(
-                '🔥 ${game.name}\nNow ${formatRegionalPrice(amount: game.price, currency: PriceRegionResolver.resolveSync().currency)}\n$steamUrl',
+                '🔥 ${game.name}\nNow ${formatGameListSalePrice(game, PriceRegionResolver.resolveSync().currency)}\n$steamUrl',
               );
             },
           ),
@@ -311,7 +311,7 @@ class _DetailScreenState extends State<DetailScreen> {
                     textBaseline: TextBaseline.alphabetic,
                     children: [
                       Text(
-                        formatRegionalPrice(amount: game.price, currency: PriceRegionResolver.resolveSync().currency),
+                        formatGameListSalePrice(game, PriceRegionResolver.resolveSync().currency),
                         style: const TextStyle(
                           fontSize: 26,
                           color: AppColors.accent,
@@ -321,7 +321,7 @@ class _DetailScreenState extends State<DetailScreen> {
                       if (game.originalPrice > 0) ...[
                         const SizedBox(width: 12),
                         Text(
-                          formatRegionalPrice(amount: game.originalPrice, currency: PriceRegionResolver.resolveSync().currency),
+                          formatGameListOriginalPrice(game, PriceRegionResolver.resolveSync().currency),
                           style: TextStyle(
                             decoration: TextDecoration.lineThrough,
                             color: AppColors.textSecondary,

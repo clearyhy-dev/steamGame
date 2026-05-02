@@ -114,7 +114,7 @@ class GameCardSmall extends StatelessWidget {
                       ),
                       if (game.originalPrice > 0)
                         Text(
-                          formatRegionalPrice(amount: game.originalPrice, currency: region.currency),
+                          formatGameListOriginalPrice(game, region.currency),
                           style: const TextStyle(
                             fontSize: 11,
                             color: AppColors.textSecondary,
@@ -124,7 +124,7 @@ class GameCardSmall extends StatelessWidget {
                       Row(
                         children: [
                           Text(
-                            formatRegionalPrice(amount: game.price, currency: region.currency),
+                            formatGameListSalePrice(game, region.currency),
                             style: const TextStyle(
                               fontSize: 16,
                               color: AppColors.itadOrangeLight,

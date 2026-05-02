@@ -1,12 +1,17 @@
 import 'dart:ui' as ui;
 
 import '../app_remote_config.dart';
+import '../constants/api_constants.dart';
+import '../country_catalog_service.dart';
 import '../storage_service.dart';
+import 'steam_ui_language.dart';
 
 class PriceRegionContext {
   final String country;
   final String currency;
-  final String language;
+
+  /// App UI language (ISO 639-1), e.g. en/zh/ja. Independent from price country.
+  final String uiLanguageCode;
   final bool showRegionWarning;
   final bool showKeyshopDeals;
   final String source; // manual / device / default / fallback
@@ -14,7 +19,7 @@ class PriceRegionContext {
   const PriceRegionContext({
     required this.country,
     required this.currency,
-    required this.language,
+    required this.uiLanguageCode,
     required this.showRegionWarning,
     required this.showKeyshopDeals,
     required this.source,
@@ -24,17 +29,29 @@ class PriceRegionContext {
 class PriceRegionResolver {
   static const _defaultCountry = 'US';
 
+  static String _syncUiLanguageCode() {
+    final stored = StorageService.instance.getPreferredLocaleSync();
+    if (stored != null && stored.trim().isNotEmpty) {
+      return normalizeUiLanguageCode(stored);
+    }
+    final loc = ui.PlatformDispatcher.instance.locale;
+    return normalizeUiLanguageCode(loc.languageCode);
+  }
+
   static PriceRegionContext resolveSync() {
     final cfg = AppRemoteConfig.instance.regionSettings;
+    final catalog = CountryCatalogService.instance;
     final active =
         AppRemoteConfig.instance.activePriceRegion.trim().toUpperCase();
     final country = active.isNotEmpty ? active : _defaultCountry;
-    final currency = cfg.countryCurrencyMap[country] ?? 'USD';
-    final language = cfg.countryLanguageMap[country] ?? 'en';
+    final currency = catalog.defaultCurrencyFor(country) ??
+        cfg.countryCurrencyMap[country] ??
+        'USD';
+    final uiLang = _syncUiLanguageCode();
     return PriceRegionContext(
       country: country,
       currency: currency,
-      language: language,
+      uiLanguageCode: uiLang,
       showRegionWarning: cfg.showRegionWarning,
       showKeyshopDeals: cfg.showKeyshopDeals,
       source: 'sync',
@@ -42,19 +59,27 @@ class PriceRegionResolver {
   }
 
   static Future<PriceRegionContext> resolveContext() async {
+    await StorageService.instance.migratePriceRegionToAppCountryOnce();
+    await CountryCatalogService.instance.ensureLoaded(ApiConstants.baseUrl);
+    final catalog = CountryCatalogService.instance;
     final cfg = AppRemoteConfig.instance.regionSettings;
-    final enabled = cfg.enabledCountries.toSet();
+    final enabled = catalog.countryCodes.isNotEmpty
+        ? catalog.countryCodes
+        : cfg.enabledCountries.toSet();
+    final storedUi = await StorageService.instance.getPreferredLocale();
+    final uiLang = normalizeUiLanguageCode(
+        storedUi ?? ui.PlatformDispatcher.instance.locale.languageCode);
 
-    final manual = (await StorageService.instance.getSelectedPriceRegion())
-            ?.trim()
-            .toUpperCase() ??
+    final manual = (await StorageService.instance.getAppCountry())?.trim() ??
         '';
     if (manual.isNotEmpty && enabled.contains(manual)) {
       AppRemoteConfig.instance.setActivePriceRegion(manual);
       return PriceRegionContext(
         country: manual,
-        currency: cfg.countryCurrencyMap[manual] ?? 'USD',
-        language: cfg.countryLanguageMap[manual] ?? 'en',
+        currency: catalog.defaultCurrencyFor(manual) ??
+            cfg.countryCurrencyMap[manual] ??
+            'USD',
+        uiLanguageCode: uiLang,
         showRegionWarning: cfg.showRegionWarning,
         showKeyshopDeals: cfg.showKeyshopDeals,
         source: 'manual',
@@ -67,52 +92,46 @@ class PriceRegionResolver {
       AppRemoteConfig.instance.setActivePriceRegion(localeCountry);
       return PriceRegionContext(
         country: localeCountry,
-        currency: cfg.countryCurrencyMap[localeCountry] ?? 'USD',
-        language: cfg.countryLanguageMap[localeCountry] ?? 'en',
+        currency: catalog.defaultCurrencyFor(localeCountry) ??
+            cfg.countryCurrencyMap[localeCountry] ??
+            'USD',
+        uiLanguageCode: uiLang,
         showRegionWarning: cfg.showRegionWarning,
         showKeyshopDeals: cfg.showKeyshopDeals,
         source: 'device_country',
       );
     }
 
-    final localeLanguage = locale.languageCode.trim().toLowerCase();
-    if (localeLanguage.isNotEmpty) {
-      for (final entry in cfg.countryLanguageMap.entries) {
-        if (entry.value.trim().toLowerCase() == localeLanguage &&
-            enabled.contains(entry.key)) {
-          AppRemoteConfig.instance.setActivePriceRegion(entry.key);
-          return PriceRegionContext(
-            country: entry.key,
-            currency: cfg.countryCurrencyMap[entry.key] ?? 'USD',
-            language: cfg.countryLanguageMap[entry.key] ?? 'en',
-            showRegionWarning: cfg.showRegionWarning,
-            showKeyshopDeals: cfg.showKeyshopDeals,
-            source: 'device_language',
-          );
-        }
-      }
+    var defaultCountry = catalog.defaultCountry.trim().toUpperCase();
+    if (defaultCountry.isEmpty) {
+      defaultCountry = cfg.defaultCountry.trim().toUpperCase();
     }
-
-    final defaultCountry = cfg.defaultCountry.trim().toUpperCase();
     if (defaultCountry.isNotEmpty && enabled.contains(defaultCountry)) {
       AppRemoteConfig.instance.setActivePriceRegion(defaultCountry);
       return PriceRegionContext(
         country: defaultCountry,
-        currency: cfg.countryCurrencyMap[defaultCountry] ?? 'USD',
-        language: cfg.countryLanguageMap[defaultCountry] ?? 'en',
+        currency: catalog.defaultCurrencyFor(defaultCountry) ??
+            cfg.countryCurrencyMap[defaultCountry] ??
+            'USD',
+        uiLanguageCode: uiLang,
         showRegionWarning: cfg.showRegionWarning,
         showKeyshopDeals: cfg.showKeyshopDeals,
         source: 'default',
       );
     }
 
-    final fallback = cfg.fallbackCountry.trim().toUpperCase();
+    var fallback = catalog.fallbackCountry.trim().toUpperCase();
+    if (fallback.isEmpty) {
+      fallback = cfg.fallbackCountry.trim().toUpperCase();
+    }
     if (fallback.isNotEmpty && enabled.contains(fallback)) {
       AppRemoteConfig.instance.setActivePriceRegion(fallback);
       return PriceRegionContext(
         country: fallback,
-        currency: cfg.countryCurrencyMap[fallback] ?? 'USD',
-        language: cfg.countryLanguageMap[fallback] ?? 'en',
+        currency: catalog.defaultCurrencyFor(fallback) ??
+            cfg.countryCurrencyMap[fallback] ??
+            'USD',
+        uiLanguageCode: uiLang,
         showRegionWarning: cfg.showRegionWarning,
         showKeyshopDeals: cfg.showKeyshopDeals,
         source: 'fallback',
@@ -122,8 +141,8 @@ class PriceRegionResolver {
     AppRemoteConfig.instance.setActivePriceRegion(_defaultCountry);
     return PriceRegionContext(
       country: _defaultCountry,
-      currency: 'USD',
-      language: cfg.countryLanguageMap[_defaultCountry] ?? 'en',
+      currency: catalog.defaultCurrencyFor(_defaultCountry) ?? 'USD',
+      uiLanguageCode: uiLang,
       showRegionWarning: cfg.showRegionWarning,
       showKeyshopDeals: cfg.showKeyshopDeals,
       source: 'fallback',

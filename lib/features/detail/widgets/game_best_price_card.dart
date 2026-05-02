@@ -2,14 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/theme/colors.dart';
-import '../../../core/app_remote_config.dart';
+import '../../../core/utils/deal_region_filter.dart';
 import '../../../core/utils/price_formatter.dart';
+import '../../../core/utils/price_region_resolver.dart';
+import '../../../core/utils/steam_price_amount.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../models/game_model.dart';
-import '../../../models/store_offer.dart';
 import '../../../services/price_engine.dart';
 
-/// 多店比价：官方低价 + 全渠道低价，主按钮跳转联盟/商店。
+/// 多店比价：本地区最低价（与 Price Region 一致）与全球最低价分开展示。
 class GameBestPriceCard extends StatelessWidget {
   const GameBestPriceCard({
     super.key,
@@ -24,14 +25,19 @@ class GameBestPriceCard extends StatelessWidget {
     this.dealsUsingCache = false,
     this.showRegionWarning = true,
     this.selectedCountry,
+    this.regionalLocalDeals,
+    this.regionalGlobalDeals,
   });
 
   final GameModel game;
   final PriceResult priceResult;
 
-  /// 购买失败时 SnackBar「加入愿望单」操作；由详情页注入（与心形按钮逻辑一致）。
   final VoidCallback? onAddToWishlist;
   final List<Map<String, dynamic>>? dealLinks;
+
+  /// When set with [regionalGlobalDeals], skips client-side region matching (backend-classified).
+  final List<Map<String, dynamic>>? regionalLocalDeals;
+  final List<Map<String, dynamic>>? regionalGlobalDeals;
   final Future<void> Function(String source)? onTapSource;
   final bool isPro;
   final bool refreshingDeals;
@@ -90,67 +96,212 @@ class GameBestPriceCard extends StatelessWidget {
     );
   }
 
-  String _currencyForCountry(String? countryCode) {
-    final cc = (countryCode ?? '').trim().toUpperCase();
-    return AppRemoteConfig.instance.regionSettings.countryCurrencyMap[cc] ?? 'USD';
+  Future<void> _guardedTap(
+    BuildContext context,
+    AppLocalizations l10n,
+    String source,
+  ) async {
+    if (onTapSource == null) return;
+    if (!showRegionWarning) {
+      await onTapSource!(source);
+      return;
+    }
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.cardDark,
+        title: Text(l10n.get('region_notice_title')),
+        content: Text(
+          '${l10n.get('prices_vary_by_region_detail')}\n\n${l10n.get('deal_activation_restrictions')}',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(l10n.get('cancel_btn')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(l10n.get('continue_btn')),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) await onTapSource!(source);
+  }
+
+  Map<String, Map<String, dynamic>> _lowestPerSource(
+    List<Map<String, dynamic>> links,
+    Set<String> allowedSources,
+  ) {
+    final map = <String, Map<String, dynamic>>{};
+    for (final row in links) {
+      final source = (row['source'] ?? '').toString();
+      if (!allowedSources.contains(source)) continue;
+      final nextPrice = row['finalPrice'] is num
+          ? (row['finalPrice'] as num).toDouble()
+          : double.tryParse('${row['finalPrice']}');
+      final cur = map[source];
+      final curPrice = cur?['finalPrice'] is num
+          ? (cur!['finalPrice'] as num).toDouble()
+          : double.tryParse('${cur?['finalPrice']}');
+      if (cur == null ||
+          (nextPrice != null && (curPrice == null || nextPrice < curPrice))) {
+        map[source] = row;
+      }
+    }
+    return map;
   }
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
     final scheme = Theme.of(context).colorScheme;
-    final official = priceResult.bestOfficial;
-    if (official == null &&
-        (dealLinks ?? const <Map<String, dynamic>>[]).isEmpty) {
-      return const SizedBox.shrink();
+    final region = PriceRegionResolver.resolveSync();
+    final links = dealLinks ?? const <Map<String, dynamic>>[];
+    const sources = {'steam', 'isthereanydeal', 'ggdeals', 'cheapshark'};
+    late final List<Map<String, dynamic>> localList;
+    late final List<Map<String, dynamic>> globalList;
+    if (regionalLocalDeals != null && regionalGlobalDeals != null) {
+      localList = List<Map<String, dynamic>>.from(regionalLocalDeals!);
+      globalList = List<Map<String, dynamic>>.from(regionalGlobalDeals!);
+    } else {
+      final scoped =
+          links.where((r) => sources.contains((r['source'] ?? '').toString()));
+      localList =
+          scoped.where((r) => dealMatchesPriceRegion(r, region)).toList();
+      globalList =
+          scoped.where((r) => !dealMatchesPriceRegion(r, region)).toList();
     }
-    final sourceOrder = const [
-      'steam',
-      'isthereanydeal',
-      'ggdeals',
-      'cheapshark'
-    ];
-    final otherSourceOrder = const ['isthereanydeal', 'ggdeals', 'cheapshark'];
-    final links = (dealLinks ?? const <Map<String, dynamic>>[]);
-    Map<String, Map<String, dynamic>> lowestBySource = {};
-    for (final row in links) {
-      final source = (row['source'] ?? '').toString();
-      if (!sourceOrder.contains(source)) continue;
-      final current = lowestBySource[source];
-      final nextPrice = row['finalPrice'] is num
-          ? (row['finalPrice'] as num).toDouble()
-          : double.tryParse('${row['finalPrice']}');
-      final curPrice = current?['finalPrice'] is num
-          ? (current!['finalPrice'] as num).toDouble()
-          : double.tryParse('${current?['finalPrice']}');
-      if (current == null ||
-          (nextPrice != null && (curPrice == null || nextPrice < curPrice))) {
-        lowestBySource[source] = row;
-      }
-    }
-    final steamRow = lowestBySource['steam'];
-    Widget sourcePriceRow({
-      required String label,
+    final localBySource = _lowestPerSource(localList, sources);
+    final globalBySource = _lowestPerSource(globalList, sources);
+
+    final hasLocal = localBySource.values.any((r) {
+      final fp = r['finalPrice'];
+      final v = fp is num ? fp.toDouble() : double.tryParse('$fp');
+      return v != null && v > 0;
+    });
+
+    final otherSourceOrder =
+        const ['isthereanydeal', 'ggdeals', 'cheapshark', 'steam'];
+
+    Widget priceChip({
       required String source,
-      required VoidCallback? onTap,
-      required num? originalPrice,
-      required num? finalPrice,
-      required num? discountPercent,
-      String? countryCode,
+      required Map<String, dynamic>? row,
+      required bool isGlobal,
     }) {
-      final currency = _currencyForCountry(countryCode);
-      final parsedFinal = finalPrice?.toDouble();
-      final parsedOriginal = originalPrice?.toDouble();
-      final shownFinal = parsedFinal == null
+      final rawFinal = row?['finalPrice'];
+      final curStr = (row?['currency'] ?? '').toString().trim();
+      final currency = curStr.isNotEmpty
+          ? curStr.toUpperCase()
+          : (source == 'steam' ? 'USD' : 'USD');
+      final rawFinalValue = rawFinal is num
+          ? rawFinal.toDouble()
+          : double.tryParse('${row?['finalPrice']}');
+      final shownFinal = rawFinalValue == null
           ? null
-          : (parsedFinal > 1000 ? parsedFinal / 100.0 : parsedFinal);
-      final shownOriginal = parsedOriginal == null
+          : normalizeDealPriceAmount(rawFinalValue, currency);
+      final hasPrice = shownFinal != null && shownFinal > 0;
+      final displayPrice = hasPrice
+          ? formatRegionalPrice(amount: shownFinal, currency: currency)
+          : (refreshingDeals
+              ? l10n.get('affiliate_price_retrying')
+              : l10n.get('no_regional_deal_short'));
+      final globalTag = isGlobal
+          ? '${l10n.get('global_price_tag')} · $currency'
+          : '';
+
+      return InkWell(
+        onTap: onTapSource == null
+            ? null
+            : () => _guardedTap(context, l10n, source),
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          constraints: const BoxConstraints(minWidth: 104),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            color: AppColors.cardElevated,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _sourceLogo(source),
+                  const SizedBox(width: 6),
+                  Text(
+                    _sourceName[source] ?? source,
+                    style: const TextStyle(
+                      color: AppColors.textPrimary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Icon(
+                    isPro ? Icons.lock_open : Icons.lock,
+                    size: 12,
+                    color: Colors.white54,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                displayPrice,
+                style: TextStyle(
+                  color: hasPrice
+                      ? AppColors.itadOrange
+                      : Colors.white70,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              if (globalTag.isNotEmpty)
+                Text(
+                  globalTag,
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: scheme.onSurfaceVariant.withValues(alpha: 0.85),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    Widget rowTile({
+      required String source,
+      required Map<String, dynamic>? row,
+      required bool isGlobal,
+    }) {
+      if (row == null) return const SizedBox.shrink();
+      final rawFinal = row['finalPrice'];
+      final curStr = (row['currency'] ?? '').toString().trim();
+      final currency =
+          curStr.isNotEmpty ? curStr.toUpperCase() : 'USD';
+      final rawFinalValue = rawFinal is num
+          ? rawFinal.toDouble()
+          : double.tryParse('$rawFinal');
+      final rawOriginal = row['originalPrice'];
+      final rawOriginalValue = rawOriginal is num
+          ? rawOriginal.toDouble()
+          : double.tryParse('$rawOriginal');
+      final shownFinal = rawFinalValue == null
           ? null
-          : (parsedOriginal > 1000 ? parsedOriginal / 100.0 : parsedOriginal);
+          : normalizeDealPriceAmount(rawFinalValue, currency);
+      final shownOriginal = rawOriginalValue == null
+          ? null
+          : normalizeDealPriceAmount(rawOriginalValue, currency);
+
       return Padding(
         padding: const EdgeInsets.only(bottom: 10),
         child: InkWell(
-          onTap: onTap,
+          onTap:
+              onTapSource == null ? null : () => _guardedTap(context, l10n, source),
           borderRadius: BorderRadius.circular(10),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -159,17 +310,6 @@ class GameBestPriceCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    if (label.isNotEmpty) ...[
-                      Text(
-                        label,
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: scheme.onSurfaceVariant.withValues(alpha: 0.9),
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                    ],
                     Row(
                       children: [
                         Text(
@@ -190,6 +330,18 @@ class GameBestPriceCard extends StatelessWidget {
                         ],
                       ],
                     ),
+                    if (isGlobal)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          '${l10n.get('global_price_tag')} · $currency',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color:
+                                scheme.onSurfaceVariant.withValues(alpha: 0.8),
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -205,7 +357,8 @@ class GameBestPriceCard extends StatelessWidget {
                       shownFinal != null &&
                       shownOriginal > shownFinal)
                     Text(
-                      formatRegionalPrice(amount: shownOriginal, currency: currency),
+                      formatRegionalPrice(
+                          amount: shownOriginal, currency: currency),
                       style: TextStyle(
                         fontSize: 12,
                         decoration: TextDecoration.lineThrough,
@@ -213,14 +366,18 @@ class GameBestPriceCard extends StatelessWidget {
                       ),
                     ),
                   Text(
-                    shownFinal == null ? '--' : formatRegionalPrice(amount: shownFinal, currency: currency),
+                    shownFinal == null
+                        ? '—'
+                        : formatRegionalPrice(
+                            amount: shownFinal, currency: currency),
                     style: const TextStyle(
                       fontSize: 17,
                       fontWeight: FontWeight.bold,
                       color: AppColors.itadOrange,
                     ),
                   ),
-                  if ((discountPercent ?? 0) > 0)
+                  if ((row['discountPercent'] is num) &&
+                      (row['discountPercent'] as num) > 0)
                     Container(
                       margin: const EdgeInsets.only(top: 4),
                       padding: const EdgeInsets.symmetric(
@@ -230,7 +387,7 @@ class GameBestPriceCard extends StatelessWidget {
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
-                        '-${discountPercent!.toInt()}%',
+                        '-${(row['discountPercent'] as num).toInt()}%',
                         style: const TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
@@ -246,20 +403,13 @@ class GameBestPriceCard extends StatelessWidget {
       );
     }
 
-    Widget fallbackOfferRow(String label, StoreOffer? offer,
-        {VoidCallback? onTap}) {
-      if (offer == null) return const SizedBox.shrink();
-      final fallbackCountry =
-          (steamRow?['countryCode'] ?? '').toString().trim().toUpperCase();
-      return sourcePriceRow(
-        label: label,
-        source: offer.store == StoreIds.steam ? 'steam' : offer.store,
-        onTap: onTap,
-        originalPrice: offer.originalPrice,
-        finalPrice: offer.price,
-        discountPercent: offer.discountPercent,
-        countryCode: fallbackCountry.isEmpty ? null : fallbackCountry,
-      );
+    final official = priceResult.bestOfficial;
+    final mockOfficialRegional = official != null &&
+        official.price > 0 &&
+        region.currency == 'USD';
+
+    if (links.isEmpty && official == null) {
+      return const SizedBox.shrink();
     }
 
     return Card(
@@ -279,137 +429,110 @@ class GameBestPriceCard extends StatelessWidget {
                 const Icon(Icons.local_fire_department_rounded,
                     color: AppColors.itadOrange, size: 22),
                 const SizedBox(width: 8),
-                Text(
-                  l10n.get('affiliate_section_best_price'),
-                  style: TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.bold,
-                    color: scheme.onSurface,
+                Expanded(
+                  child: Text(
+                    l10n.get('price_section_local_best'),
+                    style: TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.bold,
+                      color: scheme.onSurface,
+                    ),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 14),
-            if (steamRow != null)
-              sourcePriceRow(
-                label: '',
-                source: 'steam',
-                onTap: onTapSource == null ? null : () => onTapSource!('steam'),
-                originalPrice: steamRow['originalPrice'] is num
-                    ? steamRow['originalPrice'] as num
-                    : null,
-                finalPrice: steamRow['finalPrice'] is num
-                    ? steamRow['finalPrice'] as num
-                    : null,
-                discountPercent: steamRow['discountPercent'] is num
-                    ? steamRow['discountPercent'] as num
-                    : null,
-                countryCode: (steamRow['countryCode'] ?? '').toString(),
+            const SizedBox(height: 12),
+            if (!hasLocal)
+              Text(
+                l10n
+                    .get('no_local_deal_for_region')
+                    .replaceAll('{region}', region.country),
+                style: TextStyle(
+                  fontSize: 13,
+                  color: scheme.onSurfaceVariant.withValues(alpha: 0.9),
+                ),
               )
-            else
-              fallbackOfferRow(
-                '',
-                official,
-                onTap: onTapSource == null ? null : () => onTapSource!('steam'),
-              ),
-            const SizedBox(height: 2),
-            Text(
-              l10n.get('affiliate_section_global_lowest'),
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: scheme.onSurfaceVariant.withValues(alpha: 0.9),
-              ),
+            else ...[
+              for (final src in const ['steam', 'isthereanydeal', 'ggdeals', 'cheapshark'])
+                if (localBySource[src] != null)
+                  rowTile(
+                    source: src,
+                    row: localBySource[src],
+                    isGlobal: false,
+                  ),
+              if (mockOfficialRegional && localBySource['steam'] == null)
+                rowTile(
+                  source: 'steam',
+                  row: {
+                    'finalPrice': official.price,
+                    'originalPrice': official.originalPrice,
+                    'discountPercent': official.discountPercent,
+                    'currency': 'USD',
+                    'countryCode': 'US',
+                  },
+                  isGlobal: false,
+                ),
+            ],
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Icon(Icons.public,
+                    size: 18, color: scheme.onSurfaceVariant.withValues(alpha: 0.9)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    l10n.get('price_section_global_lowest'),
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: scheme.onSurfaceVariant.withValues(alpha: 0.95),
+                    ),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
             Wrap(
               spacing: 8,
               runSpacing: 8,
-              children: otherSourceOrder.map((source) {
-                final row = lowestBySource[source];
-                final rawFinal = row?['finalPrice'];
-                final currency =
-                    _currencyForCountry((row?['countryCode'] ?? '').toString());
-                final rawFinalValue = rawFinal is num
-                    ? rawFinal.toDouble()
-                    : double.tryParse('${row?['finalPrice']}');
-                final rawOriginal = row?['originalPrice'];
-                final rawOriginalValue = rawOriginal is num
-                    ? rawOriginal.toDouble()
-                    : double.tryParse('${row?['originalPrice']}');
-                final shownFinal = rawFinalValue == null
-                    ? (rawOriginalValue == null
-                        ? null
-                        : (rawOriginalValue > 1000
-                            ? rawOriginalValue / 100.0
-                            : rawOriginalValue))
-                    : (rawFinalValue > 1000
-                        ? rawFinalValue / 100.0
-                        : rawFinalValue);
-                final hasPrice = shownFinal != null;
-                final displayPrice = hasPrice
-                    ? formatRegionalPrice(amount: shownFinal, currency: currency)
-                    : (refreshingDeals
-                        ? l10n.get('affiliate_price_retrying')
-                        : '--');
-                final selected = (selectedCountry ?? '').trim().toUpperCase();
-                final rowCc = (row?['countryCode'] ?? '').toString().trim().toUpperCase();
-                final regionMatched = selected.isEmpty || rowCc.isEmpty || selected == rowCc;
-                final displayText = displayPrice;
-                return InkWell(
-                  onTap:
-                      onTapSource == null ? null : () => onTapSource!(source),
-                  borderRadius: BorderRadius.circular(10),
-                  child: Container(
-                    constraints: const BoxConstraints(minWidth: 104),
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: AppColors.cardElevated,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.08)),
+              children: [
+                for (final src in otherSourceOrder)
+                  if (globalBySource[src] != null)
+                    priceChip(
+                      source: src,
+                      row: globalBySource[src],
+                      isGlobal: true,
                     ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _sourceLogo(source),
-                        const SizedBox(width: 6),
-                        Text(
-                          _sourceName[source] ?? source,
-                          style: const TextStyle(
-                            color: AppColors.textPrimary,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          regionMatched ? displayText : 'No regional deal available',
-                          style: TextStyle(
-                            color: regionMatched && hasPrice
-                                ? AppColors.itadOrange
-                                : Colors.white70,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        Icon(
-                          isPro ? Icons.lock_open : Icons.lock,
-                          size: 12,
-                          color: Colors.white54,
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              }).toList(),
+              ],
             ),
+            if (official != null &&
+                official.price > 0 &&
+                !mockOfficialRegional &&
+                globalBySource['steam'] == null)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: rowTile(
+                  source: 'steam',
+                  row: {
+                    'finalPrice': official.price,
+                    'originalPrice': official.originalPrice,
+                    'discountPercent': official.discountPercent,
+                    'currency': 'USD',
+                    'countryCode': 'US',
+                  },
+                  isGlobal: true,
+                ),
+              ),
             const SizedBox(height: 10),
             if (dealsUsingCache ||
                 (dealsCacheUpdatedAt != null &&
-                    !_hasAnyThirdPartyPrice(lowestBySource)))
+                    !links.any((r) {
+                      final fp = r['finalPrice'];
+                      final v = fp is num
+                          ? fp.toDouble()
+                          : double.tryParse('$fp');
+                      return v != null && v > 0;
+                    })))
               Text(
                 dealsUsingCache
                     ? '${l10n.get('affiliate_cached_price')} · ${DateFormat('MM-dd HH:mm').format(dealsCacheUpdatedAt ?? DateTime.now())}'
@@ -421,19 +544,15 @@ class GameBestPriceCard extends StatelessWidget {
               ),
             if (dealsUsingCache ||
                 (dealsCacheUpdatedAt != null &&
-                    !_hasAnyThirdPartyPrice(lowestBySource)))
+                    !links.any((r) {
+                      final fp = r['finalPrice'];
+                      final v = fp is num
+                          ? fp.toDouble()
+                          : double.tryParse('$fp');
+                      return v != null && v > 0;
+                    })))
               const SizedBox(height: 8),
-            if (otherSourceOrder.any((s) => lowestBySource[s] != null)) ...[
-              if (showRegionWarning)
-                Text(
-                  'Region restrictions may apply.',
-                  style: TextStyle(
-                    fontSize: 11,
-                    height: 1.3,
-                    color: scheme.onSurfaceVariant.withValues(alpha: 0.75),
-                  ),
-                ),
-              if (showRegionWarning) const SizedBox(height: 6),
+            if (globalBySource.isNotEmpty || official != null) ...[
               Text(
                 l10n.get('affiliate_third_party_note'),
                 style: TextStyle(
@@ -442,43 +561,29 @@ class GameBestPriceCard extends StatelessWidget {
                   color: scheme.onSurfaceVariant.withValues(alpha: 0.75),
                 ),
               ),
-              const SizedBox(height: 12),
-            ] else ...[
+              const SizedBox(height: 8),
+            ],
+            if (showRegionWarning) ...[
               Text(
-                l10n.get('affiliate_no_other_prices'),
+                l10n.get('region_restrictions_short'),
                 style: TextStyle(
                   fontSize: 11,
+                  height: 1.3,
                   color: scheme.onSurfaceVariant.withValues(alpha: 0.75),
                 ),
               ),
-            ],
-            if (showRegionWarning)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(
-                  'Price region: ${(selectedCountry ?? '').trim().isEmpty ? '--' : selectedCountry!.trim().toUpperCase()}',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: scheme.onSurfaceVariant.withValues(alpha: 0.72),
-                  ),
+              const SizedBox(height: 4),
+              Text(
+                '${l10n.get('app_country_subtitle')}: ${(selectedCountry ?? region.country).trim().toUpperCase()}',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: scheme.onSurfaceVariant.withValues(alpha: 0.72),
                 ),
               ),
+            ],
           ],
         ),
       ),
     );
-  }
-
-  bool _hasAnyThirdPartyPrice(
-      Map<String, Map<String, dynamic>> lowestBySource) {
-    for (final source in const ['isthereanydeal', 'ggdeals', 'cheapshark']) {
-      final row = lowestBySource[source];
-      final rawFinal = row?['finalPrice'];
-      final value = rawFinal is num
-          ? rawFinal.toDouble()
-          : double.tryParse('${row?['finalPrice']}');
-      if (value != null && value > 0) return true;
-    }
-    return false;
   }
 }

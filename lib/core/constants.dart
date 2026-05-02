@@ -90,8 +90,12 @@ class AppConstants {
 
   /// 用户选择的语言（如 en, zh），空表示跟随系统
   static const String keyPreferredLocale = 'preferred_locale';
-  /// 用户手动选择的价格区域（如 US, JP）
+  /// 用户手动选择的价格区域（如 US, JP）— 已废弃，仅迁移读取一次
   static const String keySelectedPriceRegion = 'selected_price_region';
+  /// 应用国家/地区（价格国家）— 与 UI 语言解耦
+  static const String keyAppCountry = 'app_country';
+  static const String keyCountryCatalogCache = 'country_catalog_cache_v1';
+  static const String keyAppCountryMigrated = 'app_country_migrated_v1';
   /// 后端 region settings 缓存
   static const String keyRegionSettingsCache = 'region_settings_cache_v1';
 

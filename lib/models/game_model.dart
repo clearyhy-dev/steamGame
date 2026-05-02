@@ -1,5 +1,3 @@
-import 'package:flutter/foundation.dart';
-
 /// 游戏/折扣信息，兼容 CheapShark API 字段
 /// appId 在 CheapShark 下为 dealID，用于拉取详情
 class GameModel {
@@ -24,6 +22,13 @@ class GameModel {
   /// 多图时使用（详情/轮播），为空则用 [image]
   final List<String> images;
 
+  /// CheapShark / 后端推荐池等为 **美元标价**，不应按 App 国家货币格式化。
+  final bool priceIsGlobalUsd;
+
+  /// 后端 Steam 店铺展示串（若有则列表优先展示，不做客户端换算）。
+  final String? steamFinalFormatted;
+  final String? steamInitialFormatted;
+
   GameModel({
     required this.appId,
     required this.name,
@@ -40,6 +45,9 @@ class GameModel {
     this.releaseDate = 0,
     this.saleEndTime = 0,
     List<String>? images,
+    this.priceIsGlobalUsd = false,
+    this.steamFinalFormatted,
+    this.steamInitialFormatted,
   }) : images = images ?? const [];
 
   /// 从 CheapShark /deals 列表项解析
@@ -70,6 +78,7 @@ class GameModel {
       releaseDate: releaseSec,
       saleEndTime: _parseInt(json['saleEndTime'], 0),
       images: thumb.isNotEmpty ? [thumb] : [],
+      priceIsGlobalUsd: true,
     );
   }
 
@@ -87,6 +96,7 @@ class GameModel {
       discount: 0,
       steamAppID: steamId,
       images: image.isNotEmpty ? [image] : [],
+      priceIsGlobalUsd: false,
     );
   }
 
@@ -122,6 +132,7 @@ class GameModel {
       steamRatingCount: ratingCount,
       saleEndTime: _parseInt(gameInfo['saleEndTime'], 0),
       images: imgList,
+      priceIsGlobalUsd: true,
     );
   }
 
@@ -142,6 +153,23 @@ class GameModel {
 
   factory GameModel.fromJson(Map<String, dynamic> json) {
     final img = json['image']?.toString() ?? json['thumb']?.toString() ?? '';
+    final sf = json['steamFinalFormatted']?.toString() ??
+        json['steam_final_formatted']?.toString();
+    final si = json['steamInitialFormatted']?.toString() ??
+        json['steam_initial_formatted']?.toString();
+    final pigRaw = json['priceIsGlobalUsd'] ?? json['price_is_global_usd'];
+    late final bool priceIsGlobalUsd;
+    if (pigRaw == false) {
+      priceIsGlobalUsd = false;
+    } else if (pigRaw == true) {
+      priceIsGlobalUsd = true;
+    } else {
+      final hasSteamFmt =
+          sf != null && sf.trim().isNotEmpty;
+      // 旧缓存无字段：默认按 CheapShark 全球 USD；仅有 Steam formatted 时不再当 USD 池
+      priceIsGlobalUsd = !hasSteamFmt;
+    }
+
     return GameModel(
       appId: json['appid']?.toString() ?? json['dealID']?.toString() ?? '',
       name: json['name']?.toString() ?? json['title']?.toString() ?? '',
@@ -164,6 +192,9 @@ class GameModel {
       releaseDate: _parseInt(json['release_date'], 0),
       saleEndTime: _parseInt(json['sale_end_time'], 0),
       images: (json['images'] as List<dynamic>?)?.map((e) => e.toString()).where((s) => s.isNotEmpty).toList() ?? (img.isNotEmpty ? [img] : []),
+      priceIsGlobalUsd: priceIsGlobalUsd,
+      steamFinalFormatted: sf != null && sf.isNotEmpty ? sf : null,
+      steamInitialFormatted: si != null && si.isNotEmpty ? si : null,
     );
   }
 
@@ -174,6 +205,9 @@ class GameModel {
         'price': price,
         'original_price': originalPrice,
         'discount_percent': discount,
+        'priceIsGlobalUsd': priceIsGlobalUsd,
+        if (steamFinalFormatted != null) 'steamFinalFormatted': steamFinalFormatted,
+        if (steamInitialFormatted != null) 'steamInitialFormatted': steamInitialFormatted,
         if (steamAppID.isNotEmpty) 'steamAppID': steamAppID,
         if (dealID.isNotEmpty) 'dealID': dealID,
         if (lastChange > 0) 'last_change': lastChange,

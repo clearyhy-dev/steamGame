@@ -24,6 +24,7 @@ const items = [
   { key: '/users', icon: <TeamOutlined />, label: 'Users' },
   { key: '/settings', icon: <SettingOutlined />, label: 'Settings' },
   { key: '/price-region-settings', icon: <SettingOutlined />, label: 'Price & Region' },
+  { key: '/country-region-mapping', icon: <SettingOutlined />, label: 'Country / Steam' },
 ];
 
 export function AdminLayout() {

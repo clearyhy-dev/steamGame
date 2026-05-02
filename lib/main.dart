@@ -17,6 +17,7 @@ import 'core/constants.dart';
 import 'core/app_remote_config.dart';
 import 'core/constants/api_constants.dart';
 import 'core/utils/price_region_resolver.dart';
+import 'core/country_catalog_service.dart';
 import 'core/services/billing_service.dart';
 import 'core/services/subscription_service.dart';
 import 'core/storage_service.dart';
@@ -249,10 +250,19 @@ Future<void> _init() async {
   }
   try {
     await AppRemoteConfig.instance.loadRegionSettings(ApiConstants.baseUrl);
+  } catch (e) {
+    debugPrint('AppRemoteConfig.loadRegionSettings: $e');
+  }
+  try {
+    await CountryCatalogService.instance.load(ApiConstants.baseUrl);
+  } catch (e) {
+    debugPrint('CountryCatalogService.load: $e');
+  }
+  try {
     final region = await PriceRegionResolver.resolveContext();
     AppRemoteConfig.instance.setActivePriceRegion(region.country);
   } catch (e) {
-    debugPrint('AppRemoteConfig.loadRegionSettings: $e');
+    debugPrint('PriceRegionResolver.resolveContext: $e');
     AppRemoteConfig.instance.setActivePriceRegion('US');
   }
 
