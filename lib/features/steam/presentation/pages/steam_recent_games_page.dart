@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../../core/theme/colors.dart';
-import '../../../../screens/detail_screen.dart';
+import '../../../../core/navigation/game_detail_navigation.dart';
 import '../providers/steam_providers.dart';
 
 class SteamRecentGamesPage extends StatefulWidget {
@@ -38,7 +38,7 @@ class _SteamRecentGamesPageState extends State<SteamRecentGamesPage> {
                 title: Text(g.name),
                 subtitle: const Text('近两周：-- 小时   总时长：-- 小时'),
                 onTap: () {
-                  Navigator.of(context).push(MaterialPageRoute(builder: (_) => DetailScreen(appId: g.appid)));
+                  Navigator.of(context).push(gameDetailRouteByAppId(g.appid));
                 },
               );
             },

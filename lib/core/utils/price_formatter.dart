@@ -1,13 +1,13 @@
 import '../../models/game_model.dart';
+import '../app_country_resolver.dart';
 import '../country_catalog_service.dart';
-import 'price_region_resolver.dart';
 
 String _configuredSymbolForCurrency(String currencyCode) {
   final code = currencyCode.trim().toUpperCase();
   if (code.isEmpty) return '';
   try {
-    final ctx = PriceRegionResolver.resolveSync();
-    final country = ctx.country.trim().toUpperCase();
+    final ctx = AppCountryResolver.resolveSync();
+    final country = ctx.countryCode.trim().toUpperCase();
     if (country.isEmpty) return '';
     final catalog = CountryCatalogService.instance;
     final countryCurrency = catalog.defaultCurrencyFor(country)?.trim().toUpperCase();
@@ -60,7 +60,7 @@ String formatGameListSalePrice(GameModel game, String regionCurrency) {
   final fmt = game.steamFinalFormatted?.trim();
   if (fmt != null && fmt.isNotEmpty) return fmt;
   if (game.priceIsGlobalUsd) {
-    return '\$${game.price.toStringAsFixed(2)}';
+    return 'Price unavailable';
   }
   return formatRegionalPrice(amount: game.price, currency: regionCurrency);
 }
@@ -69,7 +69,7 @@ String formatGameListOriginalPrice(GameModel game, String regionCurrency) {
   final fmt = game.steamInitialFormatted?.trim();
   if (fmt != null && fmt.isNotEmpty) return fmt;
   if (game.priceIsGlobalUsd) {
-    return '\$${game.originalPrice.toStringAsFixed(2)}';
+    return '';
   }
   return formatRegionalPrice(amount: game.originalPrice, currency: regionCurrency);
 }

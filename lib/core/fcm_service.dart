@@ -6,7 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../app.dart';
-import '../screens/detail_screen.dart';
+import 'navigation/game_detail_navigation.dart';
 import 'notification_service.dart';
 import 'storage_service.dart';
 
@@ -108,9 +108,7 @@ class FcmService {
     final nav = navigatorKey.currentState;
     if (nav != null) {
       nav.push(
-        MaterialPageRoute<void>(
-          builder: (_) => DetailScreen(appId: payload),
-        ),
+        gameDetailRouteByAppId(payload),
       );
     } else {
       NotificationService.setPendingNotificationPayload(payload);

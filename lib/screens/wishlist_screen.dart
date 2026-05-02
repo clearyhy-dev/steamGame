@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../core/storage_service.dart';
-import '../core/price_region_events.dart';
+import '../core/app_country_events.dart';
 import '../core/services/auth_service.dart';
 import '../core/theme/colors.dart';
 import '../l10n/app_localizations.dart';
@@ -8,11 +8,13 @@ import '../models/game_model.dart';
 import '../models/wishlist_model.dart';
 import '../services/steam_api_service.dart';
 import '../services/steam_backend_service.dart';
-import '../core/utils/price_region_resolver.dart';
+import '../core/app_country_resolver.dart';
 import '../widgets/game_card.dart';
 import '../features/subscription/subscription_page.dart';
 import '../core/services/analytics_service.dart';
-import 'detail_screen.dart';
+import '../features/detail/game_detail_page.dart';
+import '../core/navigation/game_detail_navigation.dart';
+import '../features/recommendation/models/recommended_item.dart';
 
 class WishlistScreen extends StatefulWidget {
   const WishlistScreen({super.key, this.currentTabIndex = 0});
@@ -25,6 +27,7 @@ class WishlistScreen extends StatefulWidget {
 class _WishlistScreenState extends State<WishlistScreen> {
   final StorageService _storage = StorageService.instance;
   final SteamApiService _api = SteamApiService();
+  final SteamBackendService _backend = SteamBackendService();
   List<WishlistItem> _items = [];
   List<GameModel> _deals = [];
   Map<String, int> _lastDiscounts = {};
@@ -36,14 +39,13 @@ class _WishlistScreenState extends State<WishlistScreen> {
   /// 0 默认顺序 1 折扣 2 名称 3 决策优先级
   int _sortMode = 0;
   bool _isLoggedIn = false;
-  int _lastTabIndex = -1;
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
-    PriceRegionEvents.instance.changed.addListener(_onPriceRegionChanged);
+    AppCountryEvents.instance.changed.addListener(_onPriceRegionChanged);
     _checkAuthAndLoad();
     _searchController.addListener(() {
       setState(() => _searchQuery = _searchController.text.trim());
@@ -68,7 +70,7 @@ class _WishlistScreenState extends State<WishlistScreen> {
 
   @override
   void dispose() {
-    PriceRegionEvents.instance.changed.removeListener(_onPriceRegionChanged);
+    AppCountryEvents.instance.changed.removeListener(_onPriceRegionChanged);
     _searchController.dispose();
     super.dispose();
   }
@@ -85,16 +87,34 @@ class _WishlistScreenState extends State<WishlistScreen> {
     if (!StorageService.instance.isInitialized)
       await StorageService.instance.init();
     List<WishlistItem> items = await _storage.getWishlistItems();
-    final region = await PriceRegionResolver.resolveContext();
-    final deals = await _api.fetchDeals(pageSize: 100, country: region.country);
-    final lastDiscounts = await _storage.getLastKnownDiscounts();
-
-    // 当用户完成 Steam 登录后：优先以后端 favorites 为准，进行远程同步到本地。
+    final region = await AppCountryResolver.resolveContext();
+    List<GameModel> deals = const [];
     final token = await StorageService.instance.getSteamBackendToken();
     if (token != null && token.isNotEmpty) {
       try {
-        final backend = SteamBackendService();
-        final remote = await backend.listFavorites(token);
+        final data = await _backend.getExploreRecommendations(
+          token,
+          tab: 'trending',
+          country: region.countryCode,
+        );
+        final raw = data['items'] as List<dynamic>? ?? const [];
+        deals = raw
+            .whereType<Map>()
+            .map((e) => RecommendedItem.fromJson(
+                Map<String, dynamic>.from(e)).toGameModel())
+            .toList();
+      } catch (_) {}
+    }
+    if (deals.isEmpty) {
+      deals = await _api.fetchDeals(pageSize: 100, country: region.countryCode);
+    }
+    final lastDiscounts = await _storage.getLastKnownDiscounts();
+
+    // 当用户完成 Steam 登录后：优先以后端 favorites 为准，进行远程同步到本地。
+    final steamToken = await StorageService.instance.getSteamBackendToken();
+    if (steamToken != null && steamToken.isNotEmpty) {
+      try {
+        final remote = await _backend.listFavorites(steamToken);
         final remoteSet = <String>{};
         for (final f in remote) {
           final appid = f is Map ? f['appid']?.toString() : null;
@@ -153,7 +173,9 @@ class _WishlistScreenState extends State<WishlistScreen> {
       return;
     }
     try {
-      final data = await SteamBackendService().getWishlistDecisions(token);
+      final region = await AppCountryResolver.resolveContext();
+      final data = await SteamBackendService()
+          .getWishlistDecisions(token, country: region.countryCode);
       final raw = data['items'] as List<dynamic>? ?? [];
       final m = <String, Map<String, dynamic>>{};
       for (final x in raw) {
@@ -281,7 +303,8 @@ class _WishlistScreenState extends State<WishlistScreen> {
                     style: theme.textTheme.bodySmall),
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(
-                    builder: (_) => DetailScreen(appId: item.appId),
+                    builder: (_) =>
+                        GameDetailPage(game: buildStubGameForDetail(item.appId)),
                   ),
                 ),
                 trailing: IconButton(
@@ -371,8 +394,7 @@ class _WishlistScreenState extends State<WishlistScreen> {
                 isInWishlist: true,
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(
-                    builder: (_) =>
-                        DetailScreen(appId: item.appId, initialGame: game),
+                    builder: (_) => GameDetailPage(game: game),
                   ),
                 ),
                 onWishlistToggle: () async {

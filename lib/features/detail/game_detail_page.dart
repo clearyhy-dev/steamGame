@@ -11,7 +11,8 @@ import '../../../core/services/algorithm_service.dart';
 import '../../../core/services/wishlist_service.dart';
 import '../../../core/storage_service.dart';
 import '../../../core/app_remote_config.dart';
-import '../../../core/price_region_events.dart';
+import '../../../core/app_country_events.dart';
+import '../../../core/app_country_resolver.dart';
 import '../../../core/utils/price_region_resolver.dart';
 import '../../../core/utils/price_formatter.dart';
 import '../../../core/utils/steam_price_amount.dart' show normalizeDealPriceAmount;
@@ -90,12 +91,12 @@ class _GameDetailPageState extends State<GameDetailPage> {
     _ensureBackendMeta();
     _priceResult = PriceEngineService()
         .calculateBestPrice(buildMockStoreOffers(widget.game));
-    PriceRegionEvents.instance.changed.addListener(_onPriceRegionChanged);
+    AppCountryEvents.instance.changed.addListener(_onPriceRegionChanged);
   }
 
   @override
   void dispose() {
-    PriceRegionEvents.instance.changed.removeListener(_onPriceRegionChanged);
+    AppCountryEvents.instance.changed.removeListener(_onPriceRegionChanged);
     _pageController.dispose();
     super.dispose();
   }
@@ -143,12 +144,12 @@ class _GameDetailPageState extends State<GameDetailPage> {
         _refreshingDeals = true;
       });
     }
-    final region = await PriceRegionResolver.resolveContext();
-    _priceCountry = region.country;
+    final region = await AppCountryResolver.resolveContext();
+    _priceCountry = region.countryCode;
     try {
       final pro = await StorageService.instance.isPro();
       final data =
-          await _backend.getGameRegionalDetail(steamId, country: region.country);
+          await _backend.getGameRegionalDetail(steamId, country: region.countryCode);
       final local = _mapDynamicDealList(data['localDeals']);
       final global = _mapDynamicDealList(data['globalDeals']);
       final merged = <Map<String, dynamic>>[...local, ...global];
@@ -156,7 +157,7 @@ class _GameDetailPageState extends State<GameDetailPage> {
       setState(() {
         _regionalDetail = data;
         _dealLinks = merged;
-        _dealCountryCode = region.country;
+        _dealCountryCode = region.countryCode;
         _isPro = pro;
         _allDealsLoaded = true;
         _dealsUsingCache = false;
@@ -164,7 +165,7 @@ class _GameDetailPageState extends State<GameDetailPage> {
       });
       await StorageService.instance.setDetailDealsCache(
         appid: steamId,
-        countryCode: region.country,
+        countryCode: region.countryCode,
         rows: merged,
       );
       await _refreshDealsIfMissingOtherPlatforms();
@@ -205,11 +206,11 @@ class _GameDetailPageState extends State<GameDetailPage> {
     if (steamId.isEmpty) return;
     _autoRefreshedDeals = true;
     if (mounted) setState(() => _refreshingDeals = true);
-    final region = await PriceRegionResolver.resolveContext();
+    final region = await AppCountryResolver.resolveContext();
     try {
-      await _backend.refreshGameDeals(steamId, country: region.country);
+      await _backend.refreshGameDeals(steamId, country: region.countryCode);
       final data =
-          await _backend.getGameRegionalDetail(steamId, country: region.country);
+          await _backend.getGameRegionalDetail(steamId, country: region.countryCode);
       final local = _mapDynamicDealList(data['localDeals']);
       final global = _mapDynamicDealList(data['globalDeals']);
       final merged = <Map<String, dynamic>>[...local, ...global];
@@ -217,13 +218,13 @@ class _GameDetailPageState extends State<GameDetailPage> {
       setState(() {
         _regionalDetail = data;
         _dealLinks = merged;
-        _dealCountryCode = region.country;
+        _dealCountryCode = region.countryCode;
         _dealsUsingCache = false;
         _dealsCacheUpdatedAt = DateTime.now();
       });
       await StorageService.instance.setDetailDealsCache(
         appid: steamId,
-        countryCode: region.country,
+        countryCode: region.countryCode,
         rows: merged,
       );
     } catch (_) {
@@ -239,9 +240,9 @@ class _GameDetailPageState extends State<GameDetailPage> {
         ? widget.game.steamAppID.trim()
         : widget.game.appId.trim();
     if (steamId.isEmpty) return;
-    final region = await PriceRegionResolver.resolveContext();
+    final region = await AppCountryResolver.resolveContext();
     final data =
-        await _backend.getGameRegionalDetail(steamId, country: region.country);
+        await _backend.getGameRegionalDetail(steamId, country: region.countryCode);
     final local = _mapDynamicDealList(data['localDeals']);
     final global = _mapDynamicDealList(data['globalDeals']);
     final merged = <Map<String, dynamic>>[...local, ...global];
@@ -249,14 +250,14 @@ class _GameDetailPageState extends State<GameDetailPage> {
     setState(() {
       _regionalDetail = data;
       _dealLinks = merged;
-      _dealCountryCode = region.country;
+      _dealCountryCode = region.countryCode;
       _allDealsLoaded = true;
       _dealsUsingCache = false;
       _dealsCacheUpdatedAt = DateTime.now();
     });
     await StorageService.instance.setDetailDealsCache(
       appid: steamId,
-      countryCode: region.country,
+      countryCode: region.countryCode,
       rows: merged,
     );
   }
@@ -285,10 +286,10 @@ class _GameDetailPageState extends State<GameDetailPage> {
         ? widget.game.steamAppID.trim()
         : widget.game.appId.trim();
     if (steamId.isEmpty) return;
-    final region = await PriceRegionResolver.resolveContext();
+    final region = await AppCountryResolver.resolveContext();
     try {
       final url =
-          await _backend.getGameDiscountLink(steamId, country: region.country);
+          await _backend.getGameDiscountLink(steamId, country: region.countryCode);
       if (!mounted) return;
       setState(() {
         _boundDiscountUrl = url.trim();
@@ -332,10 +333,10 @@ class _GameDetailPageState extends State<GameDetailPage> {
   Future<void> _loadMoreImages() async {
     final steamId = _resolvedSteamId();
     if (steamId.isEmpty) return;
-    final region = await PriceRegionResolver.resolveContext();
+    final region = await AppCountryResolver.resolveContext();
     try {
       final list = await _steamApi.fetchSteamScreenshots(steamId,
-          country: region.country);
+          country: region.countryCode);
       if (list.isEmpty || !mounted) return;
       final fallbackCover =
           widget.game.image.isNotEmpty ? widget.game.image : '';

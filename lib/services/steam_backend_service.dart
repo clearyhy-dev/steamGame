@@ -4,9 +4,9 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../core/app_remote_config.dart';
+import '../core/app_country_resolver.dart';
 import '../core/constants/api_constants.dart';
 import '../core/storage_service.dart';
-import '../core/utils/price_region_resolver.dart';
 
 class SteamBackendException implements Exception {
   final String code;
@@ -70,7 +70,7 @@ class SteamBackendService {
 
   Future<String?> _resolveCountryCode() async {
     try {
-      final selected = await PriceRegionResolver.resolve();
+      final selected = (await AppCountryResolver.resolveContext()).countryCode;
       return selected.trim().isEmpty ? 'US' : selected.toUpperCase();
     } catch (_) {
       return 'US';
@@ -105,11 +105,10 @@ class SteamBackendService {
     if (id.isEmpty) {
       throw SteamBackendException(code: 'INVALID_APPID', message: 'appid required');
     }
-    final region = await PriceRegionResolver.resolveContext();
+    final country = await _resolveCountryCode();
     final uri = _uri('/api/v1/games/$id/steam-price').replace(
       queryParameters: {
-        'country': region.country,
-        'language': region.uiLanguageCode,
+        'country': country ?? 'US',
       },
     );
     final res = await _client
@@ -294,8 +293,15 @@ class SteamBackendService {
     return (data['friends'] as List<dynamic>? ?? []);
   }
 
-  Future<Map<String, dynamic>> getWishlistDecisions(String token) async {
-    final uri = _uri('/v1/wishlist/decisions');
+  Future<Map<String, dynamic>> getWishlistDecisions(String token,
+      {String? country}) async {
+    final resolvedCountry =
+        (country ?? await _resolveCountryCode())?.trim().toUpperCase();
+    final uri = _uri('/v1/wishlist/decisions').replace(
+      queryParameters: resolvedCountry != null && resolvedCountry.isNotEmpty
+          ? {'country': resolvedCountry}
+          : null,
+    );
     final res = await _client.get(
       uri,
       headers: {'Authorization': 'Bearer $token'},
@@ -391,8 +397,15 @@ class SteamBackendService {
   }
 
   /// 聚合：资料、扩展字段、拥有/最近/好友、应用内收藏（一次请求）。
-  Future<Map<String, dynamic>> getSteamOverview(String token) async {
-    final uri = _uri('/api/steam/overview');
+  Future<Map<String, dynamic>> getSteamOverview(String token,
+      {String? country}) async {
+    final resolvedCountry =
+        (country ?? await _resolveCountryCode())?.trim().toUpperCase();
+    final uri = _uri('/api/steam/overview').replace(
+      queryParameters: resolvedCountry != null && resolvedCountry.isNotEmpty
+          ? {'country': resolvedCountry}
+          : null,
+    );
     final res = await _client.get(
       uri,
       headers: {'Authorization': 'Bearer $token'},

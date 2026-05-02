@@ -10,10 +10,10 @@ import '../../../core/utils/price_formatter.dart';
 import '../../../core/shock_deal_algorithm.dart';
 import '../../../core/utils/score_calculator.dart' as score_util;
 import '../../../core/services/analytics_service.dart';
-import '../../../core/price_region_events.dart';
+import '../../../core/app_country_events.dart';
 import '../../../core/storage_service.dart';
 import '../../../core/schedule_config.dart';
-import '../../../core/utils/price_region_resolver.dart';
+import '../../../core/app_country_resolver.dart';
 import '../../../data/services/cache_service.dart';
 import '../../../data/services/api_service.dart';
 import '../../../l10n/app_localizations.dart';
@@ -96,7 +96,7 @@ class _ExplorePageState extends State<ExplorePage>
       await _load(forceRefresh: false);
       if (mounted) await _loadExploreTab(_tabController.index);
     });
-    PriceRegionEvents.instance.changed.addListener(_onPriceRegionChanged);
+    AppCountryEvents.instance.changed.addListener(_onPriceRegionChanged);
     unawaited(_refreshPro());
     _load().then((_) {
       if (mounted) _loadExploreTab(_tabController.index);
@@ -140,11 +140,11 @@ class _ExplorePageState extends State<ExplorePage>
     }
     if (mounted) setState(() => _exploreLoading = true);
     try {
-      final region = await PriceRegionResolver.resolveContext();
+      final region = await AppCountryResolver.resolveContext();
       final data = await SteamBackendService().getExploreRecommendations(
         token,
         tab: _exploreTabKeys[index],
-        country: region.country,
+        country: region.countryCode,
       );
       final raw = data['items'] as List<dynamic>? ?? [];
       final games = raw
@@ -171,7 +171,7 @@ class _ExplorePageState extends State<ExplorePage>
   @override
   void dispose() {
     _steamAuthSub?.cancel();
-    PriceRegionEvents.instance.changed.removeListener(_onPriceRegionChanged);
+    AppCountryEvents.instance.changed.removeListener(_onPriceRegionChanged);
     _tabController.removeListener(_onExploreTabChanged);
     _tabController.dispose();
     _searchController.dispose();
@@ -179,7 +179,7 @@ class _ExplorePageState extends State<ExplorePage>
   }
 
   Future<void> _load({bool forceRefresh = false}) async {
-    final region = await PriceRegionResolver.resolveContext();
+    final region = await AppCountryResolver.resolveContext();
     try {
       _backendToken = await StorageService.instance.getSteamBackendToken();
     } catch (_) {
@@ -196,8 +196,27 @@ class _ExplorePageState extends State<ExplorePage>
     if (list.isEmpty || isNewDay || forceRefresh) {
       if (canFetch) {
         if (!isNewDay) await StorageService.instance.incrementQueryCountToday();
-        final fetched =
-            await ApiService.fetchDeals(pageSize: 60, country: region.country);
+        List<GameModel> fetched = const [];
+        final token = _backendToken;
+        if (token != null && token.isNotEmpty) {
+          try {
+            final data = await SteamBackendService().getExploreRecommendations(
+              token,
+              tab: 'trending',
+              country: region.countryCode,
+            );
+            final raw = data['items'] as List<dynamic>? ?? const [];
+            fetched = raw
+                .whereType<Map>()
+                .map((e) => RecommendedItem.fromJson(
+                    Map<String, dynamic>.from(e)).toGameModel())
+                .toList();
+          } catch (_) {}
+        }
+        if (fetched.isEmpty) {
+          fetched =
+              await ApiService.fetchDeals(pageSize: 60, country: region.countryCode);
+        }
         if (fetched.isNotEmpty) {
           list = ShockDealAlgorithm.deduplicateDeals(fetched);
           await CacheService.saveGames(list);
@@ -215,7 +234,7 @@ class _ExplorePageState extends State<ExplorePage>
     try {
       final results = await Future.wait<List<GameModel>>([
         api.fetchFreeDeals(pageSize: 30),
-        api.fetchTopGamesByCurrentPlayers(limit: 15, country: region.country),
+        api.fetchTopGamesByCurrentPlayers(limit: 15, country: region.countryCode),
       ]);
       freeList = results[0];
       mostPlayed = results[1];
@@ -537,7 +556,7 @@ class _ExplorePageState extends State<ExplorePage>
   }
 
   Widget _buildExploreBackendGameTile(GameModel g) {
-    final region = PriceRegionResolver.resolveSync();
+    final region = AppCountryResolver.resolveSync();
     return Material(
       color: AppColors.cardDark,
       borderRadius: BorderRadius.circular(14),

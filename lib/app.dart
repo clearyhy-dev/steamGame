@@ -14,9 +14,9 @@ import 'features/profile/profile_page.dart';
 import 'features/onboarding/onboarding_page.dart';
 import 'features/subscription/subscription_page.dart';
 import 'core/constants.dart';
+import 'core/navigation/game_detail_navigation.dart';
 import 'core/region_config.dart';
 import 'core/notification_service.dart';
-import 'screens/detail_screen.dart';
 import 'l10n/app_localizations.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -192,7 +192,7 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => DetailScreen(appId: payload)),
+        gameDetailRouteByAppId(payload),
       );
     });
   }

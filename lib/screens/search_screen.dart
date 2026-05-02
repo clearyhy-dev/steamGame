@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
 import '../l10n/app_localizations.dart';
 import '../core/notification_permission_helper.dart';
-import '../core/price_region_events.dart';
+import '../core/app_country_events.dart';
 import '../core/storage_service.dart';
 import '../models/game_model.dart';
 import '../models/wishlist_model.dart';
 import '../services/steam_api_service.dart';
-import '../core/utils/price_region_resolver.dart';
+import '../services/steam_backend_service.dart';
+import '../core/app_country_resolver.dart';
 import '../widgets/game_card.dart';
-import 'detail_screen.dart';
+import '../features/detail/game_detail_page.dart';
+import '../features/recommendation/models/recommended_item.dart';
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
@@ -19,6 +21,7 @@ class SearchScreen extends StatefulWidget {
 
 class _SearchScreenState extends State<SearchScreen> {
   final SteamApiService _api = SteamApiService();
+  final SteamBackendService _backend = SteamBackendService();
   final StorageService _storage = StorageService.instance;
   final TextEditingController _controller = TextEditingController();
   List<GameModel> _allGames = [];
@@ -28,7 +31,7 @@ class _SearchScreenState extends State<SearchScreen> {
   @override
   void initState() {
     super.initState();
-    PriceRegionEvents.instance.changed.addListener(_onPriceRegionChanged);
+    AppCountryEvents.instance.changed.addListener(_onPriceRegionChanged);
     _loadDeals();
     _controller.addListener(() => setState(() {}));
   }
@@ -38,8 +41,27 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Future<void> _loadDeals() async {
-    final region = await PriceRegionResolver.resolveContext();
-    final list = await _api.fetchDeals(country: region.country);
+    final region = await AppCountryResolver.resolveContext();
+    List<GameModel> list = const [];
+    final token = await StorageService.instance.getSteamBackendToken();
+    if (token != null && token.isNotEmpty) {
+      try {
+        final data = await _backend.getExploreRecommendations(
+          token,
+          tab: 'trending',
+          country: region.countryCode,
+        );
+        final raw = data['items'] as List<dynamic>? ?? const [];
+        list = raw
+            .whereType<Map>()
+            .map((e) => RecommendedItem.fromJson(
+                Map<String, dynamic>.from(e)).toGameModel())
+            .toList();
+      } catch (_) {}
+    }
+    if (list.isEmpty) {
+      list = await _api.fetchDeals(country: region.countryCode);
+    }
     if (mounted) {
       setState(() {
         _allGames = list;
@@ -62,9 +84,9 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Future<void> _searchFromApi(String query) async {
-    final region = await PriceRegionResolver.resolveContext();
+    final region = await AppCountryResolver.resolveContext();
     final list =
-        await _api.searchGames(query, pageSize: 25, country: region.country);
+        await _api.searchGames(query, pageSize: 25, country: region.countryCode);
     if (mounted) {
       setState(() {
         _filtered = list;
@@ -75,7 +97,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
   @override
   void dispose() {
-    PriceRegionEvents.instance.changed.removeListener(_onPriceRegionChanged);
+    AppCountryEvents.instance.changed.removeListener(_onPriceRegionChanged);
     _controller.dispose();
     super.dispose();
   }
@@ -136,8 +158,7 @@ class _SearchScreenState extends State<SearchScreen> {
                               isInWishlist: ws.data ?? false,
                               onTap: () => Navigator.of(context).push(
                                 MaterialPageRoute(
-                                  builder: (_) => DetailScreen(
-                                      appId: game.appId, initialGame: game),
+                                  builder: (_) => GameDetailPage(game: game),
                                 ),
                               ),
                               onWishlistToggle: () async {

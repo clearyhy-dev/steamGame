@@ -646,6 +646,21 @@ class StorageService {
         AppConstants.keyAppCountry, countryCode.trim().toUpperCase());
   }
 
+  String? getAppCountrySync() {
+    if (!_inited) return null;
+    final v = _prefs.getString(AppConstants.keyAppCountry);
+    if (v == null || v.trim().isEmpty) return null;
+    return v.trim().toUpperCase();
+  }
+
+  Future<void> clearAppCountryScopedCaches() async {
+    if (!_inited) return;
+    await clearDetailDealsCache();
+    await clearLastDealsCache();
+    await _prefs.remove(_keyLastKnownDiscounts);
+    await _prefs.remove(AppConstants.keyLastCheckTime);
+  }
+
   Future<void> setCountryCatalogCache(Map<String, dynamic> envelope) async {
     if (!_inited) return;
     await _prefs.setString(

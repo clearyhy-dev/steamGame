@@ -55,6 +55,18 @@ class CountryCatalogService {
   Set<String> get countryCodes =>
       countries.map((e) => e.countryCode).toSet();
 
+  CountryCatalogEntry? findByCountryCode(String countryCode) {
+    final c = countryCode.trim().toUpperCase();
+    for (final e in countries) {
+      if (e.countryCode == c) return e;
+    }
+    return null;
+  }
+
+  CountryCatalogEntry? findDefault() => findByCountryCode(defaultCountry);
+
+  CountryCatalogEntry? findFallback() => findByCountryCode(fallbackCountry);
+
   String? defaultCurrencyFor(String countryCode) {
     final c = countryCode.trim().toUpperCase();
     for (final e in countries) {
@@ -88,6 +100,9 @@ class CountryCatalogService {
           .where((e) => e.countryCode.length == 2)
           .toList();
     }
+    if (countries.isEmpty) {
+      _applyBuiltInFallback();
+    }
   }
 
   Future<void> ensureLoaded(String baseUrl) async {
@@ -107,21 +122,45 @@ class CountryCatalogService {
         _applyPayload(Map<String, dynamic>.from(cached));
       }
     }
+    var loadedFromRemote = false;
     try {
       final res = await http
           .get(uri)
           .timeout(ApiConstants.receiveTimeout, onTimeout: () {
         throw Exception('country catalog timeout');
       });
-      if (res.statusCode != 200 || res.body.isEmpty) return;
-      final map = jsonDecode(res.body) as Map<String, dynamic>;
-      if (map['success'] != true && map['ok'] != true) return;
-      final data = map['data'];
-      if (data is! Map<String, dynamic>) return;
-      _applyPayload(data);
-      await StorageService.instance.setCountryCatalogCache(map);
+      if (res.statusCode == 200 && res.body.isNotEmpty) {
+        final map = jsonDecode(res.body) as Map<String, dynamic>;
+        if (map['success'] == true || map['ok'] == true) {
+          final data = map['data'];
+          if (data is Map<String, dynamic>) {
+            _applyPayload(data);
+            loadedFromRemote = true;
+            await StorageService.instance.setCountryCatalogCache(map);
+          }
+        }
+      }
     } catch (_) {
       // keep cache / partial state
     }
+    if (!loadedFromRemote && countries.isEmpty) {
+      _applyBuiltInFallback();
+    }
+  }
+
+  void _applyBuiltInFallback() {
+    defaultCountry = 'US';
+    fallbackCountry = 'US';
+    countries = <CountryCatalogEntry>[
+      CountryCatalogEntry(
+        countryCode: 'US',
+        countryName: 'United States',
+        nativeName: null,
+        steamCc: 'US',
+        steamLanguage: 'en',
+        defaultCurrency: 'USD',
+        currencySymbol: r'$',
+      ),
+    ];
   }
 }

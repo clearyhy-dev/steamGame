@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../core/services/analytics_service.dart';
-import '../../../core/price_region_events.dart';
+import '../../../core/app_country_events.dart';
 import '../../../core/steam_auth_events.dart';
 import '../../../core/theme/colors.dart';
 import '../../../l10n/app_localizations.dart';
@@ -35,7 +35,7 @@ class _HomePageState extends State<HomePage> {
     _steamAuthSub = SteamAuthEvents.instance.stream.listen((_) {
       _c.load();
     });
-    PriceRegionEvents.instance.changed.addListener(_onPriceRegionChanged);
+    AppCountryEvents.instance.changed.addListener(_onPriceRegionChanged);
     _c.load().then((_) {
       AnalyticsService.instance.logAppOpen(source: 'home');
     });
@@ -53,7 +53,7 @@ class _HomePageState extends State<HomePage> {
   @override
   void dispose() {
     _steamAuthSub?.cancel();
-    PriceRegionEvents.instance.changed.removeListener(_onPriceRegionChanged);
+    AppCountryEvents.instance.changed.removeListener(_onPriceRegionChanged);
     _c.removeListener(_onCtl);
     _c.dispose();
     super.dispose();

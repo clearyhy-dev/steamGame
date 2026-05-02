@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import '../../core/navigation/game_detail_navigation.dart';
+import 'game_detail_page.dart';
 import '../../models/game_model.dart';
-import '../../screens/detail_screen.dart';
 
 /// 详情页：大封面、价格、评论（详情内）、Banner
 class DetailPage extends StatelessWidget {
@@ -11,6 +12,9 @@ class DetailPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DetailScreen(appId: appId, initialGame: initialGame);
+    if (initialGame != null) {
+      return GameDetailPage(game: initialGame!);
+    }
+    return GameDetailPage(game: buildStubGameForDetail(appId));
   }
 }

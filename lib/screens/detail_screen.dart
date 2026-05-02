@@ -6,7 +6,8 @@ import 'package:share_plus/share_plus.dart';
 import '../core/notification_permission_helper.dart';
 import '../core/storage_service.dart';
 import '../core/interstitial_helper.dart';
-import '../core/price_region_events.dart';
+import '../core/app_country_events.dart';
+import '../core/app_country_resolver.dart';
 import '../core/utils/price_formatter.dart';
 import '../core/utils/price_region_resolver.dart';
 import '../core/theme/colors.dart';
@@ -41,7 +42,7 @@ class _DetailScreenState extends State<DetailScreen> {
   @override
   void initState() {
     super.initState();
-    PriceRegionEvents.instance.changed.addListener(_onPriceRegionChanged);
+    AppCountryEvents.instance.changed.addListener(_onPriceRegionChanged);
     _load();
   }
 
@@ -51,21 +52,21 @@ class _DetailScreenState extends State<DetailScreen> {
 
   @override
   void dispose() {
-    PriceRegionEvents.instance.changed.removeListener(_onPriceRegionChanged);
+    AppCountryEvents.instance.changed.removeListener(_onPriceRegionChanged);
     super.dispose();
   }
 
   Future<void> _load() async {
-    final region = await PriceRegionResolver.resolveContext();
+    final region = await AppCountryResolver.resolveContext();
     String id = widget.appId.trim();
     if (id.contains('%')) id = Uri.decodeComponent(id);
-    GameModel game = await _api.fetchGameById(id, country: region.country);
+    GameModel game = await _api.fetchGameById(id, country: region.countryCode);
     if (game.name.isEmpty || game.name.startsWith('Game #')) {
       if (widget.initialGame != null) {
         game = widget.initialGame!;
       } else if (RegExp(r'^\d+$').hasMatch(id)) {
         final steamGame =
-            await _api.fetchSteamAppDetails(id, country: region.country);
+            await _api.fetchSteamAppDetails(id, country: region.countryCode);
         if (steamGame != null) game = steamGame;
       }
     }

@@ -6,7 +6,8 @@ import 'package:permission_handler/permission_handler.dart'
     as permission_handler;
 import '../../core/theme/colors.dart';
 import '../../core/region_config.dart';
-import '../../core/price_region_events.dart';
+import '../../core/app_country_events.dart';
+import '../../core/app_country_resolver.dart';
 import '../../core/storage_service.dart';
 import '../../data/services/cache_service.dart';
 import '../../core/notification_service.dart';
@@ -19,7 +20,6 @@ import '../../core/app_remote_config.dart';
 import '../../core/constants/api_constants.dart';
 import '../../core/country_catalog_service.dart';
 import '../../services/steam_backend_service.dart';
-import '../../core/utils/price_region_resolver.dart';
 import '../../core/services/analytics_service.dart';
 import '../../core/steam_auth_events.dart';
 import 'package:url_launcher/url_launcher.dart' as url_launcher;
@@ -79,9 +79,9 @@ class _ProfilePageState extends State<ProfilePage> {
     final user = await AuthService().getCurrentUser();
     final localeCode = await StorageService.instance.getPreferredLocale();
     await CountryCatalogService.instance.ensureLoaded(ApiConstants.baseUrl);
-    final resolvedCtx = await PriceRegionResolver.resolveContext();
+    final resolvedCtx = await AppCountryResolver.resolveContext();
     final storedCountry = await StorageService.instance.getAppCountry();
-    final resolvedAppCountry = storedCountry ?? resolvedCtx.country;
+    final resolvedAppCountry = storedCountry ?? resolvedCtx.countryCode;
 
     String? steamToken;
     try {
@@ -210,7 +210,7 @@ class _ProfilePageState extends State<ProfilePage> {
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.cardDark,
         title: Text(
-          AppLocalizations.of(ctx).get('region'),
+          AppLocalizations.of(ctx).get('language'),
           style: const TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.w600,
@@ -334,12 +334,10 @@ class _ProfilePageState extends State<ProfilePage> {
     );
     if (selected == null || selected == _appCountryCode) return;
     await StorageService.instance.setAppCountry(selected);
-    AppRemoteConfig.instance.setActivePriceRegion(selected);
-    await PriceRegionResolver.resolveContext();
-    await StorageService.instance.clearDetailDealsCache();
-    await StorageService.instance.clearLastDealsCache();
+    await StorageService.instance.clearAppCountryScopedCaches();
     await CacheService.clearLastCheckTime();
-    PriceRegionEvents.instance.notifyChanged();
+    final ctx = await AppCountryResolver.resolveContext();
+    AppCountryEvents.instance.notifyChanged(ctx);
     if (mounted) {
       setState(() => _appCountryCode = selected);
       ScaffoldMessenger.of(context).showSnackBar(
@@ -780,7 +778,7 @@ class _ProfilePageState extends State<ProfilePage> {
             Card(
               child: ListTile(
                 leading: const Icon(Icons.public),
-                title: Text(l10n.get('region')),
+                title: Text(l10n.get('language')),
                 subtitle: Text(
                   RegionConfig.getDisplayNameForStored(
                       _currentLocaleCode, l10n.get('system_default')),

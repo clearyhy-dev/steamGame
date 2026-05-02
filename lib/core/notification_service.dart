@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:workmanager/workmanager.dart';
 import '../app.dart';
-import '../screens/detail_screen.dart';
+import 'navigation/game_detail_navigation.dart';
 import 'constants.dart';
 import 'schedule_config.dart';
 import 'storage_service.dart';
@@ -118,9 +118,7 @@ class NotificationService {
     if (payload == AppConstants.payloadTop5) return;
     final nav = navigatorKey.currentState;
     if (nav != null) {
-      nav.push(MaterialPageRoute(
-        builder: (_) => DetailScreen(appId: payload),
-      ));
+      nav.push(gameDetailRouteByAppId(payload));
     } else {
       // 应用从后台被点击通知唤醒时 Navigator 可能尚未就绪，先存 payload，MainPage 首帧后会跳转
       setPendingNotificationPayload(payload);

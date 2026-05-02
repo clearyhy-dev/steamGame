@@ -6,10 +6,11 @@ import '../../core/services/algorithm_service.dart';
 import '../../core/services/cache_service.dart';
 import '../../core/services/game_service.dart';
 import '../../core/storage_service.dart';
-import '../../core/utils/price_region_resolver.dart';
+import '../../core/app_country_resolver.dart';
 import '../../core/utils/score_calculator.dart';
 import '../../models/game_model.dart';
 import '../../services/steam_backend_service.dart';
+import '../recommendation/models/recommended_item.dart';
 
 /// 首页数据：本地折扣缓存、统计快照、愿望单决策（个性化推荐见发现页「为你推荐」）。
 class HomeFeedController extends ChangeNotifier {
@@ -71,9 +72,25 @@ class HomeFeedController extends ChangeNotifier {
       dealsLoading = true;
       notifyListeners();
       try {
-        final region = await PriceRegionResolver.resolveContext();
-        final latest = await _gameService.fetchGames(
-            pageSize: 60, country: region.country);
+        final region = await AppCountryResolver.resolveContext();
+        final token = await storage.getSteamBackendToken();
+        List<GameModel> latest = const [];
+        if (token != null && token.isNotEmpty) {
+          final rec =
+              await _backend.getHomeRecommendations(token, country: region.countryCode);
+          final items = rec['items'] as List<dynamic>? ?? const [];
+          latest = items
+              .whereType<Map>()
+              .map((e) => RecommendedItem.fromJson(
+                  Map<String, dynamic>.from(e)).toGameModel())
+              .toList();
+        }
+        if (latest.isEmpty) {
+          latest = await _gameService.fetchGames(
+            pageSize: 60,
+            country: region.countryCode,
+          );
+        }
         if (latest.isNotEmpty) {
           final deduped = deduplicateDeals(latest);
           await cache.saveGames(deduped);
