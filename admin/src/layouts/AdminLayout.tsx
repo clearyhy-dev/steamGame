@@ -19,6 +19,7 @@ const items = [
   { key: '/dashboard', icon: <DashboardOutlined />, label: 'Dashboard' },
   { key: '/video-sources', icon: <DatabaseOutlined />, label: 'Video Sources' },
   { key: '/videos', icon: <PlayCircleOutlined />, label: 'Videos' },
+  { key: '/youtube-videos', icon: <PlayCircleOutlined />, label: 'YouTube Videos' },
   { key: '/video-jobs', icon: <UnorderedListOutlined />, label: 'Video Jobs' },
   { key: '/steam-games', icon: <AppstoreOutlined />, label: 'App Games' },
   { key: '/users', icon: <TeamOutlined />, label: 'Users' },
