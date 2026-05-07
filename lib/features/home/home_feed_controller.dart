@@ -1,12 +1,12 @@
 import 'package:flutter/foundation.dart';
 
-import '../../core/access_control.dart';
 import '../../core/schedule_config.dart';
 import '../../core/services/algorithm_service.dart';
 import '../../core/services/cache_service.dart';
 import '../../core/services/game_service.dart';
 import '../../core/storage_service.dart';
 import '../../core/app_country_resolver.dart';
+import '../../core/utils/price_region_resolver.dart';
 import '../../core/utils/score_calculator.dart';
 import '../../models/game_model.dart';
 import '../../services/steam_backend_service.dart';
@@ -46,56 +46,80 @@ class HomeFeedController extends ChangeNotifier {
   String? welcomeDisplayName;
   bool steamLinkedUi = false;
 
+  /// 切换应用国家后先清空列表，避免短暂显示上一地区的缓存价格。
+  void clearDealListsForCountryChange() {
+    deals = [];
+    top10 = [];
+    topDeal = null;
+    notifyListeners();
+  }
+
   /// [showSteamSectionLoading]：为 false 时仍拉取 Steam 摘要，但不置 `statsLoading`（避免与 `RefreshIndicator` 双转圈）。
   Future<void> load({bool showSteamSectionLoading = true}) async {
+    final region = await AppCountryResolver.resolveContext();
+    final countryCode = region.countryCode;
     final storage = StorageService.instance;
     isPro = await storage.isPro();
-    queryLimitReached = !(await AccessControl().canSearchToday());
+    queryLimitReached = false;
 
     final cache = CacheService();
-    final cached = await cache.getCachedGames();
-    final lastCheck = await cache.getLastCheckTime();
-    final locale = await storage.getPreferredLocale();
-    final isNewDay = ScheduleConfig.isNewDayInLocale(lastCheck, locale);
+    final cached = await cache.getCachedGames(countryCode: countryCode);
+    final lastCheck = await cache.getLastCheckTime(countryCode: countryCode);
+    final isNewDay =
+        ScheduleConfig.isNewDayInLocale(lastCheck, region.uiLanguageCode);
     if (cached.isNotEmpty && !isNewDay) {
       _applyDeals(deduplicateDeals(cached));
     }
     updatedAt = lastCheck;
     notifyListeners();
 
-    final canSearch = await AccessControl().canSearchToday();
-    queryLimitReached = !canSearch;
-    final canFetch = canSearch || isNewDay;
+    queryLimitReached = false;
+    final canFetch = true;
 
     if (canFetch) {
-      if (!isNewDay) await storage.incrementQueryCountToday();
       dealsLoading = true;
       notifyListeners();
       try {
-        final region = await AppCountryResolver.resolveContext();
         final token = await storage.getSteamBackendToken();
         List<GameModel> latest = const [];
         if (token != null && token.isNotEmpty) {
-          final rec =
-              await _backend.getHomeRecommendations(token, country: region.countryCode);
-          final items = rec['items'] as List<dynamic>? ?? const [];
-          latest = items
-              .whereType<Map>()
-              .map((e) => RecommendedItem.fromJson(
-                  Map<String, dynamic>.from(e)).toGameModel())
-              .toList();
+          try {
+            final lang = await PriceRegionResolver.effectiveSteamUiLanguage();
+            final rec =
+                await _backend.getHomeRecommendations(token,
+                    country: countryCode, language: lang);
+            final items = rec['items'] as List<dynamic>? ?? const [];
+            latest = items
+                .whereType<Map>()
+                .map((e) => RecommendedItem.fromJson(
+                    Map<String, dynamic>.from(e)).toGameModel())
+                .toList();
+          } catch (_) {}
+        }
+        if (latest.isEmpty) {
+          try {
+            final lang = await PriceRegionResolver.effectiveSteamUiLanguage();
+            final pub = await _backend.getTrendingPublicRecommendations(
+                country: countryCode, language: lang);
+            final items = pub['items'] as List<dynamic>? ?? const [];
+            latest = items
+                .whereType<Map>()
+                .map((e) => RecommendedItem.fromJson(
+                    Map<String, dynamic>.from(e)).toGameModel())
+                .toList();
+          } catch (_) {}
         }
         if (latest.isEmpty) {
           latest = await _gameService.fetchGames(
             pageSize: 60,
-            country: region.countryCode,
+            country: countryCode,
           );
         }
         if (latest.isNotEmpty) {
           final deduped = deduplicateDeals(latest);
-          await cache.saveGames(deduped);
+          await cache.saveGames(deduped, countryCode: countryCode);
           _applyDeals(deduped);
-          updatedAt = await cache.getLastCheckTime();
+          updatedAt = await cache.getLastCheckTime(countryCode: countryCode);
         }
       } finally {
         dealsLoading = false;
@@ -177,7 +201,10 @@ class HomeFeedController extends ChangeNotifier {
 
   void _applyDeals(List<GameModel> list) {
     deals = list;
-    top10 = AlgorithmService().topByScore(list, limit: 10);
-    topDeal = top10.isNotEmpty ? top10.first : null;
+    final sorted = AlgorithmService().sortByScore(list);
+    topDeal = sorted.isNotEmpty ? sorted.first : null;
+    top10 = sorted.length > 1
+        ? sorted.skip(1).take(10).toList()
+        : <GameModel>[];
   }
 }

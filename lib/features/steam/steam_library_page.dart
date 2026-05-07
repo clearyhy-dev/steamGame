@@ -101,7 +101,7 @@ class _SteamLibraryPageState extends State<SteamLibraryPage> {
     try {
       try {
         final ownedRaw = await _backend.getOwnedGames(token);
-        _ownedGames = (ownedRaw is List ? ownedRaw : [])
+        _ownedGames = ownedRaw
             .whereType<Map>()
             .map((m) => SteamGameItem.fromBackendMap(m.cast<String, dynamic>(), source: 'owned'))
             .where((g) => g.appid.isNotEmpty && g.name.isNotEmpty)
@@ -113,7 +113,7 @@ class _SteamLibraryPageState extends State<SteamLibraryPage> {
 
       try {
         final recentRaw = await _backend.getRecentGames(token);
-        _recentGames = (recentRaw is List ? recentRaw : [])
+        _recentGames = recentRaw
             .whereType<Map>()
             .map((m) => SteamGameItem.fromBackendMap(m.cast<String, dynamic>(), source: 'recent'))
             .where((g) => g.appid.isNotEmpty && g.name.isNotEmpty)
@@ -125,7 +125,7 @@ class _SteamLibraryPageState extends State<SteamLibraryPage> {
 
       try {
         final friendsRaw = await _backend.getFriendsStatus(token);
-        _friends = (friendsRaw is List ? friendsRaw : [])
+        _friends = friendsRaw
             .whereType<Map>()
             .map((m) => SteamFriendRow.fromBackendMap(m.cast<String, dynamic>()))
             .where((f) => f.steamId.isNotEmpty)

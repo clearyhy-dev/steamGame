@@ -63,6 +63,10 @@ export type SteamProfileDoc = {
   avatarFull?: string;
   profileUrl?: string;
   countryCode?: string;
+  /** When we last called GetPlayerSummaries to fill country; avoids hammering Steam if loccountrycode is empty. */
+  countryHydrationCheckedAt?: FirebaseTimestampLike;
+  /** Set on login/bind to bypass hydration TTL once on next recommendations request. */
+  forceCountryRefreshOnce?: boolean;
   timeCreated?: number;
   lastFetchedAt: FirebaseTimestampLike;
   linkedUserId?: string;

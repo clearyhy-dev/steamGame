@@ -208,5 +208,9 @@ if ($LASTEXITCODE -ne 0) {
   exit $LASTEXITCODE
 }
 
-Write-Host "Done. Service URL:"
-gcloud run services describe $Service --project=$ProjectId --region=$Region --format="value(status.url)"
+Write-Host "Done."
+$reportedUrl = gcloud run services describe $Service --project=$ProjectId --region=$Region --format="value(status.url)"
+Write-Host "Use this URL for clients and docs: $ServiceUrl"
+if ($reportedUrl -and ($reportedUrl.TrimEnd('/') -ne $ServiceUrl.TrimEnd('/'))) {
+  Write-Host "(gcloud status.url is $reportedUrl — same Cloud Run service; prefer $ServiceUrl.)"
+}

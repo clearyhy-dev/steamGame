@@ -3,6 +3,11 @@ import type { Env } from '../../config/env';
 import { getEffectiveEnv } from '../../config/runtime-config';
 import { mapToSteamAppDetailsLang } from './steam-language.util';
 
+type RegionalPriceCacheEntry = { expires: number; value: SteamRegionalPrice | null };
+
+const REGIONAL_PRICE_CACHE_TTL_MS = 12 * 60 * 1000;
+const regionalPriceCache = new Map<string, RegionalPriceCacheEntry>();
+
 export type SteamStoreGameDetail = {
   appid: string;
   name: string;
@@ -40,7 +45,10 @@ export type SteamRegionalPrice = {
   priceSource?: 'steam' | 'fallback_format';
 };
 
-/** Parsed regional price for API responses — amounts are Steam minor units until formatted for display. */
+/**
+ * Parsed regional price for API responses.
+ * `initial` / `final` are Steam minor units (yen are whole-yen for JPY); **display must use `initialFormatted` / `finalFormatted`** only.
+ */
 export type SteamRegionalPriceDetail = {
   currency: string;
   initial: number;
@@ -71,6 +79,11 @@ export type SteamReviewSummary = {
   totalReviews: number;
   totalPositive: number;
   totalNegative: number;
+};
+
+export type SteamStoreSnippet = {
+  title: string;
+  shortDescription?: string;
 };
 
 function intField(v: unknown): number {
@@ -312,45 +325,24 @@ export class SteamStoreService {
     return null;
   }
 
-  /** Maps app UI language codes (en, zh, …) to Steam appdetails `l` tokens. */
-  private clientUiLangToSteamL(v?: string): string {
-    const s = String(v ?? 'en').trim().toLowerCase();
-    if (s === 'zh' || s === 'zh-cn' || s === 'zh-hans') return 'schinese';
-    if (s === 'zh-tw' || s === 'zh-hk' || s === 'zh-hant') return 'tchinese';
-    if (s === 'ja') return 'japanese';
-    if (s === 'ko') return 'koreana';
-    if (s === 'de') return 'german';
-    if (s === 'fr') return 'french';
-    if (s === 'es') return 'spanish';
-    if (s === 'pt' || s === 'pt-br') return 'portuguese';
-    if (s === 'ru') return 'russian';
-    if (s === 'pl') return 'polish';
-    if (s === 'it') return 'italian';
-    if (s === 'tr') return 'turkish';
-    if (s === 'th') return 'thai';
-    if (s === 'vi') return 'vietnamese';
-    if (s === 'ar') return 'arabic';
-    if (s === 'he') return 'hebrew';
-    if (s === 'el') return 'greek';
-    if (s === 'hi') return 'hindi';
-    if (s === 'id') return 'indonesian';
-    if (s === 'nl') return 'dutch';
-    if (s === 'sv') return 'swedish';
-    return 'english';
-  }
-
   async fetchRegionalPrice(appid: string, country?: string, language?: string): Promise<SteamRegionalPrice | null> {
     const e = await getEffectiveEnv(this.env);
     const url = 'https://store.steampowered.com/api/appdetails';
     const cc = this.normalizeCountryCode(country);
-    const lang = this.clientUiLangToSteamL(language);
+    const langToken = mapToSteamAppDetailsLang(language);
+    const cacheKey = `${appid}:${cc}:${langToken}`;
+    const now = Date.now();
+    const cached = regionalPriceCache.get(cacheKey);
+    if (cached && cached.expires > now) {
+      return cached.value;
+    }
 
     const req = async (countryCode: string) =>
       axios.get<Record<string, any>>(url, {
         params: {
           appids: appid,
           cc: countryCode,
-          l: lang,
+          l: langToken,
           filters: 'price_overview',
         },
         timeout: Math.max(e.steamHttpTimeoutMs, 15000),
@@ -359,19 +351,59 @@ export class SteamStoreService {
 
     const first = await req(cc);
     const firstParsed = this.parseSteamPriceOverView(appid, cc, first.data);
-    if (firstParsed) return firstParsed;
+    if (firstParsed) {
+      regionalPriceCache.set(cacheKey, {
+        expires: now + REGIONAL_PRICE_CACHE_TTL_MS,
+        value: firstParsed,
+      });
+      return firstParsed;
+    }
 
     if (cc !== 'US') {
       const fallback = await req('US');
       const us = this.parseSteamPriceOverView(appid, 'US', fallback.data);
       if (us) {
-        return {
-          ...us,
-          fallbackUsed: true,
-        };
+        const withFb = { ...us, fallbackUsed: true };
+        regionalPriceCache.set(cacheKey, {
+          expires: now + REGIONAL_PRICE_CACHE_TTL_MS,
+          value: withFb,
+        });
+        return withFb;
       }
     }
     return null;
+  }
+
+  /** Region + language scoped store text for detail pages. */
+  async fetchStoreSnippet(appid: string, steamCc: string, steamLanguageShort: string): Promise<SteamStoreSnippet | null> {
+    const e = await getEffectiveEnv(this.env);
+    const url = 'https://store.steampowered.com/api/appdetails';
+    const cc = this.normalizeCountryCode(steamCc);
+    const l = mapToSteamAppDetailsLang(steamLanguageShort);
+    try {
+      const { data } = await axios.get<Record<string, any>>(url, {
+        params: {
+          appids: appid,
+          cc,
+          l,
+          filters: 'basic,short_description',
+        },
+        timeout: Math.max(e.steamHttpTimeoutMs, 15000),
+        validateStatus: () => true,
+      });
+      const row = data?.[appid];
+      if (!row?.success || !row?.data) return null;
+      const d = row.data as Record<string, unknown>;
+      const title = String(d.name ?? '').trim();
+      const sd = d.short_description != null ? String(d.short_description).trim() : '';
+      if (!title && !sd) return null;
+      return {
+        title: title || `App ${appid}`,
+        shortDescription: sd.length > 0 ? sd : undefined,
+      };
+    } catch {
+      return null;
+    }
   }
 
   async fetchAppListPage(input?: { lastAppId?: number; maxResults?: number }): Promise<{

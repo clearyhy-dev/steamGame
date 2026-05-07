@@ -1,11 +1,14 @@
 import 'dart:async';
+import 'dart:io' show exit;
+
+import 'package:flutter/foundation.dart'
+    show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:permission_handler/permission_handler.dart'
     as permission_handler;
 import '../../core/theme/colors.dart';
-import '../../core/region_config.dart';
 import '../../core/app_country_events.dart';
 import '../../core/app_country_resolver.dart';
 import '../../core/storage_service.dart';
@@ -27,9 +30,9 @@ import '../steam/presentation/pages/steam_account_page.dart';
 
 /// Profile 页：用户信息、登录/登出、Pro、分享、语言、通知等
 class ProfilePage extends StatefulWidget {
-  final Future<void> Function()? onLocaleChanged;
+  final Future<void> Function()? onAppCountryChanged;
 
-  const ProfilePage({super.key, this.onLocaleChanged});
+  const ProfilePage({super.key, this.onAppCountryChanged});
 
   @override
   State<ProfilePage> createState() => _ProfilePageState();
@@ -38,7 +41,6 @@ class ProfilePage extends StatefulWidget {
 class _ProfilePageState extends State<ProfilePage> {
   bool _isPro = false;
   Map<String, String>? _user;
-  String? _currentLocaleCode;
   String? _appCountryCode;
 
   String? _steamId;
@@ -77,7 +79,6 @@ class _ProfilePageState extends State<ProfilePage> {
   Future<void> _load() async {
     final pro = await StorageService.instance.isPro();
     final user = await AuthService().getCurrentUser();
-    final localeCode = await StorageService.instance.getPreferredLocale();
     await CountryCatalogService.instance.ensureLoaded(ApiConstants.baseUrl);
     final resolvedCtx = await AppCountryResolver.resolveContext();
     final storedCountry = await StorageService.instance.getAppCountry();
@@ -132,7 +133,6 @@ class _ProfilePageState extends State<ProfilePage> {
       setState(() {
         _isPro = pro;
         _user = user;
-        _currentLocaleCode = localeCode;
         _appCountryCode = resolvedAppCountry;
         _steamId = steamId;
         _steamPersonaName = steamPersonaName;
@@ -195,92 +195,10 @@ class _ProfilePageState extends State<ProfilePage> {
     return '$title\n${_shareCardSubtitle(l10n)}';
   }
 
-  bool _isRegionSelected(RegionEntry? region, String? stored) {
-    if (region == null) return stored == null || stored.isEmpty;
-    if (stored == null || stored.isEmpty) return false;
-    if (region.id == stored) return true;
-    return region.localeCode == stored && !RegionConfig.isRegionId(stored);
-  }
-
-  Future<void> _showRegionPicker() async {
-    final systemLabel = AppLocalizations.of(context).get('system_default');
-    final regions = [null, ...RegionConfig.allRegions];
-    final selected = await showDialog<String?>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.cardDark,
-        title: Text(
-          AppLocalizations.of(ctx).get('language'),
-          style: const TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w600,
-              color: AppColors.textPrimary),
-        ),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: ConstrainedBox(
-            constraints:
-                BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.6),
-            child: ListView.builder(
-              shrinkWrap: true,
-              itemCount: regions.length,
-              itemBuilder: (_, index) {
-                final r = regions[index];
-                final label = r == null ? systemLabel : r.displayName;
-                final valueToStore = r?.id ?? '';
-                final isSelected = _isRegionSelected(r, _currentLocaleCode);
-                return ListTile(
-                  title: Text(
-                    label,
-                    style: const TextStyle(
-                        color: AppColors.textPrimary, fontSize: 16),
-                  ),
-                  trailing: isSelected
-                      ? const Icon(Icons.check, color: AppColors.itadOrange)
-                      : null,
-                  onTap: () => Navigator.pop(ctx, valueToStore),
-                );
-              },
-            ),
-          ),
-        ),
-      ),
-    );
-    if (selected == null) return;
-    final toStore = selected.isEmpty ? null : selected;
-    if (toStore == _currentLocaleCode ||
-        (toStore == null &&
-            (_currentLocaleCode == null || _currentLocaleCode!.isEmpty)))
-      return;
-    await StorageService.instance.setPreferredLocale(toStore);
-    await StorageService.instance.clearLastDailyTaskScheduledAt();
-    await StorageService.instance.clearLastWishlistTaskScheduledAt();
-    await CacheService.clearLastCheckTime();
-    await NotificationService.instance.rescheduleDaily();
-    await widget.onLocaleChanged?.call();
-    if (mounted) _load();
-  }
-
   Future<void> _showAppCountryPicker() async {
     await CountryCatalogService.instance.ensureLoaded(ApiConstants.baseUrl);
     final cat = CountryCatalogService.instance;
     var entries = List<CountryCatalogEntry>.from(cat.countries);
-    if (entries.isEmpty) {
-      for (final c
-          in AppRemoteConfig.instance.regionSettings.enabledCountries) {
-        entries.add(CountryCatalogEntry(
-          countryCode: c,
-          countryName: c,
-          nativeName: null,
-          steamCc: c,
-          steamLanguage: 'en',
-          defaultCurrency: AppRemoteConfig
-                  .instance.regionSettings.countryCurrencyMap[c] ??
-              'USD',
-          currencySymbol: '',
-        ));
-      }
-    }
     if (entries.isEmpty) {
       return;
     }
@@ -318,7 +236,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   subtitle: Text(
                     '${e.countryCode} · ${e.defaultCurrency}${e.currencySymbol.isNotEmpty ? ' (${e.currencySymbol})' : ''}',
                     style: TextStyle(
-                        color: AppColors.textSecondary.withOpacity(0.9),
+                        color: AppColors.textSecondary.withValues(alpha: 0.9),
                         fontSize: 12),
                   ),
                   trailing: isSelected
@@ -334,10 +252,15 @@ class _ProfilePageState extends State<ProfilePage> {
     );
     if (selected == null || selected == _appCountryCode) return;
     await StorageService.instance.setAppCountry(selected);
+    await StorageService.instance.setAppCountryManualPick(true);
     await StorageService.instance.clearAppCountryScopedCaches();
     await CacheService.clearLastCheckTime();
+    await StorageService.instance.clearLastDailyTaskScheduledAt();
+    await StorageService.instance.clearLastWishlistTaskScheduledAt();
+    await NotificationService.instance.rescheduleDaily();
     final ctx = await AppCountryResolver.resolveContext();
     AppCountryEvents.instance.notifyChanged(ctx);
+    await widget.onAppCountryChanged?.call();
     if (mounted) {
       setState(() => _appCountryCode = selected);
       ScaffoldMessenger.of(context).showSnackBar(
@@ -350,11 +273,15 @@ class _ProfilePageState extends State<ProfilePage> {
         ),
       );
     }
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      exit(0);
+    }
   }
 
   String _appCountrySubtitle(AppLocalizations l10n) {
-    final code = _appCountryCode ??
-        AppRemoteConfig.instance.regionSettings.defaultCountry;
+    final code =
+        _appCountryCode ?? CountryCatalogService.instance.defaultCountry;
     for (final e in CountryCatalogService.instance.countries) {
       if (e.countryCode == code) {
         return e.nativeName != null && e.nativeName!.isNotEmpty
@@ -723,7 +650,7 @@ class _ProfilePageState extends State<ProfilePage> {
               padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
               margin: const EdgeInsets.only(bottom: 16),
               decoration: BoxDecoration(
-                color: AppColors.primary.withOpacity(0.12),
+                color: AppColors.primary.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Row(
@@ -743,7 +670,7 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
             if (_isPro)
               Card(
-                color: AppColors.successGreen.withOpacity(0.15),
+                color: AppColors.successGreen.withValues(alpha: 0.15),
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: Row(
@@ -777,27 +704,14 @@ class _ProfilePageState extends State<ProfilePage> {
             const SizedBox(height: 16),
             Card(
               child: ListTile(
-                leading: const Icon(Icons.public),
-                title: Text(l10n.get('language')),
-                subtitle: Text(
-                  RegionConfig.getDisplayNameForStored(
-                      _currentLocaleCode, l10n.get('system_default')),
-                  style:
-                      TextStyle(fontSize: 13, color: AppColors.textSecondary),
-                ),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: _showRegionPicker,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Card(
-              child: ListTile(
                 leading: const Icon(Icons.flag_outlined),
-                title: Text(l10n.get('app_country_subtitle')),
+                title: Text(l10n.get('app_country_title')),
                 subtitle: Text(
-                  _appCountrySubtitle(l10n),
-                  style:
-                      TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                  '${_appCountrySubtitle(l10n)}\n${l10n.get('country_network_guess_hint')}',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: AppColors.textSecondary,
+                  ),
                 ),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: _showAppCountryPicker,

@@ -5,6 +5,7 @@ import type { Env } from './config/env';
 import { createRouter } from './routes';
 import { errorMiddleware } from './middlewares/error.middleware';
 import { mountAdminUiIfEnabled } from './middlewares/adminStatic.middleware';
+import { requestLogMiddleware } from './middlewares/request-log.middleware';
 
 export function createApp(env: Env) {
   const app = express();
@@ -39,6 +40,9 @@ export function createApp(env: Env) {
 
   // 必须在业务 Router 之前注册。Cloud Run 保留「以 z 结尾」的路径，/healthz 无法到达容器（见官方 known-issues）。
   app.get('/health', (_req, res) => res.status(200).json({ success: true, data: 'ok' }));
+
+  // 先于 Admin 静态：/admin 与 /v1 等统一落请求日志（静态资源在中间件内跳过）
+  app.use(requestLogMiddleware(env));
 
   // Admin 静态页挂在 API 之前，避免与其它路由混淆；镜像内需含 admin/dist（见仓库根 Dockerfile）
   mountAdminUiIfEnabled(app, env);

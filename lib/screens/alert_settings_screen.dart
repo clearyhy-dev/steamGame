@@ -23,15 +23,13 @@ class _AlertSettingsScreenState extends State<AlertSettingsScreen> {
   Future<void> _load() async {
     if (!StorageService.instance.isInitialized) await StorageService.instance.init();
     final prefs = StorageService.instance.prefs;
-    if (prefs == null) return;
     if (mounted) setState(() {
       _minDiscount = prefs.getInt(_keyMinDiscount) ?? 50;
     });
   }
 
   Future<void> _save(int value) async {
-    final prefs = StorageService.instance.prefs;
-    if (prefs != null) prefs.setInt(_keyMinDiscount, value);
+    StorageService.instance.prefs.setInt(_keyMinDiscount, value);
     if (mounted) setState(() => _minDiscount = value);
   }
 

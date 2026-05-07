@@ -9,6 +9,7 @@ export function errorMiddleware(err: unknown, req: Request, res: Response, _next
 
   if (err instanceof ApiError) {
     logger.warn(`API error ${err.code}: ${err.message}`);
+    res.setHeader('x-error-code', err.code);
     if (adminApi) {
       return res.status(err.statusCode).json({
         ok: false,
@@ -27,6 +28,7 @@ export function errorMiddleware(err: unknown, req: Request, res: Response, _next
   }
 
   logger.error(`Unhandled error: ${err instanceof Error ? err.message : String(err)}`);
+  res.setHeader('x-error-code', 'INTERNAL_ERROR');
   if (adminApi) {
     return res.status(500).json({
       ok: false,

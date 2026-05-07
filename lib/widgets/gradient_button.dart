@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../core/theme/colors.dart';
 
 /// 高饱和主按钮
 class GradientButton extends StatelessWidget {

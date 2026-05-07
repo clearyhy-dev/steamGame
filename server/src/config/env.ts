@@ -62,6 +62,7 @@ export type Env = {
   steamAutoSyncIntervalMs: number;
   steamAutoSyncBatchSize: number;
   steamAutoSyncDelayMs: number;
+  requestLogRetentionDays: number;
 };
 
 export function loadEnv(): Env {
@@ -120,6 +121,7 @@ export function loadEnv(): Env {
     steamAutoSyncIntervalMs: Number(process.env.STEAM_AUTO_SYNC_INTERVAL_MS ?? 3600000),
     steamAutoSyncBatchSize: Number(process.env.STEAM_AUTO_SYNC_BATCH_SIZE ?? 200),
     steamAutoSyncDelayMs: Number(process.env.STEAM_AUTO_SYNC_DELAY_MS ?? 120),
+    requestLogRetentionDays: Number(process.env.REQUEST_LOG_RETENTION_DAYS ?? 14),
 
     adminUsername: process.env.ADMIN_USERNAME ?? 'admin',
     adminPassword: process.env.ADMIN_PASSWORD ?? '',

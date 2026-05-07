@@ -42,6 +42,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _onPriceRegionChanged() {
+    _c.clearDealListsForCountryChange();
     _c.load(showSteamSectionLoading: false);
   }
 

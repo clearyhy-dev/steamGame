@@ -9,6 +9,7 @@ import '../models/wishlist_model.dart';
 import '../services/steam_api_service.dart';
 import '../services/steam_backend_service.dart';
 import '../core/app_country_resolver.dart';
+import '../core/utils/price_region_resolver.dart';
 import '../widgets/game_card.dart';
 import '../features/subscription/subscription_page.dart';
 import '../core/services/analytics_service.dart';
@@ -92,10 +93,12 @@ class _WishlistScreenState extends State<WishlistScreen> {
     final token = await StorageService.instance.getSteamBackendToken();
     if (token != null && token.isNotEmpty) {
       try {
+        final lang = await PriceRegionResolver.effectiveSteamUiLanguage();
         final data = await _backend.getExploreRecommendations(
           token,
           tab: 'trending',
           country: region.countryCode,
+          language: lang,
         );
         final raw = data['items'] as List<dynamic>? ?? const [];
         deals = raw
@@ -286,7 +289,7 @@ class _WishlistScreenState extends State<WishlistScreen> {
               child: ListTile(
                 contentPadding:
                     const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                leading: item.image != null && item.image.isNotEmpty
+                leading: item.image.isNotEmpty
                     ? ClipRRect(
                         borderRadius: BorderRadius.circular(10),
                         child: Image.network(
@@ -347,10 +350,10 @@ class _WishlistScreenState extends State<WishlistScreen> {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 10, vertical: 5),
                       decoration: BoxDecoration(
-                        color: _decisionColor(decCode).withOpacity(0.15),
+                        color: _decisionColor(decCode).withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(10),
                         border: Border.all(
-                            color: _decisionColor(decCode).withOpacity(0.4)),
+                            color: _decisionColor(decCode).withValues(alpha: 0.4)),
                       ),
                       child: Text(
                         _decisionLabel(decCode),
@@ -370,7 +373,7 @@ class _WishlistScreenState extends State<WishlistScreen> {
                     padding:
                         const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
-                      color: AppColors.danger.withOpacity(0.15),
+                      color: AppColors.danger.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Row(
@@ -493,7 +496,7 @@ class _WishlistScreenState extends State<WishlistScreen> {
                           child: Container(
                             padding: const EdgeInsets.all(16),
                             decoration: BoxDecoration(
-                              color: AppColors.primary.withOpacity(0.12),
+                              color: AppColors.primary.withValues(alpha: 0.12),
                               borderRadius: BorderRadius.circular(20),
                               boxShadow: const [
                                 BoxShadow(
@@ -561,7 +564,7 @@ class _WishlistScreenState extends State<WishlistScreen> {
 class _LoginGate extends StatelessWidget {
   final VoidCallback onSignIn;
 
-  const _LoginGate({super.key, required this.onSignIn});
+  const _LoginGate({required this.onSignIn});
 
   @override
   Widget build(BuildContext context) {
@@ -609,7 +612,7 @@ class _LoginGate extends StatelessWidget {
 class _EmptyWishlist extends StatelessWidget {
   final ThemeData theme;
 
-  const _EmptyWishlist({super.key, required this.theme});
+  const _EmptyWishlist({required this.theme});
 
   @override
   Widget build(BuildContext context) {

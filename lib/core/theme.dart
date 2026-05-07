@@ -3,14 +3,10 @@ import 'package:google_fonts/google_fonts.dart';
 
 /// 应用主题 - Material 3 + Montserrat，商业版
 class AppTheme {
-  static const Color _primary = Color(0xFF171A21);
-  static const Color _primaryVariant = Color(0xFF2D3748);
   static const Color _surface = Color(0xFF0F1115);
   static const Color _surfaceCard = Color(0xFF252A33);
   static const Color _accent = Color(0xFF66C0F4);
-  static const Color _accentVariant = Color(0xFF4A9FD4);
   static const Color _discountRed = Color(0xFFC54534);
-  static const Color _successGreen = Color(0xFF5C7E10);
   static const Color _textPrimary = Color(0xFFE8EAED);
   static const Color _textSecondary = Color(0xFF9AA0A6);
 
@@ -57,7 +53,7 @@ class AppTheme {
         bodySmall: TextStyle(fontSize: 12, color: _textSecondary),
       ),
     ),
-    dividerColor: _textSecondary.withOpacity(0.3),
+    dividerColor: _textSecondary.withValues(alpha: 0.3),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
       fillColor: _surfaceCard,

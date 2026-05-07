@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../../../core/ad_config.dart';
-import '../../../core/access_control.dart';
 import '../../../core/current_players_cache.dart';
 import '../../../core/theme/colors.dart';
 import '../../../core/utils/price_formatter.dart';
@@ -14,6 +13,7 @@ import '../../../core/app_country_events.dart';
 import '../../../core/storage_service.dart';
 import '../../../core/schedule_config.dart';
 import '../../../core/app_country_resolver.dart';
+import '../../../core/utils/price_region_resolver.dart';
 import '../../../data/services/cache_service.dart';
 import '../../../data/services/api_service.dart';
 import '../../../l10n/app_localizations.dart';
@@ -105,6 +105,15 @@ class _ExplorePageState extends State<ExplorePage>
 
   void _onPriceRegionChanged() {
     if (!mounted) return;
+    setState(() {
+      _loading = true;
+      _deals = [];
+      _freeDeals = [];
+      _mostPlayedGlobal = [];
+      _exploreFeed = [];
+      _bestDealsToBuy = [];
+      _cat = null;
+    });
     _load(forceRefresh: true)
         .then((_) => _loadExploreTab(_tabController.index));
   }
@@ -141,10 +150,12 @@ class _ExplorePageState extends State<ExplorePage>
     if (mounted) setState(() => _exploreLoading = true);
     try {
       final region = await AppCountryResolver.resolveContext();
+      final lang = await PriceRegionResolver.effectiveSteamUiLanguage();
       final data = await SteamBackendService().getExploreRecommendations(
         token,
         tab: _exploreTabKeys[index],
         country: region.countryCode,
+        language: lang,
       );
       final raw = data['items'] as List<dynamic>? ?? [];
       final games = raw
@@ -185,27 +196,41 @@ class _ExplorePageState extends State<ExplorePage>
     } catch (_) {
       _backendToken = null;
     }
-    var list = await CacheService.loadGames();
-    final lastCheck = await CacheService.getLastCheckTime();
-    final locale = await StorageService.instance.getPreferredLocale();
-    final isNewDay = ScheduleConfig.isNewDayInLocale(lastCheck, locale);
-    final canSearch = await AccessControl().canSearchToday();
-    final canFetch = forceRefresh
-        ? (canSearch || isNewDay)
-        : ((list.isEmpty || isNewDay) && (canSearch || isNewDay));
+    var list = await CacheService.loadGames(countryCode: region.countryCode);
+    final lastCheck =
+        await CacheService.getLastCheckTime(countryCode: region.countryCode);
+    final isNewDay =
+        ScheduleConfig.isNewDayInLocale(lastCheck, region.uiLanguageCode);
+    final canFetch = forceRefresh || list.isEmpty || isNewDay;
     if (list.isEmpty || isNewDay || forceRefresh) {
       if (canFetch) {
-        if (!isNewDay) await StorageService.instance.incrementQueryCountToday();
         List<GameModel> fetched = const [];
         final token = _backendToken;
         if (token != null && token.isNotEmpty) {
           try {
+            final lang = await PriceRegionResolver.effectiveSteamUiLanguage();
             final data = await SteamBackendService().getExploreRecommendations(
               token,
               tab: 'trending',
               country: region.countryCode,
+              language: lang,
             );
             final raw = data['items'] as List<dynamic>? ?? const [];
+            fetched = raw
+                .whereType<Map>()
+                .map((e) => RecommendedItem.fromJson(
+                    Map<String, dynamic>.from(e)).toGameModel())
+                .toList();
+          } catch (_) {}
+        }
+        if (fetched.isEmpty) {
+          try {
+            final langPub =
+                await PriceRegionResolver.effectiveSteamUiLanguage();
+            final pub = await SteamBackendService()
+                .getTrendingPublicRecommendations(
+                    country: region.countryCode, language: langPub);
+            final raw = pub['items'] as List<dynamic>? ?? const [];
             fetched = raw
                 .whereType<Map>()
                 .map((e) => RecommendedItem.fromJson(
@@ -219,13 +244,10 @@ class _ExplorePageState extends State<ExplorePage>
         }
         if (fetched.isNotEmpty) {
           list = ShockDealAlgorithm.deduplicateDeals(fetched);
-          await CacheService.saveGames(list);
+          await CacheService.saveGames(list, countryCode: region.countryCode);
         } else if (list.isEmpty && mounted) {
           _showLoadFailed(AppLocalizations.of(context).get('no_deals_refresh'));
         }
-      } else if (forceRefresh && !canSearch && !isNewDay && mounted) {
-        _showLoadFailed(
-            AppLocalizations.of(context).get('daily_limit_reached'));
       }
     }
     final api = SteamApiService();
@@ -255,7 +277,7 @@ class _ExplorePageState extends State<ExplorePage>
       _cat =
           list.isNotEmpty ? ShockDealAlgorithm.computeCategories(list) : null;
       _bestDealsToBuy = bestBuy;
-      _queryLimitReached = list.isEmpty && !canSearch && !isNewDay;
+      _queryLimitReached = false;
       _loading = false;
     });
     unawaited(_refreshPro());

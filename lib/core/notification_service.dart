@@ -4,6 +4,7 @@ import 'package:workmanager/workmanager.dart';
 import '../app.dart';
 import 'navigation/game_detail_navigation.dart';
 import 'constants.dart';
+import 'app_country_resolver.dart';
 import 'schedule_config.dart';
 import 'storage_service.dart';
 
@@ -51,8 +52,9 @@ class NotificationService {
     try {
       final storage = StorageService.instance;
       await storage.init();
-      final locale = await storage.getPreferredLocale();
-      final delay = ScheduleConfig.delayUntilNextSlot(locale);
+      final appCountry = await AppCountryResolver.resolveContext();
+      final uiLanguage = appCountry.uiLanguageCode;
+      final delay = ScheduleConfig.delayUntilNextSlot(uiLanguage);
       await Workmanager().registerOneOffTask(
         AppConstants.taskDailyDealCheck,
         AppConstants.taskDailyDealCheck,
@@ -60,7 +62,7 @@ class NotificationService {
         existingWorkPolicy: ExistingWorkPolicy.replace,
       );
       await storage.setLastDailyTaskScheduledAt(DateTime.now().toUtc().toIso8601String());
-      final delayWishlist = ScheduleConfig.delayUntilNextSlot(locale);
+      final delayWishlist = ScheduleConfig.delayUntilNextSlot(uiLanguage);
       await Workmanager().registerOneOffTask(
         AppConstants.taskWishlistCheck,
         AppConstants.taskWishlistCheck,

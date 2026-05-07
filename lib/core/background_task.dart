@@ -9,6 +9,7 @@ import 'notification_service.dart';
 import 'shock_deal_algorithm.dart';
 import 'utils/price_formatter.dart';
 import 'utils/price_region_resolver.dart';
+import 'app_country_resolver.dart';
 import 'utils/score_calculator.dart' show calculateScore;
 
 /// 后台任务：每天 11:00 / 17:00 / 20:00 今日折扣 + Pro 愿望单（按所选地区语言时区），通知文案随语言
@@ -21,7 +22,8 @@ void callbackDispatcher() {
 
     await storage.init();
     await notification.init();
-    final locale = await storage.getPreferredLocale();
+    final appCountry = await AppCountryResolver.resolveContext();
+    final locale = appCountry.uiLanguageCode;
     final region = await PriceRegionResolver.resolveContext();
 
     final isWishlistTask = task == AppConstants.taskWishlistCheck;
@@ -140,7 +142,7 @@ void callbackDispatcher() {
 }
 
 Future<void> _rescheduleDaily(StorageService storage) async {
-  final locale = await storage.getPreferredLocale();
+  final locale = (await AppCountryResolver.resolveContext()).uiLanguageCode;
   final delay = ScheduleConfig.delayUntilNextSlot(locale);
   await Workmanager().registerOneOffTask(
     AppConstants.taskDailyDealCheck,
@@ -153,7 +155,7 @@ Future<void> _rescheduleDaily(StorageService storage) async {
 }
 
 Future<void> _rescheduleWishlist(StorageService storage) async {
-  final locale = await storage.getPreferredLocale();
+  final locale = (await AppCountryResolver.resolveContext()).uiLanguageCode;
   final delay = ScheduleConfig.delayUntilNextSlot(locale);
   await Workmanager().registerOneOffTask(
     AppConstants.taskWishlistCheck,

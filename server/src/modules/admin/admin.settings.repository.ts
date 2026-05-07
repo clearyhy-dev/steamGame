@@ -33,9 +33,12 @@ const DEFAULT_PRICE_SOURCES = ['steam', 'itad', 'ggdeals', 'cheapshark'] as cons
 export type DiscountProvidersConfig = {
   itadApiKey: string;
   ggDealsApiKey: string;
+  steamApiKey: string;
   itadBaseUrl: string;
   ggDealsBaseUrl: string;
   cheapSharkBaseUrl: string;
+  steamWebApiBaseUrl: string;
+  steamStoreBaseUrl: string;
   dealCountriesCsv: string;
   updatedAt: admin.firestore.Timestamp;
   createdAt: admin.firestore.Timestamp;
@@ -57,6 +60,7 @@ export type RuntimeConfigDoc = {
   steamAutoSyncIntervalMs?: number;
   steamAutoSyncBatchSize?: number;
   steamAutoSyncDelayMs?: number;
+  requestLogRetentionDays?: number;
   videoGcsBucket?: string;
   ffmpegPath?: string;
   ffprobePath?: string;
@@ -106,6 +110,7 @@ const RUNTIME_OVERRIDE_KEYS: (keyof RuntimeConfigDoc)[] = [
   'steamAutoSyncIntervalMs',
   'steamAutoSyncBatchSize',
   'steamAutoSyncDelayMs',
+  'requestLogRetentionDays',
   'videoGcsBucket',
   'ffmpegPath',
   'ffprobePath',
@@ -218,9 +223,12 @@ export class AdminSettingsRepository {
       const init: DiscountProvidersConfig = {
         itadApiKey: '',
         ggDealsApiKey: '',
+        steamApiKey: '',
         itadBaseUrl: 'https://api.isthereanydeal.com',
         ggDealsBaseUrl: 'https://api.gg.deals',
         cheapSharkBaseUrl: 'https://www.cheapshark.com/api/1.0',
+        steamWebApiBaseUrl: 'https://api.steampowered.com',
+        steamStoreBaseUrl: 'https://store.steampowered.com',
         dealCountriesCsv: 'US,CN,JP',
         updatedAt: now,
         createdAt: now,
@@ -233,9 +241,12 @@ export class AdminSettingsRepository {
     return {
       itadApiKey: String(d.itadApiKey ?? ''),
       ggDealsApiKey: String(d.ggDealsApiKey ?? ''),
+      steamApiKey: String(d.steamApiKey ?? ''),
       itadBaseUrl: String(d.itadBaseUrl ?? 'https://api.isthereanydeal.com'),
       ggDealsBaseUrl: String(d.ggDealsBaseUrl ?? 'https://api.gg.deals'),
       cheapSharkBaseUrl: String(d.cheapSharkBaseUrl ?? 'https://www.cheapshark.com/api/1.0'),
+      steamWebApiBaseUrl: String(d.steamWebApiBaseUrl ?? 'https://api.steampowered.com'),
+      steamStoreBaseUrl: String(d.steamStoreBaseUrl ?? 'https://store.steampowered.com'),
       dealCountriesCsv: String(d.dealCountriesCsv ?? 'US,CN,JP'),
       updatedAt: d.updatedAt ?? now,
       createdAt: d.createdAt ?? now,

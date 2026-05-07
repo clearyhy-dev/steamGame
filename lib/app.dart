@@ -5,6 +5,9 @@ import 'package:permission_handler/permission_handler.dart' as permission_handle
 import 'core/theme/app_theme.dart';
 import 'core/theme/colors.dart';
 import 'core/app_update_helper.dart';
+import 'core/app_country_events.dart';
+import 'core/app_country_resolver.dart';
+import 'core/country_catalog_service.dart';
 import 'core/storage_service.dart';
 import 'core/services/review_service.dart';
 import 'features/home/home_page.dart';
@@ -30,16 +33,30 @@ class SteamDealApp extends StatefulWidget {
 
 class _SteamDealAppState extends State<SteamDealApp> {
   Locale? _locale;
+  VoidCallback? _countryChangedListener;
 
   @override
   void initState() {
     super.initState();
-    _loadLocale();
+    _loadLocaleFromCountry();
+    _countryChangedListener = () {
+      _loadLocaleFromCountry();
+    };
+    AppCountryEvents.instance.changed.addListener(_countryChangedListener!);
   }
 
-  Future<void> _loadLocale() async {
-    final stored = await StorageService.instance.getPreferredLocale();
-    final localeCode = RegionConfig.getLocaleCodeForApp(stored);
+  @override
+  void dispose() {
+    final listener = _countryChangedListener;
+    if (listener != null) {
+      AppCountryEvents.instance.changed.removeListener(listener);
+    }
+    super.dispose();
+  }
+
+  Future<void> _loadLocaleFromCountry() async {
+    final ctx = await AppCountryResolver.resolveContext();
+    final localeCode = RegionConfig.getLocaleCodeForApp(ctx.uiLanguageCode);
     if (!mounted) return;
     setState(() => _locale = localeCode != null && localeCode.isNotEmpty ? Locale(localeCode) : null);
   }
@@ -48,7 +65,7 @@ class _SteamDealAppState extends State<SteamDealApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       navigatorKey: navigatorKey,
-      title: AppLocalizations.of(context).get('home_title'),
+      onGenerateTitle: (ctx) => AppLocalizations.of(ctx).get('home_title'),
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme.copyWith(
         scaffoldBackgroundColor: const Color(0xFF0E1116),
@@ -61,16 +78,16 @@ class _SteamDealAppState extends State<SteamDealApp> {
         AppLocalizationsDelegate(),
       ],
       supportedLocales: AppLocalizations.supportedLocales,
-      home: MainPage(onLocaleChanged: _loadLocale),
+      home: MainPage(onAppCountryChanged: _loadLocaleFromCountry),
     );
   }
 }
 
 /// 最终稳定结构：MainNavigation = Home / Explore / Wishlist / Profile（IndexedStack 防白屏）
 class MainPage extends StatefulWidget {
-  final Future<void> Function()? onLocaleChanged;
+  final Future<void> Function()? onAppCountryChanged;
 
-  const MainPage({super.key, this.onLocaleChanged});
+  const MainPage({super.key, this.onAppCountryChanged});
 
   @override
   State<MainPage> createState() => _MainPageState();
@@ -81,12 +98,22 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
   bool _showOnboarding = false;
   bool _showEnableAlertsPrompt = false;
 
+  /// 国家变更时递增 key，销毁各 Tab State，并与 pop 栈配合避免残留详情价签错位。
+  String _tabCountryKey = 'US';
+  VoidCallback? _appCountryRebuildListener;
+
   List<Widget> get _pages => [
-    const HomePage(),
-    const ExplorePage(),
-    WishlistPage(currentTabIndex: _index),
-    ProfilePage(onLocaleChanged: widget.onLocaleChanged),
-  ];
+        HomePage(key: ValueKey<String>('home_$_tabCountryKey')),
+        ExplorePage(key: ValueKey<String>('explore_$_tabCountryKey')),
+        WishlistPage(
+          key: ValueKey<String>('wishlist_$_tabCountryKey'),
+          currentTabIndex: _index,
+        ),
+        ProfilePage(
+          key: ValueKey<String>('profile_$_tabCountryKey'),
+          onAppCountryChanged: widget.onAppCountryChanged,
+        ),
+      ];
 
   Future<void> _dismissEnableAlertsAndContinue(bool enableNow) async {
     await StorageService.instance.setHasSeenEnableAlertsPrompt(true);
@@ -169,6 +196,10 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    final l = _appCountryRebuildListener;
+    if (l != null) {
+      AppCountryEvents.instance.changed.removeListener(l);
+    }
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -214,6 +245,21 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _tabCountryKey = StorageService.instance.getAppCountrySync() ??
+        CountryCatalogService.instance.defaultCountry;
+    _appCountryRebuildListener = () {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final nav = navigatorKey.currentState;
+        if (nav != null && nav.canPop()) {
+          nav.popUntil((route) => route.isFirst);
+        }
+      });
+      final next = StorageService.instance.getAppCountrySync() ??
+          CountryCatalogService.instance.defaultCountry;
+      if (mounted) setState(() => _tabCountryKey = next);
+    };
+    AppCountryEvents.instance.changed
+        .addListener(_appCountryRebuildListener!);
     // 先让首帧绘制完成，再执行存储/插屏/评分/引导，减少启动即崩
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _tryOpenFromNotificationTap();

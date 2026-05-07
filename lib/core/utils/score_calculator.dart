@@ -59,14 +59,26 @@ List<GameModel> topDealsByScore(List<GameModel> deals, {int limit = 10}) {
   return list.take(limit).toList();
 }
 
+/// 去重键：Steam app id → 纯数字 [appId]/[dealID]（CheapShark 常为 deal id）→ 规范化名称
+String dealIdentityKey(GameModel g) {
+  final sid = g.steamAppID.trim();
+  if (sid.isNotEmpty) return 's:$sid';
+  for (final raw in [g.appId, g.dealID]) {
+    final t = raw.trim();
+    if (t.isEmpty) continue;
+    if (RegExp(r'^\d{1,10}$').hasMatch(t)) return 's:$t';
+  }
+  final name = g.name.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+  if (name.isEmpty) return '';
+  return 'n:$name';
+}
+
 /// 去重：同一游戏只保留折扣最高的一条
 List<GameModel> deduplicateDeals(List<GameModel> list) {
   final byKey = <String, GameModel>{};
   for (final g in list) {
-    final key = g.steamAppID.trim().isNotEmpty
-        ? 's:${g.steamAppID.trim()}'
-        : 'n:${g.name.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ')}';
-    if (key == 'n:') continue;
+    final key = dealIdentityKey(g);
+    if (key.isEmpty) continue;
     final existing = byKey[key];
     if (existing == null || g.discount > existing.discount) byKey[key] = g;
   }

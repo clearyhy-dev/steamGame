@@ -1,23 +1,27 @@
 import 'package:intl/intl.dart';
 
 import '../app_remote_config.dart';
+import '../country_catalog_service.dart';
 import 'price_region_resolver.dart';
 
 class CountryPrice {
   static Set<String> get supportedCountries =>
-      AppRemoteConfig.instance.regionSettings.enabledCountries.toSet();
+      CountryCatalogService.instance.countryCodes;
+
   static Map<String, String> get _countryCurrency =>
       AppRemoteConfig.instance.countryCurrencyMap;
 
   static String resolveCountryCode() {
     final cc = PriceRegionResolver.resolveSync().country.toUpperCase();
     if (supportedCountries.contains(cc)) return cc;
-    return AppRemoteConfig.instance.regionSettings.defaultCountry.toUpperCase();
+    return CountryCatalogService.instance.defaultCountry.toUpperCase();
   }
 
   static NumberFormat formatter({String? countryCode}) {
     final cc = (countryCode ?? resolveCountryCode()).toUpperCase();
-    final code = _countryCurrency[cc] ?? 'USD';
+    final fromCatalog = CountryCatalogService.instance.findByCountryCode(cc);
+    final code =
+        fromCatalog?.defaultCurrency.trim().toUpperCase() ?? _countryCurrency[cc] ?? 'USD';
     return NumberFormat.simpleCurrency(name: code);
   }
 

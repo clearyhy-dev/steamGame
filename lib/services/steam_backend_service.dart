@@ -7,6 +7,7 @@ import '../core/app_remote_config.dart';
 import '../core/app_country_resolver.dart';
 import '../core/constants/api_constants.dart';
 import '../core/storage_service.dart';
+import '../core/utils/price_region_resolver.dart';
 
 class SteamBackendException implements Exception {
   final String code;
@@ -79,16 +80,18 @@ class SteamBackendService {
 
   /// Aggregated regional detail: Steam formatted prices + local/global deals (backend-classified).
   Future<Map<String, dynamic>> getGameRegionalDetail(String appid,
-      {String? country}) async {
+      {String? country, String? language}) async {
     final id = appid.trim();
     if (id.isEmpty) {
       throw SteamBackendException(
           code: 'INVALID_APPID', message: 'appid required');
     }
     final cc = (country ?? await _resolveCountryCode())?.trim().toUpperCase();
+    final lang = language ?? await PriceRegionResolver.effectiveSteamUiLanguage();
     final uri = _uri('/api/v1/games/$id/regional-detail').replace(
       queryParameters: {
         if (cc != null && cc.isNotEmpty) 'country': cc,
+        if (lang.trim().isNotEmpty) 'language': lang.trim().toLowerCase(),
       },
     );
     final res = await _client
@@ -337,14 +340,17 @@ class SteamBackendService {
   }
 
   Future<Map<String, dynamic>> getExploreRecommendations(String token,
-      {required String tab, String? country}) async {
+      {required String tab, String? country, String? language}) async {
     final resolvedCountry =
         (country ?? await _resolveCountryCode())?.trim().toUpperCase();
+    final resolvedLang =
+        language ?? await PriceRegionResolver.effectiveSteamUiLanguage();
     final uri = _uri('/v1/recommendations/explore').replace(
       queryParameters: {
         'tab': tab,
         if (resolvedCountry != null && resolvedCountry.isNotEmpty)
           'country': resolvedCountry,
+        if (resolvedLang.trim().isNotEmpty) 'language': resolvedLang.trim().toLowerCase(),
       },
     );
     final res = await _client.get(
@@ -376,15 +382,41 @@ class SteamBackendService {
     await _parseData<Map<String, dynamic>>(res);
   }
 
-  /// 个性化首页推荐（规则打分 + CheapShark 池）。
-  Future<Map<String, dynamic>> getHomeRecommendations(String token,
-      {String? country}) async {
+  /// 无需登录：与首页同源的区域价 enrich 列表（CheapShark/ITAD 池 + Steam 店价）。
+  Future<Map<String, dynamic>> getTrendingPublicRecommendations(
+      {String? country, String? language}) async {
     final resolvedCountry =
         (country ?? await _resolveCountryCode())?.trim().toUpperCase();
+    final resolvedLang =
+        language ?? await PriceRegionResolver.effectiveSteamUiLanguage();
+    final uri = _uri('/v1/recommendations/trending-public').replace(
+      queryParameters: {
+        if (resolvedCountry != null && resolvedCountry.isNotEmpty)
+          'country': resolvedCountry,
+        if (resolvedLang.trim().isNotEmpty) 'language': resolvedLang.trim().toLowerCase(),
+      },
+    );
+    final res = await _client.get(uri).timeout(ApiConstants.receiveTimeout,
+        onTimeout: () {
+      throw SteamBackendException(
+          code: 'REQUEST_TIMEOUT', message: 'Request timeout');
+    });
+    return _parseData<Map<String, dynamic>>(res);
+  }
+
+  /// 个性化首页推荐（规则打分 + CheapShark 池）。
+  Future<Map<String, dynamic>> getHomeRecommendations(String token,
+      {String? country, String? language}) async {
+    final resolvedCountry =
+        (country ?? await _resolveCountryCode())?.trim().toUpperCase();
+    final resolvedLang =
+        language ?? await PriceRegionResolver.effectiveSteamUiLanguage();
     final uri = _uri('/v1/recommendations/home').replace(
-      queryParameters: resolvedCountry != null && resolvedCountry.isNotEmpty
-          ? {'country': resolvedCountry}
-          : null,
+      queryParameters: {
+        if (resolvedCountry != null && resolvedCountry.isNotEmpty)
+          'country': resolvedCountry,
+        if (resolvedLang.trim().isNotEmpty) 'language': resolvedLang.trim().toLowerCase(),
+      },
     );
     final res = await _client.get(
       uri,

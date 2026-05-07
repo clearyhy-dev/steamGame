@@ -57,7 +57,7 @@ class AuthService {
       final userId = account.id;
       final email = account.email;
       final photoUrl = account.photoUrl;
-      if (userId == null || userId.isEmpty) return null;
+      if (userId.isEmpty) return null;
       await _storage.setAuthUser(
         userId: userId,
         email: email,

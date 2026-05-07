@@ -29,6 +29,13 @@ class GameModel {
   final String? steamFinalFormatted;
   final String? steamInitialFormatted;
 
+  /// ITAD 等区域店参考展示串（Steam enrich 不可用时的回填）。
+  final String? steamListFallbackFormatted;
+  final String? steamListFallbackInitialFormatted;
+
+  /// `steam_store` / `itad_store` / `global_pool`
+  final String? priceSource;
+
   GameModel({
     required this.appId,
     required this.name,
@@ -48,6 +55,9 @@ class GameModel {
     this.priceIsGlobalUsd = false,
     this.steamFinalFormatted,
     this.steamInitialFormatted,
+    this.steamListFallbackFormatted,
+    this.steamListFallbackInitialFormatted,
+    this.priceSource,
   }) : images = images ?? const [];
 
   /// 从 CheapShark /deals 列表项解析
@@ -157,6 +167,11 @@ class GameModel {
         json['steam_final_formatted']?.toString();
     final si = json['steamInitialFormatted']?.toString() ??
         json['steam_initial_formatted']?.toString();
+    final fb = json['steamListFallbackFormatted']?.toString();
+    final fbi =
+        json['steamListFallbackInitialFormatted']?.toString();
+    final src = json['priceSource']?.toString().trim();
+    final hasFb = fb != null && fb.trim().isNotEmpty;
     final pigRaw = json['priceIsGlobalUsd'] ?? json['price_is_global_usd'];
     late final bool priceIsGlobalUsd;
     if (pigRaw == false) {
@@ -166,8 +181,8 @@ class GameModel {
     } else {
       final hasSteamFmt =
           sf != null && sf.trim().isNotEmpty;
-      // 旧缓存无字段：默认按 CheapShark 全球 USD；仅有 Steam formatted 时不再当 USD 池
-      priceIsGlobalUsd = !hasSteamFmt;
+      // 旧缓存：无 Steam/ITAD 展示串则按全球 USD 池
+      priceIsGlobalUsd = !(hasSteamFmt || hasFb);
     }
 
     return GameModel(
@@ -195,6 +210,12 @@ class GameModel {
       priceIsGlobalUsd: priceIsGlobalUsd,
       steamFinalFormatted: sf != null && sf.isNotEmpty ? sf : null,
       steamInitialFormatted: si != null && si.isNotEmpty ? si : null,
+      steamListFallbackFormatted:
+          fb != null && fb.trim().isNotEmpty ? fb.trim() : null,
+      steamListFallbackInitialFormatted: fbi != null && fbi.trim().isNotEmpty
+          ? fbi.trim()
+          : null,
+      priceSource: src != null && src.isNotEmpty ? src : null,
     );
   }
 
@@ -208,6 +229,12 @@ class GameModel {
         'priceIsGlobalUsd': priceIsGlobalUsd,
         if (steamFinalFormatted != null) 'steamFinalFormatted': steamFinalFormatted,
         if (steamInitialFormatted != null) 'steamInitialFormatted': steamInitialFormatted,
+        if (steamListFallbackFormatted != null)
+          'steamListFallbackFormatted': steamListFallbackFormatted,
+        if (steamListFallbackInitialFormatted != null)
+          'steamListFallbackInitialFormatted':
+              steamListFallbackInitialFormatted,
+        if (priceSource != null) 'priceSource': priceSource,
         if (steamAppID.isNotEmpty) 'steamAppID': steamAppID,
         if (dealID.isNotEmpty) 'dealID': dealID,
         if (lastChange > 0) 'last_change': lastChange,

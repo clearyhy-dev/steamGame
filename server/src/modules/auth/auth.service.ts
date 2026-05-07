@@ -84,6 +84,7 @@ export class AuthService {
         avatarFull: steamProfile.avatarFull,
         profileUrl: steamProfile.profileUrl,
         countryCode: steamProfile.countryCode,
+        forceCountryRefreshOnce: true,
         linkedUserId: appUserId,
       });
 
@@ -101,6 +102,7 @@ export class AuthService {
         avatarFull: steamProfile.avatarFull,
         profileUrl: steamProfile.profileUrl,
         countryCode: steamProfile.countryCode,
+        forceCountryRefreshOnce: true,
         linkedUserId: existing.id,
       });
       const token = signJwt({ userId: existing.id }, this.env);
@@ -132,6 +134,7 @@ export class AuthService {
       avatarFull: steamProfile.avatarFull,
       profileUrl: steamProfile.profileUrl,
       countryCode: steamProfile.countryCode,
+      forceCountryRefreshOnce: true,
       linkedUserId: userId,
     });
 
@@ -170,6 +173,7 @@ export class AuthService {
       avatarFull: input.steamProfile.avatarFull,
       profileUrl: input.steamProfile.profileUrl,
       countryCode: input.steamProfile.countryCode,
+      forceCountryRefreshOnce: true,
       linkedUserId: userId,
     });
 

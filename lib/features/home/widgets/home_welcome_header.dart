@@ -69,13 +69,13 @@ class HomeWelcomeHeader extends StatelessWidget {
                   borderRadius: BorderRadius.circular(14),
                   gradient: LinearGradient(
                     colors: [
-                      AppColors.itadOrange.withOpacity(0.18),
-                      AppColors.cardDark.withOpacity(0.9),
+                      AppColors.itadOrange.withValues(alpha: 0.18),
+                      AppColors.cardDark.withValues(alpha: 0.9),
                     ],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
-                  border: Border.all(color: Colors.white.withOpacity(0.06)),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
                 ),
                 child: Row(
                   children: [
@@ -94,7 +94,7 @@ class HomeWelcomeHeader extends StatelessWidget {
                       Icon(
                         Icons.chevron_right,
                         size: 20,
-                        color: AppColors.textSecondary.withOpacity(0.85),
+                        color: AppColors.textSecondary.withValues(alpha: 0.85),
                       ),
                     ],
                   ],

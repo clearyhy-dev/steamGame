@@ -94,10 +94,10 @@ class AppConstants {
   static const String keySelectedPriceRegion = 'selected_price_region';
   /// 应用国家/地区（价格国家）— 与 UI 语言解耦
   static const String keyAppCountry = 'app_country';
+  /// 用户曾在「国家/地区」里点选过条目；为 true 时不再自动用 Steam 国家覆盖。
+  static const String keyAppCountryManualPick = 'app_country_manual_pick';
   static const String keyCountryCatalogCache = 'country_catalog_cache_v1';
   static const String keyAppCountryMigrated = 'app_country_migrated_v1';
-  /// 后端 region settings 缓存
-  static const String keyRegionSettingsCache = 'region_settings_cache_v1';
 
   /// 是否开启前台服务（常驻通知 + 后台收折扣），默认 true
   static const String keyForegroundServiceEnabled = 'foreground_service_enabled';

@@ -1,10 +1,10 @@
-import 'dart:ui' as ui;
+import 'dart:ui' show PlatformDispatcher;
 
 import 'constants/api_constants.dart';
 import 'country_catalog_service.dart';
+import 'services/client_region_client.dart';
 import 'storage_service.dart';
 import 'utils/steam_ui_language.dart';
-
 class AppCountryContext {
   const AppCountryContext({
     required this.countryCode,
@@ -30,19 +30,9 @@ class AppCountryContext {
 class AppCountryResolver {
   AppCountryResolver._();
 
-  static String _syncUiLanguageCode() {
-    final stored = StorageService.instance.getPreferredLocaleSync();
-    if (stored != null && stored.trim().isNotEmpty) {
-      return normalizeUiLanguageCode(stored);
-    }
-    final loc = ui.PlatformDispatcher.instance.locale;
-    return normalizeUiLanguageCode(loc.languageCode);
-  }
-
   static AppCountryContext _fromEntry({
     required CountryCatalogEntry entry,
     required String source,
-    required String uiLanguageCode,
   }) {
     return AppCountryContext(
       countryCode: entry.countryCode,
@@ -51,7 +41,7 @@ class AppCountryResolver {
       steamLanguage: entry.steamLanguage,
       currency: entry.defaultCurrency,
       currencySymbol: entry.currencySymbol,
-      uiLanguageCode: uiLanguageCode,
+      uiLanguageCode: normalizeUiLanguageCode(entry.uiLanguage),
       source: source,
     );
   }
@@ -72,61 +62,109 @@ class AppCountryResolver {
     );
   }
 
+  static CountryCatalogEntry? _findByUiLanguage(
+    CountryCatalogService catalog,
+    String languageCode,
+  ) {
+    final normalized = normalizeUiLanguageCode(languageCode);
+    for (final entry in catalog.countries) {
+      if (normalizeUiLanguageCode(entry.uiLanguage) == normalized) {
+        return entry;
+      }
+    }
+    return null;
+  }
+
+  static String? _deviceUiLanguageCode() {
+    try {
+      return PlatformDispatcher.instance.locale.languageCode.trim();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static String? _geoGuessMemo;
+  static DateTime? _geoGuessMemoAt;
+
+  static Future<String?> _guessCountryFromEdgeOnce() async {
+    if (_geoGuessMemo != null && _geoGuessMemoAt != null) {
+      if (DateTime.now().difference(_geoGuessMemoAt!) <
+          const Duration(hours: 24)) {
+        return _geoGuessMemo;
+      }
+    }
+    final g = await ClientRegionClient.fetchGuess();
+    _geoGuessMemo = g;
+    _geoGuessMemoAt = DateTime.now();
+    return g;
+  }
+
   static AppCountryContext resolveSync() {
-    final uiLang = _syncUiLanguageCode();
     final catalog = CountryCatalogService.instance;
     final manual = StorageService.instance.getAppCountrySync();
     if (manual != null) {
       final e = catalog.findByCountryCode(manual);
       if (e != null) {
-        return _fromEntry(entry: e, source: 'sync', uiLanguageCode: uiLang);
+        return _fromEntry(entry: e, source: 'sync');
       }
     }
     final d = catalog.findDefault();
     if (d != null) {
-      return _fromEntry(entry: d, source: 'sync', uiLanguageCode: uiLang);
+      return _fromEntry(entry: d, source: 'sync');
     }
-    return _fallback(uiLanguageCode: uiLang, source: 'fallback');
+    return _fallback(uiLanguageCode: 'en', source: 'fallback');
   }
 
   static Future<AppCountryContext> resolveContext() async {
     await StorageService.instance.migratePriceRegionToAppCountryOnce();
     await CountryCatalogService.instance.ensureLoaded(ApiConstants.baseUrl);
     final catalog = CountryCatalogService.instance;
-    final storedUi = await StorageService.instance.getPreferredLocale();
-    final uiLang = normalizeUiLanguageCode(
-      storedUi ?? ui.PlatformDispatcher.instance.locale.languageCode,
-    );
-
-    final manual = await StorageService.instance.getAppCountry();
-    if (manual != null) {
-      final e = catalog.findByCountryCode(manual);
-      if (e != null) {
-        return _fromEntry(entry: e, source: 'manual', uiLanguageCode: uiLang);
+    final storage = StorageService.instance;
+    var manual = await storage.getAppCountry();
+    if (manual == null || manual.isEmpty) {
+      final preferredLocale = await storage.getPreferredLocale();
+      if (preferredLocale != null && preferredLocale.trim().isNotEmpty) {
+        final inferred = _findByUiLanguage(catalog, preferredLocale);
+        if (inferred != null) {
+          await storage.setAppCountry(inferred.countryCode);
+          manual = inferred.countryCode;
+        }
       }
     }
-
-    final localeCountry =
-        (ui.PlatformDispatcher.instance.locale.countryCode ?? '').trim();
-    if (localeCountry.isNotEmpty) {
-      final e = catalog.findByCountryCode(localeCountry);
+    if (manual == null || manual.isEmpty) {
+      final devLang = _deviceUiLanguageCode();
+      if (devLang != null && devLang.isNotEmpty) {
+        final inferred = _findByUiLanguage(catalog, devLang);
+        if (inferred != null) {
+          await storage.setAppCountry(inferred.countryCode);
+          manual = inferred.countryCode;
+        }
+      }
+    }
+    if (manual == null || manual.isEmpty) {
+      final guess = await _guessCountryFromEdgeOnce();
+      if (guess != null && guess.length == 2) {
+        if (catalog.findByCountryCode(guess) != null) {
+          await storage.setAppCountry(guess);
+          manual = guess;
+        }
+      }
+    }
+    if (manual != null && manual.isNotEmpty) {
+      final e = catalog.findByCountryCode(manual);
       if (e != null) {
-        return _fromEntry(
-          entry: e,
-          source: 'device_country',
-          uiLanguageCode: uiLang,
-        );
+        return _fromEntry(entry: e, source: 'manual');
       }
     }
 
     final d = catalog.findDefault();
     if (d != null) {
-      return _fromEntry(entry: d, source: 'default', uiLanguageCode: uiLang);
+      return _fromEntry(entry: d, source: 'default');
     }
     final f = catalog.findFallback();
     if (f != null) {
-      return _fromEntry(entry: f, source: 'fallback', uiLanguageCode: uiLang);
+      return _fromEntry(entry: f, source: 'fallback');
     }
-    return _fallback(uiLanguageCode: uiLang, source: 'fallback');
+    return _fallback(uiLanguageCode: 'en', source: 'fallback');
   }
 }

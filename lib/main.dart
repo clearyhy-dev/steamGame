@@ -17,6 +17,7 @@ import 'core/constants.dart';
 import 'core/app_remote_config.dart';
 import 'core/constants/api_constants.dart';
 import 'core/app_country_resolver.dart';
+import 'core/app_country_steam_sync.dart';
 import 'core/country_catalog_service.dart';
 import 'core/services/billing_service.dart';
 import 'core/services/subscription_service.dart';
@@ -96,6 +97,8 @@ Future<void> _handleSteamAuthDeepLink(Uri? uri) async {
         profileUrl: profile['profileUrl']?.toString() ?? '',
       );
 
+      await AppCountrySteamSync.applyFromSteamOverviewIfEligible(token);
+
       SteamAuthEvents.instance.emitSuccess(
         SteamAuthSuccessPayload(
           token: token,
@@ -153,6 +156,7 @@ Future<void> _syncTrialFromBackendIfLoggedIn() async {
   try {
     final token = await StorageService.instance.getSteamBackendToken();
     if (token == null || token.isEmpty) return;
+    await AppCountrySteamSync.applyFromSteamOverviewIfEligible(token);
     final backend = SteamBackendService();
     final me = await backend.getMe(token);
     final trial = me['trial'];
@@ -254,11 +258,6 @@ Future<void> _init() async {
     debugPrint('CountryCatalogService.load: $e');
   }
   try {
-    await AppRemoteConfig.instance.loadRegionSettings(ApiConstants.baseUrl);
-  } catch (e) {
-    debugPrint('AppRemoteConfig.loadRegionSettings: $e');
-  }
-  try {
     await AppCountryResolver.resolveContext();
   } catch (e) {
     debugPrint('AppCountryResolver.resolveContext: $e');
@@ -333,7 +332,7 @@ Future<void> _init() async {
     try {
       final storage = StorageService.instance;
       await storage.init();
-      final locale = await storage.getPreferredLocale();
+      final locale = (await AppCountryResolver.resolveContext()).uiLanguageCode;
       final title = AppLocalizations.getStringForLocale(
           locale, 'notification_on_enabled_title');
       final body = AppLocalizations.getStringForLocale(
@@ -347,10 +346,7 @@ Future<void> _init() async {
   });
 
   try {
-    await Workmanager().initialize(
-      callbackDispatcher,
-      isInDebugMode: kDebugMode,
-    );
+    await Workmanager().initialize(callbackDispatcher);
     // 避免每次启动都 replace 每日任务，否则任务会被不断推迟、永远不触发
     final storage = StorageService.instance;
     await storage.init();
@@ -361,7 +357,7 @@ Future<void> _init() async {
                 .inHours >=
             20;
     if (shouldSchedule) {
-      final locale = await storage.getPreferredLocale();
+      final locale = (await AppCountryResolver.resolveContext()).uiLanguageCode;
       final delay = ScheduleConfig.delayUntilNextSlot(locale);
       await Workmanager().registerOneOffTask(
         AppConstants.taskDailyDealCheck,
@@ -381,7 +377,7 @@ Future<void> _init() async {
                 .inHours >=
             20;
     if (shouldScheduleWishlist) {
-      final locale = await storage.getPreferredLocale();
+      final locale = (await AppCountryResolver.resolveContext()).uiLanguageCode;
       final delayWishlist = ScheduleConfig.delayUntilNextSlot(locale);
       await Workmanager().registerOneOffTask(
         AppConstants.taskWishlistCheck,

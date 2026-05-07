@@ -8,6 +8,7 @@ import {
   AppstoreOutlined,
   TeamOutlined,
   SettingOutlined,
+  FileSearchOutlined,
 } from '@ant-design/icons';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { adminApi } from '../api/admin';
@@ -23,7 +24,7 @@ const items = [
   { key: '/steam-games', icon: <AppstoreOutlined />, label: 'App Games' },
   { key: '/users', icon: <TeamOutlined />, label: 'Users' },
   { key: '/settings', icon: <SettingOutlined />, label: 'Settings' },
-  { key: '/price-region-settings', icon: <SettingOutlined />, label: 'Price & Region' },
+  { key: '/request-logs', icon: <FileSearchOutlined />, label: 'Request Logs' },
   { key: '/country-region-mapping', icon: <SettingOutlined />, label: 'Country / Steam' },
 ];
 
@@ -42,7 +43,8 @@ export function AdminLayout() {
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
-      <Sider breakpoint="lg" collapsedWidth={0}>
+      {/* 不使用 collapsedWidth={0}+breakpoint：窄屏/DevTools 贴边时易触发抽屉遮罩导致主区域灰屏不可点 */}
+      <Sider width={220} theme="dark" style={{ overflow: 'auto' }}>
         <div style={{ height: 48, margin: 16, color: '#fff', fontWeight: 600 }}>Video Admin</div>
         <Menu
           theme="dark"

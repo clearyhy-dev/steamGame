@@ -16,6 +16,7 @@ class CountryCatalogEntry {
     required this.steamLanguage,
     required this.defaultCurrency,
     required this.currencySymbol,
+    required this.uiLanguage,
   });
 
   final String countryCode;
@@ -25,19 +26,26 @@ class CountryCatalogEntry {
   final String steamLanguage;
   final String defaultCurrency;
   final String currencySymbol;
+  final String uiLanguage;
 
   factory CountryCatalogEntry.fromJson(Map<String, dynamic> m) {
+    final steamLanguage = (m['steamLanguage'] ?? 'en').toString();
+    final uiLanguageRaw = (m['uiLanguage'] ?? '').toString().trim();
+    final uiLanguage = uiLanguageRaw.isNotEmpty
+        ? uiLanguageRaw
+        : (steamLanguage.trim().isNotEmpty ? steamLanguage : 'en');
     return CountryCatalogEntry(
       countryCode: (m['countryCode'] ?? '').toString().trim().toUpperCase(),
       countryName: (m['countryName'] ?? '').toString(),
       nativeName: m['nativeName']?.toString(),
       steamCc: (m['steamCc'] ?? '').toString().trim().toUpperCase(),
-      steamLanguage: (m['steamLanguage'] ?? 'en').toString(),
+      steamLanguage: steamLanguage,
       defaultCurrency:
           (m['defaultCurrency'] ?? 'USD').toString().trim().toUpperCase(),
       currencySymbol: (m['currencySymbol'] ?? m['currency_symbol'] ?? '')
           .toString()
           .trim(),
+      uiLanguage: uiLanguage,
     );
   }
 }
@@ -160,6 +168,7 @@ class CountryCatalogService {
         steamLanguage: 'en',
         defaultCurrency: 'USD',
         currencySymbol: r'$',
+        uiLanguage: 'en',
       ),
     ];
   }

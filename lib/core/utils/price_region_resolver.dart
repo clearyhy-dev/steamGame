@@ -1,11 +1,11 @@
-import '../app_remote_config.dart';
 import '../app_country_resolver.dart';
+import '../storage_service.dart';
 
 class PriceRegionContext {
   final String country;
   final String currency;
 
-  /// App UI language (ISO 639-1), e.g. en/zh/ja. Independent from price country.
+  /// App UI language from [AppCountryResolver] / country catalog `uiLanguage`.
   final String uiLanguageCode;
   final bool showRegionWarning;
   final bool showKeyshopDeals;
@@ -24,12 +24,11 @@ class PriceRegionContext {
 class PriceRegionResolver {
   static PriceRegionContext resolveSync() {
     final app = AppCountryResolver.resolveSync();
-    final cfg = AppRemoteConfig.instance.regionSettings;
     return PriceRegionContext(
       country: app.countryCode,
       currency: app.currency,
       uiLanguageCode: app.uiLanguageCode,
-      showRegionWarning: cfg.showRegionWarning,
+      showRegionWarning: false,
       showKeyshopDeals: false,
       source: 'sync',
     );
@@ -37,12 +36,11 @@ class PriceRegionResolver {
 
   static Future<PriceRegionContext> resolveContext() async {
     final app = await AppCountryResolver.resolveContext();
-    final cfg = AppRemoteConfig.instance.regionSettings;
     return PriceRegionContext(
       country: app.countryCode,
       currency: app.currency,
       uiLanguageCode: app.uiLanguageCode,
-      showRegionWarning: cfg.showRegionWarning,
+      showRegionWarning: false,
       showKeyshopDeals: false,
       source: app.source,
     );
@@ -50,5 +48,18 @@ class PriceRegionResolver {
 
   static Future<String> resolve() async {
     return (await resolveContext()).country;
+  }
+
+  /// Preferred locale (user-selected UI language), else catalog [uiLanguageCode] — for Steam `l` / backend `language`.
+  static Future<String> effectiveSteamUiLanguage() async {
+    try {
+      final stored = StorageService.instance.getPreferredLocaleSync();
+      if (stored != null && stored.trim().isNotEmpty) {
+        return stored.trim().toLowerCase();
+      }
+    } catch (_) {}
+    final ctx = await resolveContext();
+    final c = ctx.uiLanguageCode.trim().toLowerCase();
+    return c.isEmpty ? 'en' : c;
   }
 }

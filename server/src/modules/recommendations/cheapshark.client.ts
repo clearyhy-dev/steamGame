@@ -15,6 +15,12 @@ export type CheapSharkDealRow = {
   releaseDate?: number;
   lastChange?: number;
   thumb?: string;
+  /** ITAD Steam shop (`deals/v2`) regional amounts — already display units, not minor. */
+  itadSaleFormatted?: string;
+  itadRegularFormatted?: string;
+  itadSaleCurrency?: string;
+  /** When set from ITAD Steam shop listing for this country. */
+  listPriceSource?: 'itad_store';
 };
 
 const BASE = 'https://www.cheapshark.com/api/1.0';

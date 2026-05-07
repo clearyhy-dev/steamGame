@@ -29,6 +29,7 @@ function serializeRuntimeEffective(e: Env) {
     steamAutoSyncIntervalMs: e.steamAutoSyncIntervalMs,
     steamAutoSyncBatchSize: e.steamAutoSyncBatchSize,
     steamAutoSyncDelayMs: e.steamAutoSyncDelayMs,
+    requestLogRetentionDays: e.requestLogRetentionDays,
     videoGcsBucket: e.videoGcsBucket ?? '',
     ffmpegPath: e.ffmpegPath,
     ffprobePath: e.ffprobePath,
@@ -40,22 +41,6 @@ function serializeRuntimeEffective(e: Env) {
     videoWorkerIntervalMs: e.videoWorkerIntervalMs,
     appConnectTimeoutSec: e.appConnectTimeoutSec,
     appReceiveTimeoutSec: e.appReceiveTimeoutSec,
-  };
-}
-
-function serializeRegionSettings(cfg: Awaited<ReturnType<AdminSettingsRepository['getRegionSettings']>>) {
-  return {
-    enabledCountries: cfg.enabledCountries,
-    defaultCountry: cfg.defaultCountry,
-    fallbackCountry: cfg.fallbackCountry,
-    countryCurrencyMap: cfg.countryCurrencyMap,
-    countryLanguageMap: cfg.countryLanguageMap,
-    priceSources: cfg.priceSources,
-    cacheHours: cfg.cacheHours,
-    showKeyshopDeals: cfg.showKeyshopDeals,
-    showRegionWarning: cfg.showRegionWarning,
-    updatedAt: cfg.updatedAt.toDate().toISOString(),
-    createdAt: cfg.createdAt.toDate().toISOString(),
   };
 }
 
@@ -75,44 +60,15 @@ export class AdminSettingsController {
     const patch: Record<string, string> = {};
     if (typeof body.itadApiKey === 'string') patch.itadApiKey = body.itadApiKey.trim();
     if (typeof body.ggDealsApiKey === 'string') patch.ggDealsApiKey = body.ggDealsApiKey.trim();
+    if (typeof body.steamApiKey === 'string') patch.steamApiKey = body.steamApiKey.trim();
     if (typeof body.itadBaseUrl === 'string') patch.itadBaseUrl = body.itadBaseUrl.trim();
     if (typeof body.ggDealsBaseUrl === 'string') patch.ggDealsBaseUrl = body.ggDealsBaseUrl.trim();
     if (typeof body.cheapSharkBaseUrl === 'string') patch.cheapSharkBaseUrl = body.cheapSharkBaseUrl.trim();
+    if (typeof body.steamWebApiBaseUrl === 'string') patch.steamWebApiBaseUrl = body.steamWebApiBaseUrl.trim();
+    if (typeof body.steamStoreBaseUrl === 'string') patch.steamStoreBaseUrl = body.steamStoreBaseUrl.trim();
     if (typeof body.dealCountriesCsv === 'string') patch.dealCountriesCsv = body.dealCountriesCsv.trim().toUpperCase();
     const cfg = await this.repo.patchDiscountProviders(patch);
     sendAdminOk(res, serializeDiscount(cfg));
-  };
-
-  getRegionSettings = async (_req: Request, res: Response): Promise<void> => {
-    const cfg = await this.repo.getRegionSettings();
-    sendAdminOk(res, serializeRegionSettings(cfg));
-  };
-
-  patchRegionSettings = async (req: Request, res: Response): Promise<void> => {
-    const body = (req.body ?? {}) as Record<string, unknown>;
-    const patch: Record<string, unknown> = {};
-    if (Array.isArray(body.enabledCountries)) {
-      patch.enabledCountries = body.enabledCountries.map((s) => String(s).trim().toUpperCase());
-    }
-    if (typeof body.defaultCountry === 'string') patch.defaultCountry = body.defaultCountry.trim().toUpperCase();
-    if (typeof body.fallbackCountry === 'string') patch.fallbackCountry = body.fallbackCountry.trim().toUpperCase();
-    if (body.countryCurrencyMap && typeof body.countryCurrencyMap === 'object') {
-      patch.countryCurrencyMap = body.countryCurrencyMap;
-    }
-    if (body.countryLanguageMap && typeof body.countryLanguageMap === 'object') {
-      patch.countryLanguageMap = body.countryLanguageMap;
-    }
-    if (Array.isArray(body.priceSources)) {
-      patch.priceSources = body.priceSources.map((s) => String(s).trim().toLowerCase());
-    }
-    if (body.cacheHours !== undefined && body.cacheHours !== null && body.cacheHours !== '') {
-      const n = Number(body.cacheHours);
-      if (Number.isFinite(n)) patch.cacheHours = n;
-    }
-    if (typeof body.showKeyshopDeals === 'boolean') patch.showKeyshopDeals = body.showKeyshopDeals;
-    if (typeof body.showRegionWarning === 'boolean') patch.showRegionWarning = body.showRegionWarning;
-    const saved = await this.repo.patchRegionSettings(patch);
-    sendAdminOk(res, serializeRegionSettings(saved.stored));
   };
 
   getRuntime = async (_req: Request, res: Response): Promise<void> => {
@@ -158,6 +114,7 @@ export class AdminSettingsController {
       'steamAutoSyncIntervalMs',
       'steamAutoSyncBatchSize',
       'steamAutoSyncDelayMs',
+      'requestLogRetentionDays',
       'videoMaxDurationSec',
       'videoTrimSec',
       'videoSignedUrlMinutes',

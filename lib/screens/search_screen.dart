@@ -8,6 +8,7 @@ import '../models/wishlist_model.dart';
 import '../services/steam_api_service.dart';
 import '../services/steam_backend_service.dart';
 import '../core/app_country_resolver.dart';
+import '../core/utils/price_region_resolver.dart';
 import '../widgets/game_card.dart';
 import '../features/detail/game_detail_page.dart';
 import '../features/recommendation/models/recommended_item.dart';
@@ -46,10 +47,12 @@ class _SearchScreenState extends State<SearchScreen> {
     final token = await StorageService.instance.getSteamBackendToken();
     if (token != null && token.isNotEmpty) {
       try {
+        final lang = await PriceRegionResolver.effectiveSteamUiLanguage();
         final data = await _backend.getExploreRecommendations(
           token,
           tab: 'trending',
           country: region.countryCode,
+          language: lang,
         );
         final raw = data['items'] as List<dynamic>? ?? const [];
         list = raw

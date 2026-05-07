@@ -58,8 +58,8 @@ class _TopDealBannerState extends State<TopDealBanner> {
                     gradient: LinearGradient(
                       colors: [
                         Colors.transparent,
-                        Colors.black.withOpacity(0.4),
-                        Colors.black.withOpacity(0.92),
+                        Colors.black.withValues(alpha: 0.4),
+                        Colors.black.withValues(alpha: 0.92),
                       ],
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,
@@ -139,14 +139,14 @@ class _TopDealBannerState extends State<TopDealBanner> {
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                               decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.15),
+                                color: Colors.white.withValues(alpha: 0.15),
                                 borderRadius: BorderRadius.circular(6),
                               ),
                               child: Text(
                                 'Steam',
                                 style: TextStyle(
                                   fontSize: 11,
-                                  color: Colors.white.withOpacity(0.9),
+                                  color: Colors.white.withValues(alpha: 0.9),
                                   fontWeight: FontWeight.w500,
                                 ),
                               ),
@@ -157,7 +157,7 @@ class _TopDealBannerState extends State<TopDealBanner> {
                           Text(
                             formatGameListOriginalPrice(g, region.currency),
                             style: TextStyle(
-                              color: Colors.white.withOpacity(0.8),
+                              color: Colors.white.withValues(alpha: 0.8),
                               fontSize: 14,
                               decoration: TextDecoration.lineThrough,
                             ),

@@ -135,7 +135,7 @@ class GameCardSmall extends StatelessWidget {
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                             decoration: BoxDecoration(
-                              color: AppColors.textSecondary.withOpacity(0.2),
+                              color: AppColors.textSecondary.withValues(alpha: 0.2),
                               borderRadius: BorderRadius.circular(4),
                             ),
                             child: Text(

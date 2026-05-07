@@ -54,7 +54,7 @@ class AppTheme {
         labelLarge: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
       ),
     ),
-    dividerColor: AppColors.textSecondary.withOpacity(0.2),
+    dividerColor: AppColors.textSecondary.withValues(alpha: 0.2),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
       fillColor: AppColors.card,

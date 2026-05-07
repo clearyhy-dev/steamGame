@@ -1,4 +1,5 @@
 import '../../models/game_model.dart';
+import '../../l10n/app_localizations.dart';
 import '../app_country_resolver.dart';
 import '../country_catalog_service.dart';
 
@@ -55,12 +56,45 @@ String formatRegionalPrice({
   }
 }
 
-/// 列表/卡片：优先后端 Steam formatted；否则第三方聚合（CheapShark 等）按 **Global USD** 展示，不套用地区货币。
+bool _catalogDefaultCurrencyIsUsd() {
+  try {
+    final ctx = AppCountryResolver.resolveSync();
+    final country = ctx.countryCode.trim().toUpperCase();
+    if (country.isEmpty) return true;
+    final cur = CountryCatalogService.instance
+        .defaultCurrencyFor(country)
+        ?.trim()
+        .toUpperCase();
+    return cur == 'USD';
+  } catch (_) {
+    return true;
+  }
+}
+
+String _localeLivePriceUnavailable() {
+  final lang = AppCountryResolver.resolveSync().uiLanguageCode;
+  return AppLocalizations.getStringForLocale(lang, 'reason_wl_price_unavailable');
+}
+
+String _localeGlobalUsdReferenceLabel() {
+  final lang = AppCountryResolver.resolveSync().uiLanguageCode;
+  return AppLocalizations.getStringForLocale(lang, 'price_global_reference_usd');
+}
+
+/// 列表/卡片：Steam formatted → ITAD 区域回填 → 全球池（明示 USD 参考）
 String formatGameListSalePrice(GameModel game, String regionCurrency) {
   final fmt = game.steamFinalFormatted?.trim();
   if (fmt != null && fmt.isNotEmpty) return fmt;
+  final listFb = game.steamListFallbackFormatted?.trim();
+  if (listFb != null && listFb.isNotEmpty) return listFb;
   if (game.priceIsGlobalUsd) {
-    return 'Price unavailable';
+    if (game.price > 0) {
+      if (_catalogDefaultCurrencyIsUsd()) {
+        return '\$${game.price.toStringAsFixed(2)}';
+      }
+      return '\$${game.price.toStringAsFixed(2)} · ${_localeGlobalUsdReferenceLabel()}';
+    }
+    return _localeLivePriceUnavailable();
   }
   return formatRegionalPrice(amount: game.price, currency: regionCurrency);
 }
@@ -68,7 +102,15 @@ String formatGameListSalePrice(GameModel game, String regionCurrency) {
 String formatGameListOriginalPrice(GameModel game, String regionCurrency) {
   final fmt = game.steamInitialFormatted?.trim();
   if (fmt != null && fmt.isNotEmpty) return fmt;
+  final listFb = game.steamListFallbackInitialFormatted?.trim();
+  if (listFb != null && listFb.isNotEmpty) return listFb;
   if (game.priceIsGlobalUsd) {
+    if (game.originalPrice > 0) {
+      if (_catalogDefaultCurrencyIsUsd()) {
+        return '\$${game.originalPrice.toStringAsFixed(2)}';
+      }
+      return '\$${game.originalPrice.toStringAsFixed(2)} · ${_localeGlobalUsdReferenceLabel()}';
+    }
     return '';
   }
   return formatRegionalPrice(amount: game.originalPrice, currency: regionCurrency);

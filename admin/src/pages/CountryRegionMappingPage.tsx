@@ -9,6 +9,7 @@ type Row = {
   nativeName?: string;
   steamCc: string;
   steamLanguage: string;
+  uiLanguage: string;
   defaultCurrency: string;
   currencySymbol: string;
   enabled: boolean;
@@ -47,6 +48,7 @@ export function CountryRegionMappingPage() {
         nativeName: v.nativeName != null ? String(v.nativeName) : '',
         steamCc: String(v.steamCc).trim().toUpperCase(),
         steamLanguage: String(v.steamLanguage).trim().toLowerCase(),
+        uiLanguage: String(v.uiLanguage ?? '').trim().toLowerCase(),
         defaultCurrency: String(v.defaultCurrency).trim().toUpperCase(),
         currencySymbol: String(v.currencySymbol ?? '').trim(),
         enabled: !!v.enabled,
@@ -66,6 +68,7 @@ export function CountryRegionMappingPage() {
     { title: 'nativeName', dataIndex: 'nativeName', ellipsis: true },
     { title: 'steamCc', dataIndex: 'steamCc', width: 80 },
     { title: 'steamLanguage', dataIndex: 'steamLanguage', width: 110 },
+    { title: 'uiLanguage', dataIndex: 'uiLanguage', width: 100 },
     { title: 'currency', dataIndex: 'defaultCurrency', width: 90 },
     { title: 'symbol', dataIndex: 'currencySymbol', width: 90 },
     { title: 'sort', dataIndex: 'sortOrder', width: 70 },
@@ -115,6 +118,7 @@ export function CountryRegionMappingPage() {
               enabled: true,
               sortOrder: 500,
               steamLanguage: 'en',
+              uiLanguage: 'en',
               defaultCurrency: 'USD',
               currencySymbol: '$',
             });
@@ -151,6 +155,9 @@ export function CountryRegionMappingPage() {
           </Form.Item>
           <Form.Item name="steamLanguage" label="steamLanguage" rules={[{ required: true }]}>
             <Input placeholder="en, ja, zh, schinese…" />
+          </Form.Item>
+          <Form.Item name="uiLanguage" label="uiLanguage" rules={[{ required: true }]}>
+            <Input placeholder="en, zh, ja, ko..." />
           </Form.Item>
           <Form.Item name="defaultCurrency" label="defaultCurrency (fallback)" rules={[{ required: true }]}>
             <Input maxLength={3} />

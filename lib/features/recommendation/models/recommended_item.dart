@@ -12,6 +12,12 @@ class RecommendedItem {
   final double score;
   final List<String> reasons;
   final List<String> tags;
+  final String? steamFinalFormatted;
+  final String? steamInitialFormatted;
+  final String? steamListFallbackFormatted;
+  final String? steamListFallbackInitialFormatted;
+  final bool priceIsGlobalUsd;
+  final String? priceSource;
 
   RecommendedItem({
     required this.steamAppId,
@@ -24,11 +30,36 @@ class RecommendedItem {
     required this.score,
     required this.reasons,
     required this.tags,
+    this.steamFinalFormatted,
+    this.steamInitialFormatted,
+    this.steamListFallbackFormatted,
+    this.steamListFallbackInitialFormatted,
+    this.priceIsGlobalUsd = true,
+    this.priceSource,
   });
 
   factory RecommendedItem.fromJson(Map<String, dynamic> j) {
-    final reasons = (j['reasons'] as List<dynamic>? ?? []).map((e) => e.toString()).toList();
+    final reasons =
+        (j['reasons'] as List<dynamic>? ?? []).map((e) => e.toString()).toList();
     final tags = (j['tags'] as List<dynamic>? ?? []).map((e) => e.toString()).toList();
+    final fmtFinal = j['steamFinalFormatted']?.toString().trim();
+    final fmtInit = j['steamInitialFormatted']?.toString().trim();
+    final fbRaw = j['steamListFallbackFormatted']?.toString().trim();
+    final fbiRaw =
+        j['steamListFallbackInitialFormatted']?.toString().trim();
+    final srcRaw = j['priceSource']?.toString().trim();
+    final flagUsd = j['priceIsGlobalUsd'];
+    final hasFmt = fmtFinal != null && fmtFinal.isNotEmpty;
+    final hasFb = fbRaw != null && fbRaw.isNotEmpty;
+
+    late final bool priceIsGlobalUsd;
+    if (flagUsd is bool) {
+      priceIsGlobalUsd = flagUsd;
+    } else {
+      priceIsGlobalUsd =
+          !(hasFmt || hasFb || srcRaw == 'itad_store' || srcRaw == 'steam_store');
+    }
+
     return RecommendedItem(
       steamAppId: j['steamAppId']?.toString() ?? '',
       dealId: j['dealId']?.toString() ?? '',
@@ -40,6 +71,14 @@ class RecommendedItem {
       score: _d(j['score']),
       reasons: reasons,
       tags: tags.isNotEmpty ? tags : reasons,
+      steamFinalFormatted: hasFmt ? fmtFinal : null,
+      steamInitialFormatted: (fmtInit != null && fmtInit.isNotEmpty) ? fmtInit : null,
+      steamListFallbackFormatted:
+          hasFb ? fbRaw : null,
+      steamListFallbackInitialFormatted:
+          (fbiRaw != null && fbiRaw.isNotEmpty) ? fbiRaw : null,
+      priceIsGlobalUsd: priceIsGlobalUsd,
+      priceSource: (srcRaw != null && srcRaw.isNotEmpty) ? srcRaw : null,
     );
   }
 
@@ -58,6 +97,11 @@ class RecommendedItem {
 
   /// 详情页 / 愿望单逻辑复用 CheapShark [GameModel]。
   GameModel toGameModel() {
+    final fmt = steamFinalFormatted?.trim();
+    final fb = steamListFallbackFormatted?.trim();
+    final hasSteamFmt = fmt != null && fmt.isNotEmpty;
+    final hasFb = fb != null && fb.isNotEmpty;
+
     return GameModel(
       dealID: dealId,
       appId: dealId.isNotEmpty ? dealId : steamAppId,
@@ -68,7 +112,18 @@ class RecommendedItem {
       discount: discountPercent,
       steamAppID: steamAppId,
       images: capsuleImage.isNotEmpty ? [capsuleImage] : const [],
-      priceIsGlobalUsd: true,
+      priceIsGlobalUsd:
+          priceIsGlobalUsd && !hasSteamFmt && !hasFb,
+      steamFinalFormatted: hasSteamFmt ? fmt : null,
+      steamInitialFormatted: steamInitialFormatted?.trim().isNotEmpty == true
+          ? steamInitialFormatted!.trim()
+          : null,
+      steamListFallbackFormatted: hasFb ? fb : null,
+      steamListFallbackInitialFormatted:
+          steamListFallbackInitialFormatted?.trim().isNotEmpty == true
+              ? steamListFallbackInitialFormatted!.trim()
+              : null,
+      priceSource: priceSource,
     );
   }
 }

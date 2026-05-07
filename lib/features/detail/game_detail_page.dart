@@ -10,7 +10,6 @@ import '../../../core/theme/colors.dart';
 import '../../../core/services/algorithm_service.dart';
 import '../../../core/services/wishlist_service.dart';
 import '../../../core/storage_service.dart';
-import '../../../core/app_remote_config.dart';
 import '../../../core/app_country_events.dart';
 import '../../../core/app_country_resolver.dart';
 import '../../../core/utils/price_region_resolver.dart';
@@ -65,6 +64,9 @@ class _GameDetailPageState extends State<GameDetailPage> {
 
   /// Backend `GET /api/v1/games/:appid/regional-detail` payload (Steam + classified deals).
   Map<String, dynamic>? _regionalDetail;
+
+  /// Steam Store `basic,short_description` for current country + UI language after regional-detail loads.
+  String? _steamStoreShortDescription;
 
   String _resolvedSteamId() {
     final fromSteam = widget.game.steamAppID.trim();
@@ -134,6 +136,15 @@ class _GameDetailPageState extends State<GameDetailPage> {
     return out;
   }
 
+  String? _readSteamStoreShortDescription(Map<String, dynamic> data) {
+    final snip = data['steamStoreSnippet'];
+    if (snip is Map) {
+      final sd = snip['shortDescription']?.toString().trim();
+      if (sd != null && sd.isNotEmpty) return sd;
+    }
+    return null;
+  }
+
   Future<void> _loadRegionalDetail() async {
     final steamId = widget.game.steamAppID.trim().isNotEmpty
         ? widget.game.steamAppID.trim()
@@ -148,14 +159,16 @@ class _GameDetailPageState extends State<GameDetailPage> {
     _priceCountry = region.countryCode;
     try {
       final pro = await StorageService.instance.isPro();
-      final data =
-          await _backend.getGameRegionalDetail(steamId, country: region.countryCode);
+      final steamLang = await PriceRegionResolver.effectiveSteamUiLanguage();
+      final data = await _backend.getGameRegionalDetail(steamId,
+          country: region.countryCode, language: steamLang);
       final local = _mapDynamicDealList(data['localDeals']);
       final global = _mapDynamicDealList(data['globalDeals']);
       final merged = <Map<String, dynamic>>[...local, ...global];
       if (!mounted) return;
       setState(() {
         _regionalDetail = data;
+        _steamStoreShortDescription = _readSteamStoreShortDescription(data);
         _dealLinks = merged;
         _dealCountryCode = region.countryCode;
         _isPro = pro;
@@ -173,6 +186,7 @@ class _GameDetailPageState extends State<GameDetailPage> {
       debugPrint('detail:getGameRegionalDetail failed($steamId): $e');
       setState(() {
         _regionalDetail = null;
+        _steamStoreShortDescription = null;
       });
       await _loadDealsFromCache(steamId);
     } finally {
@@ -209,14 +223,16 @@ class _GameDetailPageState extends State<GameDetailPage> {
     final region = await AppCountryResolver.resolveContext();
     try {
       await _backend.refreshGameDeals(steamId, country: region.countryCode);
-      final data =
-          await _backend.getGameRegionalDetail(steamId, country: region.countryCode);
+      final steamLang = await PriceRegionResolver.effectiveSteamUiLanguage();
+      final data = await _backend.getGameRegionalDetail(steamId,
+          country: region.countryCode, language: steamLang);
       final local = _mapDynamicDealList(data['localDeals']);
       final global = _mapDynamicDealList(data['globalDeals']);
       final merged = <Map<String, dynamic>>[...local, ...global];
       if (!mounted) return;
       setState(() {
         _regionalDetail = data;
+        _steamStoreShortDescription = _readSteamStoreShortDescription(data);
         _dealLinks = merged;
         _dealCountryCode = region.countryCode;
         _dealsUsingCache = false;
@@ -241,14 +257,16 @@ class _GameDetailPageState extends State<GameDetailPage> {
         : widget.game.appId.trim();
     if (steamId.isEmpty) return;
     final region = await AppCountryResolver.resolveContext();
-    final data =
-        await _backend.getGameRegionalDetail(steamId, country: region.countryCode);
+    final steamLang = await PriceRegionResolver.effectiveSteamUiLanguage();
+    final data = await _backend.getGameRegionalDetail(steamId,
+        country: region.countryCode, language: steamLang);
     final local = _mapDynamicDealList(data['localDeals']);
     final global = _mapDynamicDealList(data['globalDeals']);
     final merged = <Map<String, dynamic>>[...local, ...global];
     if (!mounted) return;
     setState(() {
       _regionalDetail = data;
+      _steamStoreShortDescription = _readSteamStoreShortDescription(data);
       _dealLinks = merged;
       _dealCountryCode = region.countryCode;
       _allDealsLoaded = true;
@@ -439,26 +457,6 @@ class _GameDetailPageState extends State<GameDetailPage> {
   }
 
   Future<void> _onTapDealSource(String source) async {
-    final regionCfg = AppRemoteConfig.instance.regionSettings;
-    if (regionCfg.showRegionWarning) {
-      final ok = await showDialog<bool>(
-        context: context,
-        builder: (_) => AlertDialog(
-          title: const Text('Region Notice'),
-          content: const Text(
-              'This deal may have activation restrictions.'),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('Cancel')),
-            FilledButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: const Text('Continue')),
-          ],
-        ),
-      );
-      if (ok != true) return;
-    }
     if (source == 'steam') {
       await _openSteam();
       return;
@@ -650,6 +648,18 @@ class _GameDetailPageState extends State<GameDetailPage> {
                       color: AppColors.textPrimary,
                     ),
                   ),
+                  if (_steamStoreShortDescription != null &&
+                      _steamStoreShortDescription!.trim().isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      _steamStoreShortDescription!.trim(),
+                      style: const TextStyle(
+                        fontSize: 14,
+                        height: 1.35,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 10),
                   Text(
                     l10n.get('price_section_steam_store'),
@@ -732,7 +742,10 @@ class _GameDetailPageState extends State<GameDetailPage> {
                       ],
                     ),
                   ],
-                  if (AppRemoteConfig.instance.regionSettings.showRegionWarning) ...[
+                  if (_regionalDetail != null &&
+                      _regionalDetail!['warnings'] is Map &&
+                      ((_regionalDetail!['warnings'] as Map)['showRegionWarning'] ==
+                          true)) ...[
                     const SizedBox(height: 10),
                     Container(
                       width: double.infinity,
@@ -766,10 +779,10 @@ class _GameDetailPageState extends State<GameDetailPage> {
                     refreshingDeals: _refreshingDeals,
                     dealsCacheUpdatedAt: _dealsCacheUpdatedAt,
                     dealsUsingCache: _dealsUsingCache,
-                    showRegionWarning: (_regionalDetail?['warnings'] is Map
-                            ? ((_regionalDetail!['warnings'] as Map)['showRegionWarning'] == true)
-                            : null) ??
-                        AppRemoteConfig.instance.regionSettings.showRegionWarning,
+                    showRegionWarning: _regionalDetail?['warnings'] is Map
+                        ? ((_regionalDetail!['warnings'] as Map)['showRegionWarning'] ==
+                            true)
+                        : false,
                     selectedCountry: _priceCountry,
                     onAddToWishlist: () {
                       if (!_inWishlist) _toggleWishlistWithProGate();
@@ -928,7 +941,7 @@ class _GameDetailPageState extends State<GameDetailPage> {
                     dotData: const FlDotData(show: true),
                     belowBarData: BarAreaData(
                         show: true,
-                        color: AppColors.itadOrange.withOpacity(0.15)),
+                        color: AppColors.itadOrange.withValues(alpha: 0.15)),
                   ),
                 ],
                 titlesData: FlTitlesData(
@@ -976,7 +989,7 @@ class _GameDetailPageState extends State<GameDetailPage> {
                     show: true,
                     drawVerticalLine: false,
                     getDrawingHorizontalLine: (_) => FlLine(
-                        color: AppColors.textSecondary.withOpacity(0.2))),
+                        color: AppColors.textSecondary.withValues(alpha: 0.2))),
                 borderData: FlBorderData(show: false),
               ),
               duration: const Duration(milliseconds: 200),
@@ -1001,7 +1014,7 @@ class _GameDetailPageState extends State<GameDetailPage> {
                     padding:
                         const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                     decoration: BoxDecoration(
-                      color: AppColors.cardElevated.withOpacity(0.6),
+                      color: AppColors.cardElevated.withValues(alpha: 0.6),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Column(
@@ -1383,6 +1396,22 @@ class _GameDetailPageState extends State<GameDetailPage> {
       );
     }
 
+    // Regional payload exists but Steam did not return formatted strings — avoid mixing raw minor units with list enrich.
+    if (sp != null && finalFmt.isEmpty) {
+      return Row(
+        children: [
+          Text(
+            AppLocalizations.of(context).get('price_region_pending'),
+            style: const TextStyle(
+              fontSize: 20,
+              color: AppColors.itadOrangeLight,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      );
+    }
+
     double? current = game.price;
     double? original = game.originalPrice;
     int discount = game.discount;
@@ -1396,7 +1425,8 @@ class _GameDetailPageState extends State<GameDetailPage> {
       if (c.isNotEmpty) currency = c;
     }
 
-    if (steamRow != null) {
+    // Prefer `steamPrice` from regional-detail only; avoid overwriting with merged deal rows when sp exists.
+    if (sp == null && steamRow != null) {
       final f = steamRow['finalPrice'];
       final o = steamRow['originalPrice'];
       final d = steamRow['discountPercent'];

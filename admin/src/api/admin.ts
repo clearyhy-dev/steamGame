@@ -12,9 +12,9 @@ import type {
   VideoSourceRow,
   SteamSyncJobRow,
   DiscountProvidersSettings,
-  RegionSettings,
   RuntimeEffectiveSettings,
   RuntimeSettingsResponse,
+  AdminRequestLogRow,
 } from '../types';
 
 async function unwrap<T>(p: Promise<{ data: ApiEnvelope<T> }>): Promise<T> {
@@ -44,6 +44,15 @@ export const adminApi = {
   logout: () => unwrap(api.post<ApiEnvelope<Record<string, never>>>('/api/admin/auth/logout')),
 
   dashboardStats: () => unwrap(api.get<ApiEnvelope<DashboardStats>>('/api/admin/dashboard/stats')),
+  requestLogs: (params?: {
+    userId?: string;
+    pathPrefix?: string;
+    method?: string;
+    statusCode?: number;
+    fromMs?: number;
+    toMs?: number;
+    limit?: number;
+  }) => unwrap(api.get<ApiEnvelope<{ total: number; rows: AdminRequestLogRow[] }>>('/api/admin/request-logs', { params })),
   getDiscountProvidersSettings: () =>
     unwrap(api.get<ApiEnvelope<DiscountProvidersSettings>>('/api/admin/settings/discount-providers')),
   patchDiscountProvidersSettings: (body: Partial<DiscountProvidersSettings>) =>
@@ -52,9 +61,6 @@ export const adminApi = {
   getRuntimeSettings: () => unwrap(api.get<ApiEnvelope<RuntimeSettingsResponse>>('/api/admin/settings/runtime')),
   patchRuntimeSettings: (body: Partial<RuntimeEffectiveSettings> & { steamAutoSyncEnabled?: boolean }) =>
     unwrap(api.patch<ApiEnvelope<RuntimeSettingsResponse>>('/api/admin/settings/runtime', body)),
-  getRegionSettings: () => unwrap(api.get<ApiEnvelope<RegionSettings>>('/api/admin/settings/region-settings')),
-  patchRegionSettings: (body: Partial<RegionSettings>) =>
-    unwrap(api.patch<ApiEnvelope<RegionSettings>>('/api/admin/settings/region-settings', body)),
 
   regionCountriesList: () =>
     unwrap(api.get<ApiEnvelope<Record<string, unknown>[]>>(`/api/admin/region-countries`)),

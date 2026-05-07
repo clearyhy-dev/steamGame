@@ -12,6 +12,7 @@ import { AdminUsersController } from './admin.users.controller';
 import { AdminGamesController } from './admin.games.controller';
 import { AdminSettingsController } from './admin.settings.controller';
 import { AdminRegionCountriesController } from './admin.region-countries.controller';
+import { AdminRequestLogsController } from './admin.request-logs.controller';
 
 /** Mount at `/api/admin` — routes below are relative (e.g. `/auth/login`). */
 export function createAdminApiRouter(env: Env) {
@@ -27,6 +28,7 @@ export function createAdminApiRouter(env: Env) {
   const games = new AdminGamesController(env);
   const settings = new AdminSettingsController(env);
   const regionCountries = new AdminRegionCountriesController();
+  const requestLogs = new AdminRequestLogsController();
 
   router.post('/auth/login', asyncHandler(auth.login));
 
@@ -37,10 +39,9 @@ export function createAdminApiRouter(env: Env) {
   secured.post('/auth/logout', asyncHandler(auth.logout));
 
   secured.get('/dashboard/stats', asyncHandler(dashboard.stats));
+  secured.get('/request-logs', asyncHandler(requestLogs.list));
   secured.get('/settings/discount-providers', asyncHandler(settings.getDiscountProviders));
   secured.patch('/settings/discount-providers', asyncHandler(settings.patchDiscountProviders));
-  secured.get('/settings/region-settings', asyncHandler(settings.getRegionSettings));
-  secured.patch('/settings/region-settings', asyncHandler(settings.patchRegionSettings));
   secured.get('/settings/runtime', asyncHandler(settings.getRuntime));
   secured.patch('/settings/runtime', asyncHandler(settings.patchRuntime));
 

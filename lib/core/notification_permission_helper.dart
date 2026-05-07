@@ -16,7 +16,6 @@ class NotificationPermissionHelper {
 
     await storage.setHasAskedNotification(true);
 
-    if (context == null) return;
     final shouldOpen = await showDialog<bool>(
       context: context,
       barrierDismissible: false,

@@ -3,6 +3,7 @@ import { createApp } from './app';
 import { logger } from './utils/logger';
 import { startVideoWorker } from './modules/video/video.worker';
 import { startSteamSyncWorker } from './modules/steam/steam-sync.worker';
+import { startRequestLogCleanupWorker } from './modules/observability/request-log-cleanup.worker';
 
 async function main() {
   const env = loadEnv();
@@ -13,6 +14,7 @@ async function main() {
 
   startVideoWorker(env);
   startSteamSyncWorker(env);
+  startRequestLogCleanupWorker(env);
 
   const port = env.port;
   app.listen(port, '0.0.0.0', () => {

@@ -13,6 +13,7 @@ export type RegionCountryConfigDoc = {
   defaultCurrency: string;
   currencySymbol: string;
   steamLanguage: string;
+  uiLanguage: string;
   enabled: boolean;
   sortOrder: number;
   createdAt: admin.firestore.Timestamp;
@@ -27,7 +28,50 @@ export type ResolvedCountryForSteam = {
   steamLanguage: string;
   defaultCurrency: string;
   currencySymbol: string;
+  uiLanguage: string;
 };
+
+const UI_LANGUAGE_BY_COUNTRY: Record<string, string> = {
+  US: 'en',
+  GB: 'en',
+  AU: 'en',
+  CA: 'en',
+  CN: 'zh',
+  TW: 'zh',
+  HK: 'zh',
+  JP: 'ja',
+  KR: 'ko',
+  FR: 'fr',
+  DE: 'de',
+  BR: 'pt',
+  PT: 'pt',
+  PL: 'pl',
+  ES: 'es',
+  IT: 'it',
+  RU: 'ru',
+};
+
+function normalizeUiLanguage(value: string): string {
+  const v = String(value ?? '').trim().toLowerCase();
+  if (!v) return '';
+  if (v.startsWith('zh')) return 'zh';
+  if (v === 'schinese' || v === 'tchinese') return 'zh';
+  return v.split(/[-_]/)[0] || '';
+}
+
+export function inferUiLanguage(input: {
+  countryCode?: string;
+  steamLanguage?: string;
+  uiLanguage?: string;
+}): string {
+  const explicit = normalizeUiLanguage(input.uiLanguage ?? '');
+  if (explicit) return explicit;
+  const country = String(input.countryCode ?? '').trim().toUpperCase();
+  const fromCountry = normalizeUiLanguage(UI_LANGUAGE_BY_COUNTRY[country] ?? '');
+  if (fromCountry) return fromCountry;
+  const fromSteam = normalizeUiLanguage(input.steamLanguage ?? '');
+  return fromSteam || 'en';
+}
 
 export class RegionCountryRepository {
   private db = getFirestore();
@@ -90,6 +134,7 @@ export class RegionCountryRepository {
           steamLanguage: 'en',
           defaultCurrency: 'USD',
           currencySymbol: defaultCurrencySymbol('USD'),
+          uiLanguage: inferUiLanguage({ countryCode: safe, steamLanguage: 'en' }),
         };
       }
       return {
@@ -100,6 +145,7 @@ export class RegionCountryRepository {
         steamLanguage: row.steamLanguage,
         defaultCurrency: row.defaultCurrency,
         currencySymbol: row.currencySymbol || defaultCurrencySymbol(row.defaultCurrency),
+        uiLanguage: inferUiLanguage(row),
       };
     }
     const seed = REGION_COUNTRY_DEFAULTS.find((x) => x.countryCode === safe);
@@ -112,6 +158,7 @@ export class RegionCountryRepository {
         steamLanguage: seed.steamLanguage,
         defaultCurrency: seed.defaultCurrency,
         currencySymbol: seed.currencySymbol || defaultCurrencySymbol(seed.defaultCurrency),
+        uiLanguage: inferUiLanguage(seed),
       };
     }
     return {
@@ -122,6 +169,7 @@ export class RegionCountryRepository {
       steamLanguage: 'en',
       defaultCurrency: 'USD',
       currencySymbol: defaultCurrencySymbol('USD'),
+      uiLanguage: inferUiLanguage({ countryCode: safe, steamLanguage: 'en' }),
     };
   }
 
@@ -140,6 +188,7 @@ export class RegionCountryRepository {
           defaultCurrency: row.defaultCurrency,
           currencySymbol: row.currencySymbol || defaultCurrencySymbol(row.defaultCurrency),
           steamLanguage: row.steamLanguage,
+          uiLanguage: inferUiLanguage(row),
           enabled: true,
           sortOrder: row.sortOrder,
           createdAt: now,
@@ -175,6 +224,11 @@ export class RegionCountryRepository {
       currencySymbol: String(input.currencySymbol ?? prev?.currencySymbol ?? '')
         .trim(),
       steamLanguage: String(input.steamLanguage ?? prev?.steamLanguage ?? 'en').trim().toLowerCase(),
+      uiLanguage: inferUiLanguage({
+        countryCode: code,
+        steamLanguage: String(input.steamLanguage ?? prev?.steamLanguage ?? 'en'),
+        uiLanguage: String(input.uiLanguage ?? prev?.uiLanguage ?? ''),
+      }),
       enabled: input.enabled !== undefined ? Boolean(input.enabled) : (prev?.enabled ?? true),
       sortOrder: input.sortOrder !== undefined ? Number(input.sortOrder) : (prev?.sortOrder ?? 500),
       createdAt: prev?.createdAt ?? now,

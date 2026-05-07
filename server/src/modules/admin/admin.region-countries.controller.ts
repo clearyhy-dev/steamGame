@@ -1,6 +1,6 @@
 import type { Request, Response } from 'express';
 import { sendAdminFail, sendAdminOk } from '../../utils/adminJson';
-import { RegionCountryRepository } from '../config/region-country.repository';
+import { inferUiLanguage, RegionCountryRepository } from '../config/region-country.repository';
 import { defaultCurrencySymbol } from '../config/currency-symbol.util';
 
 export class AdminRegionCountriesController {
@@ -11,6 +11,7 @@ export class AdminRegionCountriesController {
     sendAdminOk(res, rows.map((r) => ({
       ...r,
       currencySymbol: r.currencySymbol || defaultCurrencySymbol(r.defaultCurrency),
+      uiLanguage: inferUiLanguage(r),
       createdAt: r.createdAt?.toDate?.()?.toISOString?.() ?? null,
       updatedAt: r.updatedAt?.toDate?.()?.toISOString?.() ?? null,
     })));
@@ -27,6 +28,7 @@ export class AdminRegionCountriesController {
       sendAdminOk(res, {
         ...row,
         currencySymbol: row.currencySymbol || defaultCurrencySymbol(row.defaultCurrency),
+        uiLanguage: inferUiLanguage(row),
         createdAt: row.createdAt?.toDate?.()?.toISOString?.() ?? null,
         updatedAt: row.updatedAt?.toDate?.()?.toISOString?.() ?? null,
       });

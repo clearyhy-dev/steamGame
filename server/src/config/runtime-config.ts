@@ -75,6 +75,9 @@ function mergeEnv(base: Env, doc: Partial<RuntimeConfigDoc>): Env {
   if (doc.steamAutoSyncDelayMs !== undefined) {
     out.steamAutoSyncDelayMs = num(doc.steamAutoSyncDelayMs, base.steamAutoSyncDelayMs);
   }
+  if (doc.requestLogRetentionDays !== undefined) {
+    out.requestLogRetentionDays = num(doc.requestLogRetentionDays, base.requestLogRetentionDays);
+  }
 
   if (doc.videoGcsBucket !== undefined) {
     const v = str(doc.videoGcsBucket);

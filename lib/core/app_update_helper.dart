@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:in_app_update/in_app_update.dart';
 import '../l10n/app_localizations.dart';
 

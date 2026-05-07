@@ -118,16 +118,15 @@ export class PublicGamesController {
     const fromQuery = this.normalizeCountryCode(req.query.country);
     const country = fromQuery ?? (await this.resolveCountryCode(req));
     const appCountry = (country || 'US').toUpperCase();
-    const rs = await this.settings.getRegionSettings();
-    const fallbackCc = (String(rs.fallbackCountry ?? 'US').trim().toUpperCase() || 'US') as string;
     const resolved = await this.regionCountries.resolveForRegionalDetail(appCountry);
+    const langFromQuery = this.normalizeLanguageCode(req.query.language ?? req.query.l);
+    const steamLang = langFromQuery ?? resolved.steamLanguage;
+    const fallbackCc = 'US' as const;
     try {
-      const detail = await this.store.fetchRegionalPriceDetail(
-        appid,
-        resolved.steamCc,
-        resolved.steamLanguage,
-        { fallbackSteamCc: fallbackCc },
-      );
+      const [detail, snippet] = await Promise.all([
+        this.store.fetchRegionalPriceDetail(appid, resolved.steamCc, steamLang, { fallbackSteamCc: fallbackCc }),
+        this.store.fetchStoreSnippet(appid, resolved.steamCc, steamLang),
+      ]);
       const links = await this.deals.listByAppid(appid);
       const steamCur =
         detail && !detail.isFree && detail.currency
@@ -179,13 +178,14 @@ export class PublicGamesController {
           steamLanguage: resolved.steamLanguage,
           currencySymbol: resolved.currencySymbol,
         },
+        steamStoreSnippet: snippet,
         steamPrice,
         localDeals: localDeals.map(serializeDealLink),
         globalDeals: globalDeals.map(serializeDealLink),
         localBestDeal: localBest ? serializeDealLink(localBest) : null,
         globalLowestDeal: globalBest ? serializeDealLink(globalBest) : null,
         warnings: {
-          showRegionWarning: rs.showRegionWarning === true,
+          showRegionWarning: detail?.fallbackUsed === true,
         },
       });
     } catch (e) {

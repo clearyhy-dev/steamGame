@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:url_launcher/url_launcher.dart' as url_launcher;
 
+import '../../../../core/app_country_events.dart';
+import '../../../../core/app_country_resolver.dart';
 import '../../../../core/storage_service.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../l10n/app_localizations.dart';
@@ -46,11 +48,23 @@ class _SteamOverviewPageState extends State<SteamOverviewPage> {
   bool _loading = true;
   String? _error;
   Map<String, dynamic>? _data;
+  VoidCallback? _appCountryChangedListener;
 
   @override
   void initState() {
     super.initState();
+    _appCountryChangedListener = () => _load();
+    AppCountryEvents.instance.changed.addListener(_appCountryChangedListener!);
     _load();
+  }
+
+  @override
+  void dispose() {
+    final listener = _appCountryChangedListener;
+    if (listener != null) {
+      AppCountryEvents.instance.changed.removeListener(listener);
+    }
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -69,7 +83,8 @@ class _SteamOverviewPageState extends State<SteamOverviewPage> {
       _error = null;
     });
     try {
-      final d = await _backend.getSteamOverview(token);
+      final ctx = await AppCountryResolver.resolveContext();
+      final d = await _backend.getSteamOverview(token, country: ctx.countryCode);
       if (mounted) {
         setState(() {
           _data = d;
@@ -369,7 +384,7 @@ class _SteamOverviewPageState extends State<SteamOverviewPage> {
               const SizedBox(height: 6),
               ...rows.map((t) => Padding(
                     padding: const EdgeInsets.only(bottom: 2),
-                    child: Text(t, style: TextStyle(fontSize: 12, color: AppColors.textSecondary.withOpacity(0.9))),
+                    child: Text(t, style: TextStyle(fontSize: 12, color: AppColors.textSecondary.withValues(alpha: 0.9))),
                   )),
             ],
           ),

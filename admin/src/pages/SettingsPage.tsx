@@ -139,6 +139,13 @@ export function SettingsPage() {
                 <Form.Item label="详情请求间隔 (ms)" name="steamAutoSyncDelayMs">
                   <InputNumber min={0} max={5000} style={{ width: '100%' }} />
                 </Form.Item>
+                <Form.Item
+                  label="请求日志保留天数"
+                  name="requestLogRetentionDays"
+                  extra="用于自动清理 api_request_logs，推荐 7/14/30 天。"
+                >
+                  <InputNumber min={1} max={30} style={{ width: '100%' }} />
+                </Form.Item>
 
                 <Typography.Title level={5}>视频流水线</Typography.Title>
                 <Form.Item label="VIDEO_GCS_BUCKET" name="videoGcsBucket">
@@ -197,6 +204,9 @@ export function SettingsPage() {
                 <Form.Item label="GG.deals API Key" name="ggDealsApiKey">
                   <Input.Password placeholder="gg.deals key" />
                 </Form.Item>
+                <Form.Item label="Steam API Key" name="steamApiKey">
+                  <Input.Password placeholder="Steam Web API key" />
+                </Form.Item>
                 <Form.Item label="ITAD Base URL" name="itadBaseUrl">
                   <Input />
                 </Form.Item>
@@ -205,6 +215,12 @@ export function SettingsPage() {
                 </Form.Item>
                 <Form.Item label="CheapShark Base URL" name="cheapSharkBaseUrl">
                   <Input />
+                </Form.Item>
+                <Form.Item label="Steam Web API Base URL" name="steamWebApiBaseUrl">
+                  <Input placeholder="https://api.steampowered.com" />
+                </Form.Item>
+                <Form.Item label="Steam Store Base URL" name="steamStoreBaseUrl">
+                  <Input placeholder="https://store.steampowered.com" />
                 </Form.Item>
                 <Form.Item
                   label="折扣国家列表 (CSV)"

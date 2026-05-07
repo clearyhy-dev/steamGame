@@ -16,17 +16,17 @@ class CacheService {
   }
 
   /// 缓存的折扣列表（秒开用）
-  Future<List<GameModel>> getCachedGames() async {
-    return deal_cache.CacheService.loadGames();
+  Future<List<GameModel>> getCachedGames({String? countryCode}) async {
+    return deal_cache.CacheService.loadGames(countryCode: countryCode);
   }
 
   /// 保存折扣到本地缓存
-  Future<void> saveGames(List<GameModel> games) async {
-    await deal_cache.CacheService.saveGames(games);
+  Future<void> saveGames(List<GameModel> games, {String? countryCode}) async {
+    await deal_cache.CacheService.saveGames(games, countryCode: countryCode);
   }
 
   /// 上次检查时间
-  Future<String?> getLastCheckTime() async {
-    return deal_cache.CacheService.getLastCheckTime();
+  Future<String?> getLastCheckTime({String? countryCode}) async {
+    return deal_cache.CacheService.getLastCheckTime(countryCode: countryCode);
   }
 }

@@ -7,6 +7,7 @@ export type RegionCountrySeed = {
   defaultCurrency: string;
   currencySymbol?: string;
   steamLanguage: string;
+  uiLanguage?: string;
   sortOrder: number;
 };
 

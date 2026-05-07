@@ -94,8 +94,8 @@ class HomeWishlistDecisionsSection extends StatelessWidget {
                     width: 148,
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(14),
-                      color: AppColors.cardDark.withOpacity(0.9),
-                      border: Border.all(color: Colors.white.withOpacity(0.06)),
+                      color: AppColors.cardDark.withValues(alpha: 0.9),
+                      border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
                     ),
                     clipBehavior: Clip.antiAlias,
                     child: Column(
@@ -148,9 +148,9 @@ class HomeWishlistDecisionsSection extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppColors.cardDark.withOpacity(0.6),
+        color: AppColors.cardDark.withValues(alpha: 0.6),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withOpacity(0.05)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
       ),
       child: Text(text, style: const TextStyle(fontSize: 13, color: AppColors.textSecondary, height: 1.35)),
     );

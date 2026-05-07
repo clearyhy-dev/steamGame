@@ -197,11 +197,26 @@ class StorageService {
 
   Future<void> clearLastDealsCache() async {
     if (!_inited) return;
-    await _prefs.remove(AppConstants.keyLastDealsCache);
-    await _prefs.remove(AppConstants.keyLastCheckTime);
+    final prefKeys = _prefs.getKeys();
+    for (final key in prefKeys) {
+      if (key == AppConstants.keyLastDealsCache ||
+          key.startsWith('${AppConstants.keyLastDealsCache}_') ||
+          key == AppConstants.keyLastCheckTime ||
+          key.startsWith('${AppConstants.keyLastCheckTime}_')) {
+        await _prefs.remove(key);
+      }
+    }
     try {
-      await Hive.box(_hiveBoxName).delete(_hiveDealsKey);
-      await Hive.box(_hiveBoxName).delete('last_check_time');
+      final box = Hive.box(_hiveBoxName);
+      final keys = box.keys.map((e) => e.toString()).toList();
+      for (final key in keys) {
+        if (key == _hiveDealsKey ||
+            key.startsWith('${_hiveDealsKey}_') ||
+            key == 'last_check_time' ||
+            key.startsWith('last_check_time_')) {
+          await box.delete(key);
+        }
+      }
     } catch (_) {}
   }
 
@@ -594,6 +609,7 @@ class StorageService {
     }
   }
 
+  @Deprecated('Legacy migration only. Use getAppCountry() instead.')
   Future<String?> getSelectedPriceRegion() async {
     if (!_inited) return null;
     final v = _prefs.getString(AppConstants.keySelectedPriceRegion);
@@ -601,6 +617,7 @@ class StorageService {
     return v.trim().toUpperCase();
   }
 
+  @Deprecated('Legacy migration only. Use setAppCountry() instead.')
   Future<void> setSelectedPriceRegion(String? countryCode) async {
     if (!_inited) return;
     if (countryCode == null || countryCode.trim().isEmpty) {
@@ -653,6 +670,21 @@ class StorageService {
     return v.trim().toUpperCase();
   }
 
+  bool getAppCountryManualPickSync() {
+    if (!_inited) return false;
+    return _prefs.getBool(AppConstants.keyAppCountryManualPick) ?? false;
+  }
+
+  Future<bool> getAppCountryManualPick() async {
+    if (!_inited) return false;
+    return _prefs.getBool(AppConstants.keyAppCountryManualPick) ?? false;
+  }
+
+  Future<void> setAppCountryManualPick(bool value) async {
+    if (!_inited) return;
+    await _prefs.setBool(AppConstants.keyAppCountryManualPick, value);
+  }
+
   Future<void> clearAppCountryScopedCaches() async {
     if (!_inited) return;
     await clearDetailDealsCache();
@@ -677,25 +709,6 @@ class StorageService {
       if (decoded is Map) {
         return decoded.map((k, v) => MapEntry(k.toString(), v));
       }
-    } catch (_) {}
-    return null;
-  }
-
-  Future<void> setRegionSettingsCache(Map<String, dynamic> data) async {
-    if (!_inited) return;
-    await _prefs.setString(
-        AppConstants.keyRegionSettingsCache, jsonEncode(data));
-  }
-
-  Future<Map<String, dynamic>?> getRegionSettingsCache() async {
-    if (!_inited) return null;
-    final raw = _prefs.getString(AppConstants.keyRegionSettingsCache);
-    if (raw == null || raw.isEmpty) return null;
-    try {
-      final decoded = jsonDecode(raw);
-      if (decoded is Map<String, dynamic>) return decoded;
-      if (decoded is Map)
-        return decoded.map((k, v) => MapEntry(k.toString(), v));
     } catch (_) {}
     return null;
   }

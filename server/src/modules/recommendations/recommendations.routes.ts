@@ -6,6 +6,7 @@ import { RecommendationsController } from './recommendations.controller';
 export function recommendationsRouter(env: Env) {
   const r = express.Router();
   const c = new RecommendationsController(env);
+  r.get('/trending-public', c.trendingPublic);
   r.get('/home', authMiddleware(env), c.home);
   r.get('/explore', authMiddleware(env), c.explore);
   return r;

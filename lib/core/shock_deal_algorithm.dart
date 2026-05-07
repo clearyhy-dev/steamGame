@@ -1,5 +1,5 @@
 import '../models/game_model.dart';
-import 'utils/score_calculator.dart' show calculateScore;
+import 'utils/score_calculator.dart' show calculateScore, dealIdentityKey;
 
 /// 爆款 2.0 本地算法：一次拉接口 → 本地计算 → 分类排序 → 本地缓存
 /// 权重：折扣 40% + 评论热度 30% + 增长 20%（无数据用 0）+ 低价 10%
@@ -20,13 +20,7 @@ class ShockDealAlgorithm {
     return byKey.values.toList();
   }
 
-  static String _identityKey(GameModel g) {
-    if (g.steamAppID.trim().isNotEmpty) {
-      return 's:${g.steamAppID.trim()}';
-    }
-    final name = g.name.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
-    return 'n:$name';
-  }
+  static String _identityKey(GameModel g) => dealIdentityKey(g);
 
   /// 按得分排序（高到低），统一用 score_calculator.calculateScore
   static List<GameModel> _sortedByScore(List<GameModel> deals) {

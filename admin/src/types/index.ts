@@ -10,9 +10,12 @@ export type DashboardStats = {
 export type DiscountProvidersSettings = {
   itadApiKey: string;
   ggDealsApiKey: string;
+  steamApiKey: string;
   itadBaseUrl: string;
   ggDealsBaseUrl: string;
   cheapSharkBaseUrl: string;
+  steamWebApiBaseUrl: string;
+  steamStoreBaseUrl: string;
   dealCountriesCsv: string;
   updatedAt: string;
   createdAt: string;
@@ -34,6 +37,7 @@ export type RuntimeEffectiveSettings = {
   steamAutoSyncIntervalMs: number;
   steamAutoSyncBatchSize: number;
   steamAutoSyncDelayMs: number;
+  requestLogRetentionDays: number;
   videoGcsBucket: string;
   ffmpegPath: string;
   ffprobePath: string;
@@ -50,23 +54,26 @@ export type RuntimeEffectiveSettings = {
   appCountryCurrencyMapJson?: string;
 };
 
+export type AdminRequestLogRow = {
+  logId?: string;
+  requestId: string;
+  method: string;
+  path: string;
+  statusCode: number;
+  durationMs: number;
+  userId?: string;
+  ip?: string;
+  userAgent?: string;
+  referer?: string;
+  query?: Record<string, string>;
+  bodyKeys?: string[];
+  errorCode?: string;
+  createdAt?: string | null;
+};
+
 export type RuntimeSettingsResponse = {
   effective: RuntimeEffectiveSettings;
   stored: Record<string, unknown>;
-};
-
-export type RegionSettings = {
-  enabledCountries: string[];
-  defaultCountry: string;
-  fallbackCountry: string;
-  countryCurrencyMap: Record<string, string>;
-  countryLanguageMap: Record<string, string>;
-  priceSources: string[];
-  cacheHours: number;
-  showKeyshopDeals: boolean;
-  showRegionWarning: boolean;
-  updatedAt?: string;
-  createdAt?: string;
 };
 
 export type SteamSyncJobRow = {
