@@ -33,10 +33,13 @@ export class PublicConfigController {
     const e = await getEffectiveEnv(this.env);
     const runtime = await this.settings.getRuntime();
     const discount = await this.settings.getDiscountProviders();
+    const root = String(e.appBaseUrl ?? '').trim().replace(/\/+$/, '');
     res.status(200).json({
       success: true,
       data: {
         appBaseUrl: e.appBaseUrl,
+        appSwaggerUiUrl: root ? `${root}/api/docs` : '',
+        appOpenApiJsonUrl: root ? `${root}/api/openapi.json` : '',
         appDeeplinkScheme: e.appDeeplinkScheme,
         appDeeplinkSuccessHost: e.appDeeplinkSuccessHost,
         appDeeplinkFailHost: e.appDeeplinkFailHost,

@@ -6,7 +6,9 @@ import type { DiscountProvidersSettings, RuntimeEffectiveSettings } from '../typ
 export function SettingsPage() {
   const [discountForm] = Form.useForm<DiscountProvidersSettings>();
   const [runtimeForm] = Form.useForm<RuntimeEffectiveSettings>();
+  const [runtime, setRuntime] = useState<RuntimeEffectiveSettings | null>(null);
   const [loading, setLoading] = useState(false);
+  const runtimeBase = (runtime?.appBaseUrl ?? '').replace(/\/+$/, '');
 
   useEffect(() => {
     (async () => {
@@ -16,10 +18,12 @@ export function SettingsPage() {
           adminApi.getRuntimeSettings(),
         ]);
         discountForm.setFieldsValue(disc);
-        runtimeForm.setFieldsValue({
+        const merged = {
           ...rt.effective,
           ...(rt.stored as Partial<RuntimeEffectiveSettings>),
-        });
+        } as RuntimeEffectiveSettings;
+        runtimeForm.setFieldsValue(merged);
+        setRuntime(merged);
       } catch (e) {
         message.error(e instanceof Error ? e.message : '加载配置失败');
       }
@@ -48,6 +52,7 @@ export function SettingsPage() {
                     await adminApi.patchRuntimeSettings(v);
                     const rt = await adminApi.getRuntimeSettings();
                     runtimeForm.setFieldsValue(rt.effective);
+                    setRuntime(rt.effective);
                     message.success('已保存（进程内配置约 1 分钟内刷新）');
                   } catch (e) {
                     message.error(e instanceof Error ? e.message : '保存失败');
@@ -56,6 +61,23 @@ export function SettingsPage() {
                   }
                 }}
               >
+                <Typography.Title level={5}>运行时链接（只读）</Typography.Title>
+                <Typography.Paragraph type="secondary">
+                  便于排错：以下链接由 <Typography.Text code>APP_BASE_URL</Typography.Text> 自动拼接，不参与路由配置。
+                </Typography.Paragraph>
+                <Form.Item label="Swagger UI（可视化调用）" name="__swaggerUiUrl">
+                  <Input
+                    readOnly
+                    value={runtimeBase ? `${runtimeBase}/api/docs` : ''}
+                  />
+                </Form.Item>
+                <Form.Item label="OpenAPI JSON（机器可读）" name="__openApiJsonUrl">
+                  <Input
+                    readOnly
+                    value={runtimeBase ? `${runtimeBase}/api/openapi.json` : ''}
+                  />
+                </Form.Item>
+
                 <Typography.Title level={5}>管理员账号</Typography.Title>
                 <Form.Item label="Admin 用户名" name="adminUsername">
                   <Input />
