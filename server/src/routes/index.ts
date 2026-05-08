@@ -17,6 +17,8 @@ import { metaRouter } from '../modules/meta/meta.routes';
 import { createAdminApiRouter } from '../modules/admin/admin.api.router';
 import { createPublicVideosRouter } from '../modules/video/public.videos.routes';
 import { createPublicGamesRouter } from '../modules/game/public.games.routes';
+import swaggerUi from 'swagger-ui-express';
+import { buildOpenApiSpec } from '../modules/meta/openapi';
 
 export function createRouter(env: Env) {
   const r = express.Router();
@@ -24,6 +26,27 @@ export function createRouter(env: Env) {
   const publicConfig = new PublicConfigController(env);
   const publicRegionCountries = new PublicRegionCountriesController();
   r.get('/api/config', asyncHandler(publicConfig.getClientConfig));
+
+  // Swagger UI (read-only docs). We generate an OpenAPI skeleton from known endpoints.
+  // Served before auth routes so it is always accessible.
+  r.get(
+    '/api/openapi.json',
+    asyncHandler(async (_req, res) => {
+      const spec = await buildOpenApiSpec(env);
+      res.status(200).json({ ok: true, data: spec, message: null });
+    }),
+  );
+  r.use(
+    '/api/docs',
+    swaggerUi.serve,
+    // Use async handler to resolve env baseUrl at request time (runtime-config may change).
+    asyncHandler(async (_req, res) => {
+      const spec = await buildOpenApiSpec(env);
+      // swagger-ui-express expects a raw spec object
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return (swaggerUi.setup(spec) as any)(_req, res);
+    }),
+  );
 
   r.use('/auth', authRouter(env));
   r.use('/api/admin', createAdminApiRouter(env));
