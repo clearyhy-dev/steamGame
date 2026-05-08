@@ -1,11 +1,9 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
-import '../config/app_config.dart';
 import '../storage/token_storage.dart';
-import 'auth_interceptor.dart';
+import 'backend_client.dart';
 
 class ApiException implements Exception {
   final int statusCode;
@@ -26,27 +24,25 @@ class ApiException implements Exception {
 
 class ApiClient {
   ApiClient({http.Client? client, String? baseUrl})
-      : _client = client ?? http.Client(),
-        _baseUrl = baseUrl ?? AppConfig.apiBaseUrl;
+      : _backend = BackendClient(client: client, baseUrl: baseUrl);
 
-  final http.Client _client;
-  final String _baseUrl;
-  final AuthInterceptor _authInterceptor = AuthInterceptor();
+  final BackendClient _backend;
 
   Duration timeout = const Duration(seconds: 20);
 
-  Uri _uri(String path, [Map<String, String>? query]) {
-    final u = Uri.parse('$_baseUrl$path');
-    if (query == null || query.isEmpty) return u;
-    return u.replace(queryParameters: query);
-  }
-
   Future<Map<String, dynamic>> get(String path, {Map<String, String>? query, bool includeAuth = true}) async {
-    final headers = await _authInterceptor.buildHeaders(includeAuth: includeAuth);
-    final res = await _client.get(_uri(path, query), headers: headers).timeout(timeout, onTimeout: () {
-      throw ApiException(statusCode: 408, code: 'REQUEST_TIMEOUT', message: 'Request timeout');
-    });
-    return _decode(res);
+    try {
+      return await _backend.get(
+        path,
+        query: query,
+        includeAuth: includeAuth,
+        timeout: timeout,
+        maxAttempts: 1,
+      );
+    } on BackendException catch (e) {
+      _handleMaybeInvalidJwt(e);
+      throw ApiException(statusCode: e.statusCode, code: e.code, message: e.message, details: e.details);
+    }
   }
 
   Future<Map<String, dynamic>> post(
@@ -54,40 +50,39 @@ class ApiClient {
     Map<String, dynamic>? body,
     bool includeAuth = true,
   }) async {
-    final headers = await _authInterceptor.buildHeaders(includeAuth: includeAuth);
-    final res = await _client
-        .post(_uri(path), headers: headers, body: jsonEncode(body ?? {}))
-        .timeout(timeout, onTimeout: () {
-      throw ApiException(statusCode: 408, code: 'REQUEST_TIMEOUT', message: 'Request timeout');
-    });
-    return _decode(res);
+    try {
+      return await _backend.post(
+        path,
+        body: body,
+        includeAuth: includeAuth,
+        timeout: timeout,
+        maxAttempts: 1,
+      );
+    } on BackendException catch (e) {
+      _handleMaybeInvalidJwt(e);
+      throw ApiException(statusCode: e.statusCode, code: e.code, message: e.message, details: e.details);
+    }
   }
 
   Future<Map<String, dynamic>> delete(String path, {bool includeAuth = true}) async {
-    final headers = await _authInterceptor.buildHeaders(includeAuth: includeAuth);
-    final res = await _client.delete(_uri(path), headers: headers).timeout(timeout, onTimeout: () {
-      throw ApiException(statusCode: 408, code: 'REQUEST_TIMEOUT', message: 'Request timeout');
-    });
-    return _decode(res);
+    try {
+      return await _backend.delete(
+        path,
+        includeAuth: includeAuth,
+        timeout: timeout,
+        maxAttempts: 1,
+      );
+    } on BackendException catch (e) {
+      _handleMaybeInvalidJwt(e);
+      throw ApiException(statusCode: e.statusCode, code: e.code, message: e.message, details: e.details);
+    }
   }
 
-  Map<String, dynamic> _decode(http.Response res) {
-    final body = res.body.isEmpty ? <String, dynamic>{} : (jsonDecode(res.body) as Map<String, dynamic>);
-    if (res.statusCode == 401) {
+  void _handleMaybeInvalidJwt(BackendException e) {
+    if (e.statusCode == 401) {
       // token 失效自动清理
       unawaited(TokenStorage.instance.clearJwt());
-      throw ApiException(statusCode: 401, code: 'JWT_INVALID', message: 'Token expired or invalid');
     }
-    if (body['success'] == true) {
-      return (body['data'] as Map?)?.cast<String, dynamic>() ?? <String, dynamic>{};
-    }
-    final error = (body['error'] as Map?)?.cast<String, dynamic>() ?? {};
-    throw ApiException(
-      statusCode: res.statusCode,
-      code: (error['code'] ?? 'INTERNAL_ERROR').toString(),
-      message: (error['message'] ?? 'Request failed').toString(),
-      details: error['details'],
-    );
   }
 }
 

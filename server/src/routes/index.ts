@@ -13,6 +13,7 @@ import { wishlistRouter } from '../modules/wishlist/wishlist.routes';
 import { statsRouter } from '../modules/stats/stats.routes';
 import { eventsRouter } from '../modules/events/events.routes';
 import { steamV1Router } from '../modules/steam/steam.v1.routes';
+import { metaRouter } from '../modules/meta/meta.routes';
 import { createAdminApiRouter } from '../modules/admin/admin.api.router';
 import { createPublicVideosRouter } from '../modules/video/public.videos.routes';
 import { createPublicGamesRouter } from '../modules/game/public.games.routes';
@@ -41,6 +42,7 @@ export function createRouter(env: Env) {
   v1.use('/stats', statsRouter(env));
   v1.use('/events', eventsRouter(env));
   v1.use('/steam', steamV1Router(env));
+  v1.use('/meta', metaRouter(env));
   r.use('/v1', v1);
   r.use('/api/v1', v1);
 

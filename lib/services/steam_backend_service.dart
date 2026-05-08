@@ -8,6 +8,7 @@ import '../core/app_country_resolver.dart';
 import '../core/constants/api_constants.dart';
 import '../core/storage_service.dart';
 import '../core/utils/price_region_resolver.dart';
+import '../core/network/backend_client.dart';
 
 class SteamBackendException implements Exception {
   final String code;
@@ -27,6 +28,7 @@ class SteamBackendException implements Exception {
 class SteamBackendService {
   final http.Client _client;
   final String _baseUrl;
+  BackendClient? _backend;
 
   SteamBackendService({http.Client? client, String? baseUrl})
       : _client = client ?? http.Client(),
@@ -35,19 +37,32 @@ class SteamBackendService {
 
   Uri _uri(String path) => Uri.parse('$_baseUrl$path');
 
+  BackendClient get _b => _backend!;
+
+  void _ensureBackendClient() {
+    // keep http.Client reuse for connection pooling
+    _backend ??= BackendClient(client: _client, baseUrl: _baseUrl);
+  }
+
   Future<http.Response> _requestWithRetry({
     required Future<http.Response> Function() request,
     required Duration timeout,
     required String timeoutMessage,
     int maxAttempts = 3,
   }) async {
+    // Preserve existing behavior for callers that rely on retry timing,
+    // but route transport through the unified BackendClient implementation.
+    _ensureBackendClient();
     SteamBackendException? lastErr;
     for (var i = 0; i < maxAttempts; i++) {
       try {
-        return await request().timeout(timeout, onTimeout: () {
-          throw SteamBackendException(
-              code: 'REQUEST_TIMEOUT', message: timeoutMessage);
-        });
+        final res = await _b.requestWithRetry(
+          request: request,
+          timeout: timeout,
+          timeoutMessage: timeoutMessage,
+          maxAttempts: 1,
+        );
+        return res;
       } on SteamBackendException catch (e) {
         lastErr = e;
       } on TimeoutException {

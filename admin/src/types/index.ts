@@ -76,6 +76,22 @@ export type RuntimeSettingsResponse = {
   stored: Record<string, unknown>;
 };
 
+export type MetaEndpointRow = {
+  method: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  path: string;
+  authRequired: boolean;
+  scope: 'app_backend' | 'app_public' | 'admin' | 'third_party';
+  name: string;
+  usedBy?: string[];
+  notes?: string;
+};
+
+export type MetaEndpointsResponse = {
+  apiBaseUrl: string;
+  generatedAt: string;
+  endpoints: MetaEndpointRow[];
+};
+
 export type SteamSyncJobRow = {
   jobId: string;
   trigger: 'worker' | 'manual_app_list' | 'manual_detail_batch';

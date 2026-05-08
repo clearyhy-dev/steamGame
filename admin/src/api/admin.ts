@@ -15,6 +15,7 @@ import type {
   RuntimeEffectiveSettings,
   RuntimeSettingsResponse,
   AdminRequestLogRow,
+  MetaEndpointsResponse,
 } from '../types';
 
 async function unwrap<T>(p: Promise<{ data: ApiEnvelope<T> }>): Promise<T> {
@@ -53,6 +54,10 @@ export const adminApi = {
     toMs?: number;
     limit?: number;
   }) => unwrap(api.get<ApiEnvelope<{ total: number; rows: AdminRequestLogRow[] }>>('/api/admin/request-logs', { params })),
+
+  /** Read-only diagnostics for troubleshooting. */
+  metaEndpoints: () =>
+    unwrap(api.get<ApiEnvelope<MetaEndpointsResponse>>('/api/admin/meta/endpoints')),
   getDiscountProvidersSettings: () =>
     unwrap(api.get<ApiEnvelope<DiscountProvidersSettings>>('/api/admin/settings/discount-providers')),
   patchDiscountProvidersSettings: (body: Partial<DiscountProvidersSettings>) =>

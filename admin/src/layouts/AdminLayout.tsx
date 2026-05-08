@@ -24,6 +24,7 @@ const items = [
   { key: '/steam-games', icon: <AppstoreOutlined />, label: 'App Games' },
   { key: '/users', icon: <TeamOutlined />, label: 'Users' },
   { key: '/settings', icon: <SettingOutlined />, label: 'Settings' },
+  { key: '/app-diagnostics', icon: <FileSearchOutlined />, label: 'App Diagnostics' },
   { key: '/request-logs', icon: <FileSearchOutlined />, label: 'Request Logs' },
   { key: '/country-region-mapping', icon: <SettingOutlined />, label: 'Country / Steam' },
 ];
