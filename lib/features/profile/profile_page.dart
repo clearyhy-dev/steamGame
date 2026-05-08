@@ -293,6 +293,7 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _startSteamLogin({required bool bindMode}) async {
+    final l10n = AppLocalizations.of(context);
     try {
       final startPath = bindMode
           ? '/auth/steam/start?mode=bind'
@@ -304,7 +305,16 @@ class _ProfilePageState extends State<ProfilePage> {
       Uri finalStart = start;
       if (bindMode) {
         final u = _user;
-        if (u == null) throw Exception('Google login required for bind.');
+        if (u == null) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(l10n.get('profile_steam_bind_need_google')),
+              duration: const Duration(seconds: 5),
+            ),
+          );
+          return;
+        }
         final token = await StorageService.instance.getSteamBackendToken();
         finalStart = start.replace(
           queryParameters: <String, String>{
@@ -332,10 +342,18 @@ class _ProfilePageState extends State<ProfilePage> {
           mode: url_launcher.LaunchMode.platformDefault,
         );
       }
-      if (!ok) throw Exception('launchUrl returned false');
+      if (!ok) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(l10n.get('steam_login_open_failed')),
+            duration: const Duration(seconds: 5),
+          ),
+        );
+        return;
+      }
     } catch (e) {
       if (!mounted) return;
-      final l10n = AppLocalizations.of(context);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('${l10n.get('steam_login_start_failed')}$e'),
@@ -707,7 +725,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 leading: const Icon(Icons.flag_outlined),
                 title: Text(l10n.get('app_country_title')),
                 subtitle: Text(
-                  '${_appCountrySubtitle(l10n)}\n${l10n.get('country_network_guess_hint')}',
+                  _appCountrySubtitle(l10n),
                   style: TextStyle(
                     fontSize: 13,
                     color: AppColors.textSecondary,

@@ -36,6 +36,10 @@ class GameModel {
   /// `steam_store` / `itad_store` / `global_pool`
   final String? priceSource;
 
+  /// 后端推荐管线给出的综合分（CheapShark 直拉列表无此字段）。
+  /// 用于发现页「AI 推荐」等：避免缺少评价字段时本地分退化成近似「按折扣排序」。
+  final double? recommendationScore;
+
   GameModel({
     required this.appId,
     required this.name,
@@ -58,6 +62,7 @@ class GameModel {
     this.steamListFallbackFormatted,
     this.steamListFallbackInitialFormatted,
     this.priceSource,
+    this.recommendationScore,
   }) : images = images ?? const [];
 
   /// 从 CheapShark /deals 列表项解析
@@ -216,6 +221,9 @@ class GameModel {
           ? fbi.trim()
           : null,
       priceSource: src != null && src.isNotEmpty ? src : null,
+      recommendationScore: json['recommendationScore'] is num
+          ? (json['recommendationScore'] as num).toDouble()
+          : double.tryParse(json['recommendationScore']?.toString() ?? ''),
     );
   }
 
@@ -235,6 +243,7 @@ class GameModel {
           'steamListFallbackInitialFormatted':
               steamListFallbackInitialFormatted,
         if (priceSource != null) 'priceSource': priceSource,
+        if (recommendationScore != null) 'recommendationScore': recommendationScore,
         if (steamAppID.isNotEmpty) 'steamAppID': steamAppID,
         if (dealID.isNotEmpty) 'dealID': dealID,
         if (lastChange > 0) 'last_change': lastChange,

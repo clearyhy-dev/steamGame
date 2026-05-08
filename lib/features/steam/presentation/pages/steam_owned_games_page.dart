@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../../core/theme/colors.dart';
+import '../../../../l10n/app_localizations.dart';
 import '../providers/steam_providers.dart';
 
 class SteamOwnedGamesPage extends StatefulWidget {
@@ -19,16 +20,22 @@ class _SteamOwnedGamesPageState extends State<SteamOwnedGamesPage> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final dash = l10n.get('steam_dash');
+    final playtimeSub = l10n.get('steam_total_playtime_line').replaceAll('{v}', dash);
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(title: const Text('Owned Games')),
+      appBar: AppBar(title: Text(l10n.get('steam_menu_owned'))),
       body: Column(
         children: [
           Padding(
             padding: const EdgeInsets.all(12),
             child: TextField(
               onChanged: (v) => setState(() => _q = v.trim().toLowerCase()),
-              decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Search game'),
+              decoration: InputDecoration(
+                prefixIcon: const Icon(Icons.search),
+                hintText: l10n.get('search_hint'),
+              ),
             ),
           ),
           Expanded(
@@ -38,13 +45,18 @@ class _SteamOwnedGamesPageState extends State<SteamOwnedGamesPage> {
                 if (state.loading) return const Center(child: CircularProgressIndicator());
                 if (state.error != null) {
                   final msg = state.error!.contains('STEAM_OWNED_UNAVAILABLE')
-                      ? 'Owned games are not visible due to Steam privacy settings'
+                      ? l10n.get('steam_no_owned_visible')
                       : state.error!;
                   return _ErrorRetry(message: msg, onRetry: () => SteamProviderActions.instance.loadOwnedGames());
                 }
                 final all = state.data ?? const [];
                 final list = all.where((g) => g.name.toLowerCase().contains(_q)).toList();
-                if (list.isEmpty) return const Center(child: Text('暂无拥有游戏'));
+                if (all.isEmpty) {
+                  return Center(child: Text(l10n.get('steam_no_owned_visible')));
+                }
+                if (list.isEmpty) {
+                  return Center(child: Text(l10n.get('no_results')));
+                }
                 return ListView.builder(
                   itemCount: list.length,
                   itemBuilder: (_, i) {
@@ -52,13 +64,15 @@ class _SteamOwnedGamesPageState extends State<SteamOwnedGamesPage> {
                     return ListTile(
                       leading: g.headerImage.isNotEmpty ? Image.network(g.headerImage, width: 56, fit: BoxFit.cover) : null,
                       title: Text(g.name),
-                      subtitle: const Text('总游玩时长：--'),
+                      subtitle: Text(playtimeSub),
                       trailing: IconButton(
                         icon: const Icon(Icons.favorite_border),
                         onPressed: () async {
                           await SteamProviderActions.instance.addFavorite(g);
                           if (!mounted) return;
-                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已添加到收藏')));
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text(l10n.get('steam_favorite_added'))),
+                          );
                         },
                       ),
                     );
@@ -79,13 +93,13 @@ class _ErrorRetry extends StatelessWidget {
   final VoidCallback onRetry;
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return Center(
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         Padding(padding: const EdgeInsets.symmetric(horizontal: 24), child: Text(message, textAlign: TextAlign.center)),
         const SizedBox(height: 12),
-        ElevatedButton(onPressed: onRetry, child: const Text('Retry')),
+        ElevatedButton(onPressed: onRetry, child: Text(l10n.get('retry'))),
       ]),
     );
   }
 }
-

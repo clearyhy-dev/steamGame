@@ -124,6 +124,7 @@ class RecommendedItem {
               ? steamListFallbackInitialFormatted!.trim()
               : null,
       priceSource: priceSource,
+      recommendationScore: score,
     );
   }
 }

@@ -53,7 +53,13 @@ class ShockDealAlgorithm {
   /// todayHot 按折扣从高到低（最大折扣区块），与 AI 推荐（按综合得分）区分开
   static DealCategories computeCategories(List<GameModel> deals) {
     final byDiscount = List<GameModel>.from(deals)
-      ..sort((a, b) => b.discount.compareTo(a.discount));
+      ..sort((a, b) {
+        final dc = b.discount.compareTo(a.discount);
+        if (dc != 0) return dc;
+        final saveA = (a.originalPrice - a.price).clamp(0.0, 1e12);
+        final saveB = (b.originalPrice - b.price).clamp(0.0, 1e12);
+        return saveB.compareTo(saveA);
+      });
     final todayHot = byDiscount.take(20).toList();
     final newRelease = deals.where(_isNewRelease).toList()
       ..sort((a, b) => calculateScore(b).compareTo(calculateScore(a)));

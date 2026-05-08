@@ -59,6 +59,29 @@ List<GameModel> topDealsByScore(List<GameModel> deals, {int limit = 10}) {
   return list.take(limit).toList();
 }
 
+/// 发现页「AI 推荐」：推荐接口转成的 [GameModel] 往往缺少评价/更新时间，
+/// 本地 [calculateScore] 会近似按折扣排序，与「最大折扣」雷同。
+/// 若存在 [GameModel.recommendationScore]（后端综合分），优先按它排序。
+List<GameModel> topDealsForAiPicks(List<GameModel> deals, {int limit = 30}) {
+  final hasAny = deals.any((g) => g.recommendationScore != null);
+  if (!hasAny) {
+    return topDealsByScore(deals, limit: limit);
+  }
+  final sorted = List<GameModel>.from(deals)
+    ..sort((a, b) {
+      final ar = a.recommendationScore;
+      final br = b.recommendationScore;
+      if (ar != null || br != null) {
+        final av = ar ?? -1.0;
+        final bv = br ?? -1.0;
+        final c = bv.compareTo(av);
+        if (c != 0) return c;
+      }
+      return calculateScore(b).compareTo(calculateScore(a));
+    });
+  return sorted.take(limit).toList();
+}
+
 /// 去重键：Steam app id → 纯数字 [appId]/[dealID]（CheapShark 常为 deal id）→ 规范化名称
 String dealIdentityKey(GameModel g) {
   final sid = g.steamAppID.trim();

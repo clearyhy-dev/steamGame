@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../../core/theme/colors.dart';
+import '../../../../l10n/app_localizations.dart';
 import '../providers/steam_providers.dart';
 
 class SteamFavoritesPage extends StatefulWidget {
@@ -18,16 +19,21 @@ class _SteamFavoritesPageState extends State<SteamFavoritesPage> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(title: const Text('My Favorites')),
+      appBar: AppBar(title: Text(l10n.get('steam_menu_favorites'))),
       body: ValueListenableBuilder(
         valueListenable: steamFavoritesProvider,
         builder: (_, state, __) {
           if (state.loading) return const Center(child: CircularProgressIndicator());
-          if (state.error != null) return _ErrorRetry(message: state.error!, onRetry: () => SteamProviderActions.instance.loadFavorites());
+          if (state.error != null) {
+            return _ErrorRetry(message: state.error!, onRetry: () => SteamProviderActions.instance.loadFavorites());
+          }
           final list = state.data ?? const [];
-          if (list.isEmpty) return const Center(child: Text('暂无收藏'));
+          if (list.isEmpty) {
+            return Center(child: Text(l10n.get('steam_no_favorites_yet')));
+          }
           return ListView.builder(
             itemCount: list.length,
             itemBuilder: (_, i) {
@@ -57,13 +63,13 @@ class _ErrorRetry extends StatelessWidget {
   final VoidCallback onRetry;
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return Center(
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         Padding(padding: const EdgeInsets.symmetric(horizontal: 24), child: Text(message, textAlign: TextAlign.center)),
         const SizedBox(height: 12),
-        ElevatedButton(onPressed: onRetry, child: const Text('Retry')),
+        ElevatedButton(onPressed: onRetry, child: Text(l10n.get('retry'))),
       ]),
     );
   }
 }
-

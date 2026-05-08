@@ -7,6 +7,7 @@ import '../../models/wishlist_model.dart';
 import '../../core/theme/colors.dart';
 import '../../core/app_remote_config.dart';
 import '../../core/constants/api_constants.dart';
+import '../../l10n/app_localizations.dart';
 
 import 'package:url_launcher/url_launcher.dart' as url_launcher;
 
@@ -71,6 +72,7 @@ class _SteamLibraryPageState extends State<SteamLibraryPage> {
   final SteamBackendService _backend = SteamBackendService();
 
   bool _loading = true;
+  bool _notSignedIn = false;
   String? _errorMessage;
   String? _ownedErrorMessage;
   String? _recentErrorMessage;
@@ -83,6 +85,7 @@ class _SteamLibraryPageState extends State<SteamLibraryPage> {
   Future<void> _load() async {
     setState(() {
       _loading = true;
+      _notSignedIn = false;
       _errorMessage = null;
       _ownedErrorMessage = null;
       _recentErrorMessage = null;
@@ -93,7 +96,7 @@ class _SteamLibraryPageState extends State<SteamLibraryPage> {
     if (token == null || token.isEmpty) {
       setState(() {
         _loading = false;
-        _errorMessage = 'Steam 尚未登录，请先在 Profile 页面完成 Steam OpenID 登录/绑定。';
+        _notSignedIn = true;
       });
       return;
     }
@@ -217,8 +220,9 @@ class _SteamLibraryPageState extends State<SteamLibraryPage> {
       );
     }
     if (!ok && mounted) {
+      final l10n = AppLocalizations.of(context);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('无法打开 Steam 登录链接，请检查网络/系统设置')),
+        SnackBar(content: Text(l10n.get('steam_login_open_failed'))),
       );
     }
   }
@@ -232,47 +236,72 @@ class _SteamLibraryPageState extends State<SteamLibraryPage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context);
 
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text('Steam Library'),
+        title: Text(l10n.get('steam_library_page_title')),
         backgroundColor: AppColors.background,
         elevation: 0,
         actions: [
           IconButton(
             icon: const Icon(Icons.sync),
+            tooltip: l10n.get('steam_sync_tooltip'),
             onPressed: _syncSteam,
           ),
         ],
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : _errorMessage != null
+          : _notSignedIn
               ? Center(
                   child: Padding(
                     padding: const EdgeInsets.all(16),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(_errorMessage!, style: theme.textTheme.titleMedium),
+                        Text(
+                          l10n.get('steam_library_not_signed_in_detail'),
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.titleMedium,
+                        ),
                         const SizedBox(height: 16),
                         ElevatedButton(
                           onPressed: _openSteamLoginStart,
-                          child: const Text('Continue with Steam'),
+                          child: Text(l10n.get('steam_continue')),
                         ),
                       ],
                     ),
                   ),
                 )
-              : RefreshIndicator(
+              : _errorMessage != null
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(_errorMessage!, style: theme.textTheme.titleMedium),
+                            const SizedBox(height: 16),
+                            ElevatedButton(
+                              onPressed: _openSteamLoginStart,
+                              child: Text(l10n.get('steam_continue')),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  : RefreshIndicator(
                   onRefresh: _load,
                   child: ListView(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                     children: [
                       _SectionHeader(
-                        title: 'Owned Games',
-                        trailing: Text('收藏：${_ownedGames.length}'),
+                        title: l10n.get('steam_menu_owned'),
+                        trailing: Text(
+                          '${_ownedGames.length}${l10n.get('steam_suffix_games')}',
+                        ),
                       ),
                       const SizedBox(height: 8),
                       if (_ownedErrorMessage != null)
@@ -284,11 +313,14 @@ class _SteamLibraryPageState extends State<SteamLibraryPage> {
                         _GameList(
                           games: _ownedGames,
                           onToggleFavorite: _toggleFavorite,
+                          emptyLabel: l10n.get('steam_no_data'),
                         ),
                       const SizedBox(height: 16),
                       _SectionHeader(
-                        title: 'Recently Played',
-                        trailing: Text('条目：${_recentGames.length}'),
+                        title: l10n.get('steam_menu_recent'),
+                        trailing: Text(
+                          '${_recentGames.length}${l10n.get('steam_suffix_games')}',
+                        ),
                       ),
                       const SizedBox(height: 8),
                       if (_recentErrorMessage != null)
@@ -300,11 +332,14 @@ class _SteamLibraryPageState extends State<SteamLibraryPage> {
                         _GameList(
                           games: _recentGames,
                           onToggleFavorite: _toggleFavorite,
+                          emptyLabel: l10n.get('steam_no_data'),
                         ),
                       const SizedBox(height: 16),
                       _SectionHeader(
-                        title: 'Friends Status',
-                        trailing: Text('好友：${_friends.length}'),
+                        title: l10n.get('steam_menu_friends'),
+                        trailing: Text(
+                          '${_friends.length}${l10n.get('steam_suffix_people')}',
+                        ),
                       ),
                       const SizedBox(height: 8),
                       if (_friendsErrorMessage != null)
@@ -313,7 +348,14 @@ class _SteamLibraryPageState extends State<SteamLibraryPage> {
                           child: Text(_friendsErrorMessage!, style: theme.textTheme.bodyMedium),
                         )
                       else
-                        _FriendList(friends: _friends),
+                        _FriendList(
+                          friends: _friends,
+                          emptyLabel: l10n.get('steam_no_friends_visible'),
+                          inGameLine: (status, game) => l10n
+                              .get('steam_friend_status_in_game')
+                              .replaceAll('{status}', status)
+                              .replaceAll('{game}', game),
+                        ),
                       const SizedBox(height: 24),
                     ],
                   ),
@@ -347,15 +389,20 @@ class _SectionHeader extends StatelessWidget {
 class _GameList extends StatelessWidget {
   final List<SteamGameItem> games;
   final Future<void> Function(SteamGameItem game) onToggleFavorite;
+  final String emptyLabel;
 
-  const _GameList({required this.games, required this.onToggleFavorite});
+  const _GameList({
+    required this.games,
+    required this.onToggleFavorite,
+    required this.emptyLabel,
+  });
 
   @override
   Widget build(BuildContext context) {
     if (games.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 12),
-        child: Text('暂无数据'),
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Text(emptyLabel),
       );
     }
 
@@ -419,21 +466,30 @@ class _GameList extends StatelessWidget {
 
 class _FriendList extends StatelessWidget {
   final List<SteamFriendRow> friends;
+  final String emptyLabel;
+  final String Function(String status, String game) inGameLine;
 
-  const _FriendList({required this.friends});
+  const _FriendList({
+    required this.friends,
+    required this.emptyLabel,
+    required this.inGameLine,
+  });
 
   @override
   Widget build(BuildContext context) {
     if (friends.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(vertical: 12),
-        child: Text('暂无好友状态'),
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Text(emptyLabel),
       );
     }
 
     final items = friends.length > 30 ? friends.sublist(0, 30) : friends;
     return Column(
       children: items.map((f) {
+        final subtitle = f.currentGame != null
+            ? inGameLine(f.personaLabel, f.currentGame!)
+            : f.personaLabel;
         return Card(
           margin: const EdgeInsets.only(bottom: 10),
           child: ListTile(
@@ -452,7 +508,7 @@ class _FriendList extends StatelessWidget {
             ),
             title: Text(f.personaName, maxLines: 1, overflow: TextOverflow.ellipsis),
             subtitle: Text(
-              f.currentGame != null ? '${f.personaLabel} - 当前玩：${f.currentGame}' : f.personaLabel,
+              subtitle,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),

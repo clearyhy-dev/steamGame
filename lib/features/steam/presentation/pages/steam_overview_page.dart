@@ -179,6 +179,18 @@ class _SteamOverviewPageState extends State<SteamOverviewPage> {
                             ..._buildCompactSteamMetrics(theme, l10n),
                             const SizedBox(height: 12),
                             _fullListLinks(theme, l10n),
+                            const SizedBox(height: 16),
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(4, 0, 4, 24),
+                              child: Text(
+                                l10n.get('steam_overview_footer'),
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  height: 1.35,
+                                  color: AppColors.textSecondary.withValues(alpha: 0.9),
+                                ),
+                              ),
+                            ),
                           ],
                         ),
                 ),

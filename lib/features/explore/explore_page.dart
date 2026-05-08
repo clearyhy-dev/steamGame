@@ -958,7 +958,7 @@ class _ExplorePageState extends State<ExplorePage>
                                       final freeList = score_util.uniqueList(
                                           freeToPlay, usedIds);
                                       final aiSorted = score_util
-                                          .topDealsByScore(_deals, limit: 30);
+                                          .topDealsForAiPicks(_deals, limit: 30);
                                       final aiList = score_util.uniqueList(
                                           aiSorted, usedIds);
                                       final newR = score_util.uniqueList(

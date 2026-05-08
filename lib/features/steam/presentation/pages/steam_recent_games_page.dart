@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../../core/theme/colors.dart';
 import '../../../../core/navigation/game_detail_navigation.dart';
+import '../../../../l10n/app_localizations.dart';
 import '../providers/steam_providers.dart';
 
 class SteamRecentGamesPage extends StatefulWidget {
@@ -19,16 +20,26 @@ class _SteamRecentGamesPageState extends State<SteamRecentGamesPage> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final dash = l10n.get('steam_dash');
+    final hoursLine = l10n
+        .get('steam_recent_playtime_placeholder')
+        .replaceAll('{w}', dash)
+        .replaceAll('{t}', dash);
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(title: const Text('Recent Games')),
+      appBar: AppBar(title: Text(l10n.get('steam_recent_title'))),
       body: ValueListenableBuilder(
         valueListenable: steamRecentGamesProvider,
         builder: (_, state, __) {
           if (state.loading) return const Center(child: CircularProgressIndicator());
-          if (state.error != null) return _ErrorRetry(message: state.error!, onRetry: () => SteamProviderActions.instance.loadRecentGames());
+          if (state.error != null) {
+            return _ErrorRetry(message: state.error!, onRetry: () => SteamProviderActions.instance.loadRecentGames());
+          }
           final list = state.data ?? const [];
-          if (list.isEmpty) return const Center(child: Text('暂无最近游戏'));
+          if (list.isEmpty) {
+            return Center(child: Text(l10n.get('steam_no_recent_visible')));
+          }
           return ListView.builder(
             itemCount: list.length,
             itemBuilder: (_, i) {
@@ -36,7 +47,7 @@ class _SteamRecentGamesPageState extends State<SteamRecentGamesPage> {
               return ListTile(
                 leading: g.headerImage.isNotEmpty ? Image.network(g.headerImage, width: 56, fit: BoxFit.cover) : null,
                 title: Text(g.name),
-                subtitle: const Text('近两周：-- 小时   总时长：-- 小时'),
+                subtitle: Text(hoursLine),
                 onTap: () {
                   Navigator.of(context).push(gameDetailRouteByAppId(g.appid));
                 },
@@ -55,13 +66,13 @@ class _ErrorRetry extends StatelessWidget {
   final VoidCallback onRetry;
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return Center(
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         Padding(padding: const EdgeInsets.symmetric(horizontal: 24), child: Text(message, textAlign: TextAlign.center)),
         const SizedBox(height: 12),
-        ElevatedButton(onPressed: onRetry, child: const Text('Retry')),
+        ElevatedButton(onPressed: onRetry, child: Text(l10n.get('retry'))),
       ]),
     );
   }
 }
-

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../../core/theme/colors.dart';
+import '../../../../l10n/app_localizations.dart';
 import '../providers/steam_providers.dart';
 
 class SteamFriendsPage extends StatefulWidget {
@@ -18,21 +19,24 @@ class _SteamFriendsPageState extends State<SteamFriendsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(title: const Text('Steam Friends')),
+      appBar: AppBar(title: Text(l10n.get('steam_friends_title'))),
       body: ValueListenableBuilder(
         valueListenable: steamFriendsProvider,
         builder: (_, state, __) {
           if (state.loading) return const Center(child: CircularProgressIndicator());
           if (state.error != null) {
             final msg = state.error!.contains('STEAM_FRIENDS_PRIVATE')
-                ? 'Your Steam friends list is private'
+                ? l10n.get('steam_friends_list_private')
                 : state.error!;
             return _ErrorRetry(message: msg, onRetry: () => SteamProviderActions.instance.loadFriends());
           }
           final list = state.data ?? const [];
-          if (list.isEmpty) return const Center(child: Text('暂无好友状态'));
+          if (list.isEmpty) {
+            return Center(child: Text(l10n.get('steam_no_friends_visible')));
+          }
           return RefreshIndicator(
             onRefresh: SteamProviderActions.instance.loadFriends,
             child: ListView.builder(
@@ -59,13 +63,13 @@ class _ErrorRetry extends StatelessWidget {
   final VoidCallback onRetry;
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return Center(
       child: Column(mainAxisSize: MainAxisSize.min, children: [
         Padding(padding: const EdgeInsets.symmetric(horizontal: 24), child: Text(message, textAlign: TextAlign.center)),
         const SizedBox(height: 12),
-        ElevatedButton(onPressed: onRetry, child: const Text('Retry')),
+        ElevatedButton(onPressed: onRetry, child: Text(l10n.get('retry'))),
       ]),
     );
   }
 }
-
