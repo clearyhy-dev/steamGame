@@ -8,8 +8,8 @@
 
 ## 总体架构（建议先读）
 
-- **系统最终形态（架构/数据流/权限/订阅/广告/多语言）**：`docs/ARCHITECTURE_FINAL.md`
-- **代码结构约束与模块边界**：`docs/STRUCTURE_FINAL.md`
+- **系统最终形态（架构/数据流/权限/订阅/广告/多语言）**：[docs/ARCHITECTURE_FINAL.md](docs/ARCHITECTURE_FINAL.md)
+- **代码结构约束与模块边界**：[docs/STRUCTURE_FINAL.md](docs/STRUCTURE_FINAL.md)
 
 ## App 端功能概览
 
@@ -28,27 +28,27 @@ Flutter App **不直连业务数据库**。数据来自：
 
 完整接口清单、用途、是否经后端、与“读库”的对应关系、优化建议见：
 
-- `docs/APP_NETWORK_ARCHITECTURE.md`
+- [docs/APP_NETWORK_ARCHITECTURE.md](docs/APP_NETWORK_ARCHITECTURE.md)
 
 ## 后端功能与服务职责
 
-- **后端部署总览**：`docs/deployment.md`
-- **Cloud Run 细节与踩坑**：`docs/GCP_CLOUD_RUN.md`
-- **Steam 后端部署/回跳配置**：`docs/STEAM_BACKEND_DEPLOY.md`
-- **管理后台（Admin）功能说明**：`docs/ADMIN_DASHBOARD.md`
-- **管理端接口总表**：`docs/BACKEND_ADMIN_APIS.md`
+- **后端部署总览**：[docs/deployment.md](docs/deployment.md)
+- **Cloud Run 细节与踩坑**：[docs/GCP_CLOUD_RUN.md](docs/GCP_CLOUD_RUN.md)
+- **Steam 后端部署/回跳配置**：[docs/STEAM_BACKEND_DEPLOY.md](docs/STEAM_BACKEND_DEPLOY.md)
+- **管理后台（Admin）功能说明**：[docs/ADMIN_DASHBOARD.md](docs/ADMIN_DASHBOARD.md)
+- **管理端接口总表**：[docs/BACKEND_ADMIN_APIS.md](docs/BACKEND_ADMIN_APIS.md)
 
 ## 本地开发与打包
 
-- **开发机/打包（D 盘缓存约束）**：`docs/README.md`
-- **Google Sign-In 配置**：`docs/GOOGLE_SIGNIN_SETUP.md`、`docs/GOOGLE_SIGNIN_CODE_AND_CHECKLIST.md`
-- **通知排查**：`docs/NOTIFICATIONS_TROUBLESHOOTING.md`
+- **开发机/打包（D 盘缓存约束）**：[docs/README.md](docs/README.md)
+- **Google Sign-In 配置**：[docs/GOOGLE_SIGNIN_SETUP.md](docs/GOOGLE_SIGNIN_SETUP.md)、[docs/GOOGLE_SIGNIN_CODE_AND_CHECKLIST.md](docs/GOOGLE_SIGNIN_CODE_AND_CHECKLIST.md)
+- **通知排查**：[docs/NOTIFICATIONS_TROUBLESHOOTING.md](docs/NOTIFICATIONS_TROUBLESHOOTING.md)
 
 ---
 
 ## 优化清单（架构师视角，按优先级）
 
-下面是“明确可落地”的改造方向，用于你快速定位系统问题与改造优先级（详细背景可在 `docs/APP_NETWORK_ARCHITECTURE.md` 对照接口与数据流）。
+下面是“明确可落地”的改造方向，用于你快速定位系统问题与改造优先级（详细背景可在 [docs/APP_NETWORK_ARCHITECTURE.md](docs/APP_NETWORK_ARCHITECTURE.md) 对照接口与数据流）。
 ### P0（稳定性 / 可维护性优先）
 
 - **统一网络层出口**：当前存在 `SteamBackendService` 与 `ApiClient` 双轨（baseUrl、超时、重试、错误映射不同），建议统一为一个底层 client + 统一拦截器/日志/超时策略。
@@ -67,4 +67,4 @@ Flutter App **不直连业务数据库**。数据来自：
 - **公开接口限流与滥用防护**：对匿名可访问的 `/api/games/*` 系列在网关层做 rate-limit 与缓存策略区分（匿名 vs 带 token）。
 - **隐私与截图泄露策略统一**：SteamID/链接遮罩在各 Steam 页面保持一致（已有部分实现，建议统一策略层）。
 
-> 关联的历史清单与想法：`docs/TODO_CHECKLIST.md`、`docs/ITAD_OPTIMIZATION_IDEAS.md`、`docs/REGIONAL_HOTNESS.md`
+> 关联的历史清单与想法：[docs/TODO_CHECKLIST.md](docs/TODO_CHECKLIST.md)、[docs/ITAD_OPTIMIZATION_IDEAS.md](docs/ITAD_OPTIMIZATION_IDEAS.md)、[docs/REGIONAL_HOTNESS.md](docs/REGIONAL_HOTNESS.md)
