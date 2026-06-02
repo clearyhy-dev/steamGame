@@ -16,7 +16,6 @@ export type DiscountProvidersSettings = {
   cheapSharkBaseUrl: string;
   steamWebApiBaseUrl: string;
   steamStoreBaseUrl: string;
-  dealCountriesCsv: string;
   updatedAt: string;
   createdAt: string;
 };
@@ -49,9 +48,6 @@ export type RuntimeEffectiveSettings = {
   videoWorkerIntervalMs: number;
   appConnectTimeoutSec: number;
   appReceiveTimeoutSec: number;
-  appSupportedDealCountriesCsv?: string;
-  appCountryMapJson?: string;
-  appCountryCurrencyMapJson?: string;
 };
 
 export type AdminRequestLogRow = {
@@ -73,7 +69,71 @@ export type AdminRequestLogRow = {
 
 export type RuntimeSettingsResponse = {
   effective: RuntimeEffectiveSettings;
+  /** 合并 APP_BASE_URL 与可选覆盖后的最终文档地址（与 GET /api/config 一致） */
+  resolved: { appSwaggerUiUrl: string; appOpenApiJsonUrl: string };
   stored: Record<string, unknown>;
+};
+
+export type DataPlacementRow = {
+  category: string;
+  examples: string;
+  primaryStore: string;
+  notes: string;
+};
+
+export type InfrastructureConfigResponse = {
+  policy: {
+    largeObjectsOnGcpForbidden: boolean;
+    discountOffersPersistence: string;
+    cacheUploadBackend: string;
+  };
+  warnings: string[];
+  dataPlacement: DataPlacementRow[];
+  minio: {
+    enabled: boolean;
+    endpoint?: string;
+    bucket?: string;
+    accessKeyId?: string;
+    secretAccessKey?: string;
+    publicCdnBase?: string;
+    consoleUrlHint?: string;
+  };
+  redis: {
+    enabled: boolean;
+    url?: string;
+    host?: string;
+    port?: number;
+    hasPassword?: boolean;
+  };
+  sqlite: {
+    pathOnVultrHost: string;
+    appConnected: boolean;
+    dataApiUrl?: string;
+    note: string;
+  };
+  gcp: {
+    firestoreProjectId: string;
+    gcsConfigured: boolean;
+    gcsCacheBucket: string;
+    videoGcsBucket: string;
+  };
+};
+
+export type InfrastructureMinioBrowseResponse = {
+  bucket: string;
+  prefix: string;
+  objects: { key: string; size: number; lastModified: string | null }[];
+  truncated: boolean;
+  prefixSummary: { prefix: string; objectCount: number; totalBytes: number }[];
+};
+
+export type InfrastructureRedisBrowseResponse = {
+  connected: boolean;
+  dbSize: number;
+  memoryHuman?: string;
+  keyPrefix: string;
+  sampleKeys: string[];
+  error?: string;
 };
 
 export type MetaEndpointRow = {
@@ -81,9 +141,13 @@ export type MetaEndpointRow = {
   path: string;
   authRequired: boolean;
   scope: 'app_backend' | 'app_public' | 'admin' | 'third_party';
+  /** App / Admin / 公开 / OAuth / 运维 / 混合 */
+  audience?: 'app' | 'admin' | 'public' | 'browser_oauth' | 'ops' | 'mixed';
   name: string;
   usedBy?: string[];
   notes?: string;
+  whenToCall?: string;
+  purpose?: string;
 };
 
 export type MetaEndpointsResponse = {
@@ -138,6 +202,8 @@ export type VideoRow = {
   durationSec?: number;
   deliveryType: string;
   thumbnailUrl?: string;
+  /** 无预告片封面时由 API 回填的游戏头图 */
+  gameHeaderImage?: string | null;
   playbackUrl?: string;
   signedPlaybackUrl?: string;
   signedPlaybackExpiresAt?: string | null;
@@ -174,6 +240,69 @@ export type SteamGameRow = {
   lastFetchedAt: string | null;
 };
 
+/** 管理端列表 `insight_country` 列：与 `buildCountryInsightForAdminList` 对齐 */
+export type GameCountryInsight = {
+  countryCode: string;
+  steamStoreUrl?: string | null;
+  steamPurchaseUrl?: string | null;
+  configuredCurrency?: string | null;
+  steamPriceCurrency?: string | null;
+  itadPurchaseUrl?: string | null;
+  itadProviderLabel?: string;
+  itadBucketCountry?: string;
+  itadApiCountry?: string | null;
+  itadCurrentFinal?: number | null;
+  itadCurrentOriginal?: number | null;
+  itadCurrentCurrency?: string | null;
+  itadCurrentDiscountPercent?: number | null;
+  itadCurrentPriceDisplay?: string | null;
+  ggDealsUrl?: string | null;
+  ggProviderLabel?: string;
+  ggBucketCountry?: string;
+  ggApiRegion?: string | null;
+  ggCurrentFinal?: number | null;
+  ggCurrentCurrency?: string | null;
+  ggCurrentDiscountPercent?: number | null;
+  ggCurrentPriceDisplay?: string | null;
+  ggOfficialPrices?: {
+    currentRetail?: number;
+    currentKeyshops?: number;
+    historicalRetail?: number;
+    historicalKeyshops?: number;
+    currency?: string;
+    lowestCurrentSource?: 'retail' | 'keyshop';
+  } | null;
+  ggNearHistoricalLow?: boolean | null;
+  ggTrendScore?: number | null;
+  ggHotToday?: boolean | null;
+  ggTrending?: boolean | null;
+  ggRising?: boolean | null;
+  ggRecentAttention?: boolean | null;
+  ggPlayerRatingPercent?: number | null;
+  ggPlayerRatingLabel?: string | null;
+  cheapSharkUrl?: string | null;
+  itadGameId?: string | null;
+  historyLowAll?: string | null;
+  historyLowY1?: string | null;
+  historyLowM3?: string | null;
+  itadBundleCount?: number;
+  itadPriceHistoryPoints?: number;
+  itadWaitlisted?: unknown;
+  itadRank?: unknown;
+  nearHistoricalLow?: boolean | null;
+  worthBuy?: {
+    score: number;
+    D: number;
+    R: number;
+    P: number;
+    T: number;
+    formula?: string;
+    computedAt?: string | null;
+  } | null;
+  multiStoreExpansionNote?: string;
+  ggDiscoveryNote?: string;
+};
+
 export type GameManageRow = {
   appid: string;
   name: string;
@@ -193,6 +322,11 @@ export type GameManageRow = {
   detailSynced?: boolean;
   clickCount: number;
   lastDetailSyncAt: string | null;
+  /** 最近一次各渠道价格同步时间（来自分桶 offer） */
+  lastPriceSyncAt?: string | null;
+  /** 在 DEAL_SYNC_PRICE_DAY_TZ（默认 Asia/Shanghai）日历日内已同步过价格 */
+  priceSyncedToday?: boolean;
+  countryInsight?: GameCountryInsight;
 };
 
 export type DealLinkRow = {
@@ -235,7 +369,6 @@ export type GameDetailResponse = {
     headerImage?: string;
     screenshots: string[];
     trailerUrls: string[];
-    discountUrl: string;
     steamStoreUrl?: string;
     shortDescription?: string;
     developers?: string[];
@@ -247,6 +380,15 @@ export type GameDetailResponse = {
     currentPlayers?: number;
     clickCount?: number;
     lastDetailSyncAt?: string | null;
+    /** 多国分桶比价快照（`game_discount_offers`） */
+    byCountry?: Record<string, Record<string, unknown>>;
+    /** 周热度主表 `game_weekly_heat` */
+    weeklyHeat?: {
+      currentPlayers?: number | null;
+      weekKey?: string | null;
+      fetchedAt?: string | null;
+      playersDaily?: Array<{ day: string; players: number }>;
+    };
   };
   dealLinks?: DealLinkRow[];
   bestDeal?: {
@@ -273,6 +415,136 @@ export type GameDetailResponse = {
     timestampUpdated: number;
   }>;
   videos: VideoRow[];
+};
+
+export type ScheduledTaskKey =
+  | 'steam_catalog_sync'
+  | 'market_country_round_robin'
+  | 'market_build_lists'
+  | 'cleanup_invalid_deal_links'
+  | 'build_public_cache'
+  | 'request_log_cleanup';
+
+export type ScheduledTaskConfigRow = {
+  id: string;
+  label: string;
+  enabled: boolean;
+  taskKey: ScheduledTaskKey;
+  /** IANA；默认美国东部 */
+  timezone: string;
+  frequency: 'daily' | 'hourly' | 'every_n_hours';
+  timeOfDay?: string;
+  everyHours?: number;
+  payload?: Record<string, unknown>;
+  lastRunAt?: string | null;
+  lastRunOk?: boolean | null;
+  lastRunSummary?: string | null;
+  lastError?: string;
+};
+
+export type ScheduledTasksConfigResponse = {
+  tasks: ScheduledTaskConfigRow[];
+  updatedAt: string;
+  createdAt: string;
+  discountOffersPersistence?: 'firestore' | 'object_storage';
+};
+
+export type MarketPlatformPriceCell = {
+  originalPrice: number | null;
+  finalPrice: number | null;
+  discountPercent: number | null;
+  currency: string | null;
+  url: string | null;
+};
+
+export type MarketGamePriceSummary = {
+  originalPrice: number | null;
+  finalPrice: number | null;
+  discountPercent: number | null;
+  steamStoreUrl: string | null;
+  platforms: {
+    steam: MarketPlatformPriceCell;
+    isthereanydeal: MarketPlatformPriceCell;
+    ggdeals: MarketPlatformPriceCell;
+    cheapshark: MarketPlatformPriceCell;
+  };
+};
+
+export type MarketGameRow = {
+  countryCode: string;
+  appid: string;
+  name: string;
+  currency: string;
+  currencySymbol: string;
+  currentPlayers: number;
+  discountPercent: number;
+  originalPrice: number | null;
+  finalPrice: number | null;
+  heatScore: number;
+  detailSyncedAtMs: number | null;
+  priceSyncedAtMs: number | null;
+  detailJsonPath: string;
+  heatJsonPath: string;
+  pricesJsonPath: string;
+  priceSummary: MarketGamePriceSummary | null;
+};
+
+export type MarketSyncGlobalState = {
+  countryQueue: string[];
+  currentCountryIndex: number;
+  currentCountryCode: string | null;
+  appidCursor: string;
+  lastRunAtMs: number | null;
+  lastRunSummary: string | null;
+};
+
+export type MarketGamesListResponse = {
+  countryCode: string;
+  currency: string;
+  currencySymbol: string;
+  page: number;
+  pageSize: number;
+  total: number;
+  rows: MarketGameRow[];
+};
+
+export type MarketGameDetailResponse = {
+  index: MarketGameRow | null;
+  detail: Record<string, unknown> | null;
+  heat: Record<string, unknown> | null;
+  prices: Record<string, unknown> | null;
+  priceSummary: MarketGamePriceSummary | null;
+};
+
+export type SqliteDbInfo = {
+  dataStore: string;
+  sqliteApiUrl: string;
+  tableCount: number;
+  gameCatalogCount: number | null;
+};
+
+export type SqliteColumnMeta = {
+  name: string;
+  type: string;
+  notnull: boolean;
+  dfltValue: string | null;
+  pk: number;
+};
+
+export type SqliteTableMeta = {
+  name: string;
+  columnCount: number;
+  primaryKeyColumns: string[];
+  hasDataJson: boolean;
+  filterableColumns: string[];
+};
+
+export type SqliteRowsResponse = {
+  table: string;
+  rows: Record<string, unknown>[];
+  limit: number;
+  offset: number;
+  total?: number;
 };
 
 export type AdminUserRow = {

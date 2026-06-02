@@ -144,7 +144,34 @@ class _ExplorePageState extends State<ExplorePage>
     }
     final token = _backendToken;
     if (token == null || token.isEmpty) {
-      if (mounted) setState(() => _exploreFeed = []);
+      if (mounted) setState(() => _exploreLoading = true);
+      try {
+        final region = await AppCountryResolver.resolveContext();
+        final lang = await PriceRegionResolver.effectiveSteamUiLanguage();
+        final data = await SteamBackendService().getTrendingPublicRecommendations(
+          country: region.countryCode,
+          language: lang,
+        );
+        final raw = data['items'] as List<dynamic>? ?? [];
+        final games = raw
+            .map((e) =>
+                RecommendedItem.fromJson(Map<String, dynamic>.from(e as Map))
+                    .toGameModel())
+            .toList();
+        if (mounted) {
+          setState(() {
+            _exploreFeed = games;
+            _exploreLoading = false;
+          });
+        }
+      } catch (_) {
+        if (mounted) {
+          setState(() {
+            _exploreFeed = [];
+            _exploreLoading = false;
+          });
+        }
+      }
       return;
     }
     if (mounted) setState(() => _exploreLoading = true);
@@ -205,8 +232,21 @@ class _ExplorePageState extends State<ExplorePage>
     if (list.isEmpty || isNewDay || forceRefresh) {
       if (canFetch) {
         List<GameModel> fetched = const [];
+        try {
+          final langPub =
+              await PriceRegionResolver.effectiveSteamUiLanguage();
+          final pub = await SteamBackendService()
+              .getTrendingPublicRecommendations(
+                  country: region.countryCode, language: langPub);
+          final raw = pub['items'] as List<dynamic>? ?? const [];
+          fetched = raw
+              .whereType<Map>()
+              .map((e) => RecommendedItem.fromJson(
+                  Map<String, dynamic>.from(e)).toGameModel())
+              .toList();
+        } catch (_) {}
         final token = _backendToken;
-        if (token != null && token.isNotEmpty) {
+        if (fetched.isEmpty && token != null && token.isNotEmpty) {
           try {
             final lang = await PriceRegionResolver.effectiveSteamUiLanguage();
             final data = await SteamBackendService().getExploreRecommendations(
@@ -216,21 +256,6 @@ class _ExplorePageState extends State<ExplorePage>
               language: lang,
             );
             final raw = data['items'] as List<dynamic>? ?? const [];
-            fetched = raw
-                .whereType<Map>()
-                .map((e) => RecommendedItem.fromJson(
-                    Map<String, dynamic>.from(e)).toGameModel())
-                .toList();
-          } catch (_) {}
-        }
-        if (fetched.isEmpty) {
-          try {
-            final langPub =
-                await PriceRegionResolver.effectiveSteamUiLanguage();
-            final pub = await SteamBackendService()
-                .getTrendingPublicRecommendations(
-                    country: region.countryCode, language: langPub);
-            final raw = pub['items'] as List<dynamic>? ?? const [];
             fetched = raw
                 .whereType<Map>()
                 .map((e) => RecommendedItem.fromJson(

@@ -1,13 +1,20 @@
-import { Button, Card, Form, Input, InputNumber, Modal, Space, Switch, Table, Typography, message } from 'antd';
+import { AutoComplete, Button, Card, Form, Input, InputNumber, Modal, Space, Switch, Table, Typography, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useCallback, useEffect, useState } from 'react';
 import { adminApi } from '../api/admin';
+import { defaultCurrencySymbol, effectiveCurrencySymbol } from '../utils/currencySymbol';
 
 type Row = {
   countryCode: string;
   countryName: string;
   nativeName?: string;
   steamCc: string;
+  /** ITAD API country（ISO2）；空则同 countryCode */
+  itadCountry?: string;
+  /** GG.deals region（通常小写 ISO2）；空则同 countryCode */
+  ggDealsRegion?: string;
+  /** CheapShark country 参数（ISO2）；空则同 countryCode */
+  cheapsharkCountry?: string;
   steamLanguage: string;
   uiLanguage: string;
   defaultCurrency: string;
@@ -16,12 +23,19 @@ type Row = {
   sortOrder: number;
 };
 
+type ProviderMeta = {
+  ggDealsSuggestedRegions: string[];
+  cheapsharkListCountry: string;
+  cheapsharkNote: string;
+};
+
 export function CountryRegionMappingPage() {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Row | null>(null);
   const [form] = Form.useForm();
+  const [providerMeta, setProviderMeta] = useState<ProviderMeta | null>(null);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -35,18 +49,47 @@ export function CountryRegionMappingPage() {
     }
   }, []);
 
+  const loadProviderMeta = useCallback(async () => {
+    try {
+      const m = await adminApi.regionCountriesProviderMeta();
+      setProviderMeta(m);
+    } catch {
+      setProviderMeta(null);
+    }
+  }, []);
+
+  /** 首次进入：拉元数据；空白 ITAD/GG/CS 按规则写入库后再拉列表（幂等） */
   useEffect(() => {
-    void reload();
-  }, [reload]);
+    let cancelled = false;
+    void loadProviderMeta();
+    (async () => {
+      try {
+        const r = await adminApi.regionCountriesSyncProviderCodes(false);
+        if (!cancelled && r.updated > 0) {
+          message.success(`已按规则补全 ${r.updated} 条比价国别（GG 含 eu；CS 固定 US）`);
+        }
+      } catch {
+        /* 同步失败仍加载表格 */
+      }
+      if (!cancelled) await reload();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [reload, loadProviderMeta]);
 
   const onSubmit = async () => {
     try {
       const v = await form.validateFields();
+      const csFixed = providerMeta?.cheapsharkListCountry ?? 'US';
       await adminApi.regionCountriesUpsert({
         countryCode: String(v.countryCode).trim().toUpperCase(),
         countryName: String(v.countryName).trim(),
         nativeName: v.nativeName != null ? String(v.nativeName) : '',
         steamCc: String(v.steamCc).trim().toUpperCase(),
+        itadCountry: String(v.itadCountry ?? '').trim(),
+        ggDealsRegion: String(v.ggDealsRegion ?? '').trim(),
+        cheapsharkCountry: csFixed,
         steamLanguage: String(v.steamLanguage).trim().toLowerCase(),
         uiLanguage: String(v.uiLanguage ?? '').trim().toLowerCase(),
         defaultCurrency: String(v.defaultCurrency).trim().toUpperCase(),
@@ -67,10 +110,18 @@ export function CountryRegionMappingPage() {
     { title: 'countryName', dataIndex: 'countryName' },
     { title: 'nativeName', dataIndex: 'nativeName', ellipsis: true },
     { title: 'steamCc', dataIndex: 'steamCc', width: 80 },
+    { title: 'ITAD', dataIndex: 'itadCountry', width: 72, render: (v: string) => v || '—' },
+    { title: 'GG', dataIndex: 'ggDealsRegion', width: 72, render: (v: string) => v || '—' },
+    { title: 'CS', dataIndex: 'cheapsharkCountry', width: 72, render: (v: string) => v || '—' },
     { title: 'steamLanguage', dataIndex: 'steamLanguage', width: 110 },
     { title: 'uiLanguage', dataIndex: 'uiLanguage', width: 100 },
     { title: 'currency', dataIndex: 'defaultCurrency', width: 90 },
-    { title: 'symbol', dataIndex: 'currencySymbol', width: 90 },
+    {
+      title: 'symbol',
+      dataIndex: 'currencySymbol',
+      width: 90,
+      render: (v: string, r: Row) => effectiveCurrencySymbol(r.defaultCurrency, v),
+    },
     { title: 'sort', dataIndex: 'sortOrder', width: 70 },
     {
       title: 'enabled',
@@ -96,7 +147,17 @@ export function CountryRegionMappingPage() {
       key: 'edit',
       width: 80,
       render: (_, r) => (
-        <Button type="link" onClick={() => { setEditing(r); form.setFieldsValue(r); setOpen(true); }}>
+        <Button
+          type="link"
+          onClick={() => {
+            setEditing(r);
+            form.setFieldsValue({
+              ...r,
+              cheapsharkCountry: providerMeta?.cheapsharkListCountry ?? 'US',
+            });
+            setOpen(true);
+          }}
+        >
           编辑
         </Button>
       ),
@@ -104,11 +165,42 @@ export function CountryRegionMappingPage() {
   ];
 
   return (
-    <Card title="Country / Steam Region Mapping">
+    <Card title="Country / Steam · 比价平台国别">
       <Typography.Paragraph type="secondary">
-        配置 App 国家与 Steam 商店 cc / 语言。公开接口仅返回 enabled 国家；详情页价格以 Steam 返回的 formatted 字符串为准。
+        <Typography.Text strong>ITAD</Typography.Text>：<Typography.Text code>country</Typography.Text> 用与 Steam 店区一致的 ISO2 大写。
+        <Typography.Text strong> GG.deals</Typography.Text>：<Typography.Text code>region</Typography.Text> 用小写；欧元区部分国家用{' '}
+        <Typography.Text code>eu</Typography.Text>（奥地利、葡萄牙、希腊等无单独 region 时）。
+        <Typography.Text strong> CheapShark</Typography.Text>：列表 API 无真实区域价，
+        <Typography.Text code>country</Typography.Text> 请固定 <Typography.Text code>US</Typography.Text>，各国折扣以 ITAD/GG 为准。
       </Typography.Paragraph>
-      <Space style={{ marginBottom: 12 }}>
+      <Space style={{ marginBottom: 12 }} wrap>
+        <Button
+          onClick={async () => {
+            try {
+              const r = await adminApi.regionCountriesSyncProviderCodes(false);
+              message.success(r.updated ? `已补全空白 ${r.updated} 条（含 GG eu / CS US）` : '无空白需补全');
+              await reload();
+            } catch (e) {
+              message.error(e instanceof Error ? e.message : '同步失败');
+            }
+          }}
+        >
+          按规则补全空白
+        </Button>
+        <Button
+          danger
+          onClick={async () => {
+            try {
+              const r = await adminApi.regionCountriesSyncProviderCodes(true);
+              message.success(`已强制覆盖 ${r.updated} 条（ITAD/GG/CS 规则）`);
+              await reload();
+            } catch (e) {
+              message.error(e instanceof Error ? e.message : '同步失败');
+            }
+          }}
+        >
+          强制按规则覆盖全部
+        </Button>
         <Button
           type="primary"
           onClick={() => {
@@ -121,6 +213,7 @@ export function CountryRegionMappingPage() {
               uiLanguage: 'en',
               defaultCurrency: 'USD',
               currencySymbol: '$',
+              cheapsharkCountry: providerMeta?.cheapsharkListCountry ?? 'US',
             });
             setOpen(true);
           }}
@@ -131,14 +224,14 @@ export function CountryRegionMappingPage() {
           刷新
         </Button>
       </Space>
-      <Table<Row> rowKey="countryCode" loading={loading} columns={columns} dataSource={rows} scroll={{ x: 960 }} />
+      <Table<Row> rowKey="countryCode" loading={loading} columns={columns} dataSource={rows} scroll={{ x: 1200 }} />
       <Modal
         title={editing ? `编辑 ${editing.countryCode}` : '新增国家'}
         open={open}
         onOk={() => void onSubmit()}
         onCancel={() => setOpen(false)}
         destroyOnClose
-        width={560}
+        width={640}
       >
         <Form form={form} layout="vertical">
           <Form.Item name="countryCode" label="countryCode (ISO2)" rules={[{ required: true }]}>
@@ -150,8 +243,44 @@ export function CountryRegionMappingPage() {
           <Form.Item name="nativeName" label="nativeName">
             <Input />
           </Form.Item>
-          <Form.Item name="steamCc" label="steamCc" rules={[{ required: true }]}>
+          <Form.Item name="steamCc" label="steamCc (Steam 商店)" rules={[{ required: true }]}>
             <Input maxLength={2} />
+          </Form.Item>
+          <Typography.Text type="secondary">
+            以下为各比价平台；留空时保存会按 Steam cc 自动填 ITAD/GG，CheapShark 固定 US。
+          </Typography.Text>
+          <Form.Item
+            name="itadCountry"
+            label="ITAD country (ISO2)"
+            extra="与 Steam 店区一致的大写 ISO2；留空则按 steamCc"
+          >
+            <Input maxLength={2} placeholder="留空 = 按 steamCc" />
+          </Form.Item>
+          <Form.Item
+            name="ggDealsRegion"
+            label="GG.deals region"
+            extra="小写两位（或 eu）。可从建议中选，也可手输如 jp、mx"
+          >
+            <AutoComplete
+              maxLength={8}
+              placeholder="如 de、gb、eu…"
+              options={(providerMeta?.ggDealsSuggestedRegions ?? []).map((x) => ({ value: x }))}
+              filterOption={(input, option) =>
+                (option?.value ?? '').toLowerCase().includes(input.trim().toLowerCase())
+              }
+            />
+          </Form.Item>
+          <Form.Item name="cheapsharkCountry" hidden>
+            <Input />
+          </Form.Item>
+          <Form.Item label="CheapShark country">
+            <Typography.Text>
+              固定 <Typography.Text code>{providerMeta?.cheapsharkListCountry ?? 'US'}</Typography.Text>
+            </Typography.Text>
+            <Typography.Paragraph type="secondary" style={{ marginBottom: 0, marginTop: 4 }}>
+              {providerMeta?.cheapsharkNote ??
+                'CheapShark 无按国别区分的 deal 列表；保存时写入 US。'}
+            </Typography.Paragraph>
           </Form.Item>
           <Form.Item name="steamLanguage" label="steamLanguage" rules={[{ required: true }]}>
             <Input placeholder="en, ja, zh, schinese…" />
@@ -160,7 +289,15 @@ export function CountryRegionMappingPage() {
             <Input placeholder="en, zh, ja, ko..." />
           </Form.Item>
           <Form.Item name="defaultCurrency" label="defaultCurrency (fallback)" rules={[{ required: true }]}>
-            <Input maxLength={3} />
+            <Input
+              maxLength={3}
+              onChange={(e) => {
+                const code = e.target.value.trim().toUpperCase();
+                if (/^[A-Z]{3}$/.test(code)) {
+                  form.setFieldValue('currencySymbol', defaultCurrencySymbol(code));
+                }
+              }}
+            />
           </Form.Item>
           <Form.Item name="currencySymbol" label="currencySymbol" rules={[{ required: true }]}>
             <Input maxLength={8} placeholder="$, €, ¥, R$..." />

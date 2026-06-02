@@ -80,28 +80,26 @@ class HomeFeedController extends ChangeNotifier {
       dealsLoading = true;
       notifyListeners();
       try {
-        final token = await storage.getSteamBackendToken();
         List<GameModel> latest = const [];
-        if (token != null && token.isNotEmpty) {
+        try {
+          final lang = await PriceRegionResolver.effectiveSteamUiLanguage();
+          final pub = await _backend.getTrendingPublicRecommendations(
+              country: countryCode, language: lang);
+          final items = pub['items'] as List<dynamic>? ?? const [];
+          latest = items
+              .whereType<Map>()
+              .map((e) => RecommendedItem.fromJson(
+                  Map<String, dynamic>.from(e)).toGameModel())
+              .toList();
+        } catch (_) {}
+        final token = await storage.getSteamBackendToken();
+        if (latest.isEmpty && token != null && token.isNotEmpty) {
           try {
             final lang = await PriceRegionResolver.effectiveSteamUiLanguage();
             final rec =
                 await _backend.getHomeRecommendations(token,
                     country: countryCode, language: lang);
             final items = rec['items'] as List<dynamic>? ?? const [];
-            latest = items
-                .whereType<Map>()
-                .map((e) => RecommendedItem.fromJson(
-                    Map<String, dynamic>.from(e)).toGameModel())
-                .toList();
-          } catch (_) {}
-        }
-        if (latest.isEmpty) {
-          try {
-            final lang = await PriceRegionResolver.effectiveSteamUiLanguage();
-            final pub = await _backend.getTrendingPublicRecommendations(
-                country: countryCode, language: lang);
-            final items = pub['items'] as List<dynamic>? ?? const [];
             latest = items
                 .whereType<Map>()
                 .map((e) => RecommendedItem.fromJson(

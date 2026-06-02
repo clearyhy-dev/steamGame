@@ -90,8 +90,21 @@ class _WishlistScreenState extends State<WishlistScreen> {
     List<WishlistItem> items = await _storage.getWishlistItems();
     final region = await AppCountryResolver.resolveContext();
     List<GameModel> deals = const [];
+    try {
+      final lang = await PriceRegionResolver.effectiveSteamUiLanguage();
+      final data = await _backend.getTrendingPublicRecommendations(
+        country: region.countryCode,
+        language: lang,
+      );
+      final raw = data['items'] as List<dynamic>? ?? const [];
+      deals = raw
+          .whereType<Map>()
+          .map((e) => RecommendedItem.fromJson(
+              Map<String, dynamic>.from(e)).toGameModel())
+          .toList();
+    } catch (_) {}
     final token = await StorageService.instance.getSteamBackendToken();
-    if (token != null && token.isNotEmpty) {
+    if (deals.isEmpty && token != null && token.isNotEmpty) {
       try {
         final lang = await PriceRegionResolver.effectiveSteamUiLanguage();
         final data = await _backend.getExploreRecommendations(

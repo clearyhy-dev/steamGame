@@ -2,13 +2,26 @@ import admin from 'firebase-admin';
 import type { Firestore } from 'firebase-admin/firestore';
 import fs from 'fs';
 import { loadEnv } from './env';
+import { asFirestore, getVultrCompatFirestore } from '../storage/vultr-db/firestore-compat';
+import { logger } from '../utils/logger';
 
 let _firestore: Firestore | null = null;
+
+export function usesVultrSqliteStore(): boolean {
+  return loadEnv().dataStore === 'vultr_sqlite';
+}
 
 export function getFirestore(): Firestore {
   if (_firestore) return _firestore;
 
   const env = loadEnv();
+  if (env.dataStore === 'vultr_sqlite') {
+    logger.info(
+      '[database] DATA_STORE=vultr_sqlite — metadata in Vultr SQLite; large files in MinIO (no GCP Firestore/GCS)',
+    );
+    _firestore = asFirestore(getVultrCompatFirestore());
+    return _firestore;
+  }
 
   let app: admin.app.App;
   if (admin.apps.length > 0) {
@@ -20,13 +33,23 @@ export function getFirestore(): Firestore {
         projectId: env.firebaseProjectId,
         credential,
       });
-    } catch (e: any) {
+    } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e);
       throw new Error(`Firebase Admin initialization failed: ${message}`);
     }
   }
 
-  _firestore = app.firestore();
+  const db = app.firestore();
+  const preferRest =
+    process.env.FIRESTORE_PREFER_REST === '1' || /^true$/i.test(String(process.env.FIRESTORE_PREFER_REST ?? '').trim());
+  if (preferRest) {
+    try {
+      db.settings({ preferRest: true });
+    } catch {
+      /* ignore */
+    }
+  }
+  _firestore = db;
   return _firestore;
 }
 
@@ -45,13 +68,12 @@ function resolveCredential(googleApplicationCredentials?: string) {
     try {
       const raw = fs.readFileSync(file, 'utf-8');
       serviceAccount = JSON.parse(raw) as admin.ServiceAccount;
-    } catch (e: any) {
-      throw new Error(`Unable to parse service account json at ${file}: ${e?.message ?? e}`);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new Error(`Unable to parse service account json at ${file}: ${msg}`);
     }
     return admin.credential.cert(serviceAccount);
   }
 
-  // Cloud Run / GCP environments should use ADC from attached service account.
   return admin.credential.applicationDefault();
 }
-

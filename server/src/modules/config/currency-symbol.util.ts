@@ -49,3 +49,12 @@ export function defaultCurrencySymbol(currencyCode: string): string {
   const code = String(currencyCode ?? '').trim().toUpperCase();
   return CURRENCY_SYMBOL_MAP[code] ?? (code || '$');
 }
+
+/** Prefer configured symbol; derive from currency when missing or wrongly set to `$` for non-USD. */
+export function effectiveCurrencySymbol(currencyCode: string, storedSymbol?: string | null): string {
+  const code = String(currencyCode ?? '').trim().toUpperCase();
+  const sym = String(storedSymbol ?? '').trim();
+  if (!sym) return defaultCurrencySymbol(code);
+  if (sym === '$' && code !== 'USD') return defaultCurrencySymbol(code);
+  return sym;
+}

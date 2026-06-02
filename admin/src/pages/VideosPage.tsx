@@ -1,8 +1,12 @@
-import { Button, Image, Input, Select, Space, Table, Tag, message } from 'antd';
+import { Button, Image, Input, Select, Space, Table, Tag, Tooltip, Typography, message } from 'antd';
+import { PlayCircleOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { adminApi } from '../api/admin';
+import { VideoPreviewModal } from '../components/VideoPreviewModal';
+import { resolvePlaybackUrl } from '../components/VideoPlayback';
+import { resolveVideoPoster } from '../utils/videoThumbnail';
 import type { VideoRow } from '../types';
 
 export function VideosPage() {
@@ -12,6 +16,8 @@ export function VideosPage() {
   const [status, setStatus] = useState<string | undefined>();
   const [visibility, setVisibility] = useState<string | undefined>();
   const [gameId, setGameId] = useState('');
+  const [previewVideo, setPreviewVideo] = useState<VideoRow | null>(null);
+  const [deduping, setDeduping] = useState(false);
 
   useEffect(() => {
     const st = searchParams.get('status');
@@ -42,16 +48,71 @@ export function VideosPage() {
     void load();
   }, [load]);
 
+  const openPreview = (row: VideoRow) => {
+    const url = resolvePlaybackUrl(row);
+    if (!url) {
+      message.warning('该条目没有播放链接');
+      return;
+    }
+    setPreviewVideo(row);
+  };
+
   const cols: ColumnsType<VideoRow> = [
     {
-      title: 'thumb',
-      dataIndex: 'thumbnailUrl',
+      title: '播放',
+      key: 'play',
       width: 72,
-      render: (url?: string) =>
-        url ? <Image src={url} width={56} height={56} style={{ objectFit: 'cover' }} /> : '—',
+      fixed: 'left',
+      render: (_, r) => {
+        const canPlay = !!resolvePlaybackUrl(r);
+        return (
+          <Tooltip title={canPlay ? '点击播放' : '无播放地址'}>
+            <Button
+              type="text"
+              icon={<PlayCircleOutlined style={{ fontSize: 28 }} />}
+              disabled={!canPlay}
+              onClick={() => openPreview(r)}
+            />
+          </Tooltip>
+        );
+      },
+    },
+    {
+      title: '封面',
+      key: 'poster',
+      width: 80,
+      render: (_, r) => {
+        const poster = resolveVideoPoster(r);
+        const canPlay = !!resolvePlaybackUrl(r);
+        return poster ? (
+          <Image
+            src={poster}
+            width={64}
+            height={36}
+            style={{ objectFit: 'cover', borderRadius: 4, cursor: canPlay ? 'pointer' : 'default' }}
+            preview={false}
+            fallback="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='36'/%3E"
+            onClick={() => canPlay && openPreview(r)}
+          />
+        ) : (
+          <Typography.Text type="secondary">无封面</Typography.Text>
+        );
+      },
     },
     { title: 'videoId', dataIndex: 'videoId', width: 120, ellipsis: true },
-    { title: 'title', dataIndex: 'title', ellipsis: true },
+    {
+      title: 'title',
+      dataIndex: 'title',
+      ellipsis: true,
+      render: (t: string, r) =>
+        resolvePlaybackUrl(r) ? (
+          <Button type="link" size="small" style={{ padding: 0, height: 'auto' }} onClick={() => openPreview(r)}>
+            {t}
+          </Button>
+        ) : (
+          t
+        ),
+    },
     { title: 'gameId', dataIndex: 'gameId', width: 110, render: (v?: string) => v || '—' },
     {
       title: 'gameName',
@@ -80,6 +141,9 @@ export function VideosPage() {
       key: 'op',
       render: (_, r) => (
         <Space wrap>
+          <Button size="small" disabled={!resolvePlaybackUrl(r)} onClick={() => openPreview(r)}>
+            播放
+          </Button>
           <Link to={`/videos/${r.videoId}`}>详情</Link>
           <Button
             size="small"
@@ -155,8 +219,26 @@ export function VideosPage() {
         />
         <Input placeholder="gameId" value={gameId} onChange={(e) => setGameId(e.target.value)} style={{ width: 160 }} />
         <Button onClick={() => void load()}>刷新</Button>
+        <Button
+          loading={deduping}
+          onClick={async () => {
+            setDeduping(true);
+            try {
+              const r = await adminApi.dedupeTrailerVideos({ limit: 5000 });
+              message.success(`已扫描 ${r.gamesScanned} 个游戏，删除重复 ${r.duplicatesRemoved} 条`);
+              void load();
+            } catch (e) {
+              message.error(e instanceof Error ? e.message : '清理失败');
+            } finally {
+              setDeduping(false);
+            }
+          }}
+        >
+          清理重复预告片
+        </Button>
       </Space>
-      <Table rowKey="videoId" loading={loading} columns={cols} dataSource={rows} scroll={{ x: 1700 }} />
+      <Table rowKey="videoId" loading={loading} columns={cols} dataSource={rows} scroll={{ x: 1800 }} />
+      <VideoPreviewModal video={previewVideo} open={!!previewVideo} onClose={() => setPreviewVideo(null)} />
     </div>
   );
 }

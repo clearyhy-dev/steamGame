@@ -13,7 +13,7 @@ export function metaRouter(env: Env) {
     '/openapi.json',
     asyncHandler(async (_req, res) => {
       const spec = await buildOpenApiSpec(env);
-      res.status(200).json({ success: true, data: spec });
+      res.status(200).setHeader('Content-Type', 'application/json').json(spec);
     }),
   );
   return r;

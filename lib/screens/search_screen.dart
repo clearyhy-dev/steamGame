@@ -44,8 +44,21 @@ class _SearchScreenState extends State<SearchScreen> {
   Future<void> _loadDeals() async {
     final region = await AppCountryResolver.resolveContext();
     List<GameModel> list = const [];
+    try {
+      final lang = await PriceRegionResolver.effectiveSteamUiLanguage();
+      final data = await _backend.getTrendingPublicRecommendations(
+        country: region.countryCode,
+        language: lang,
+      );
+      final raw = data['items'] as List<dynamic>? ?? const [];
+      list = raw
+          .whereType<Map>()
+          .map((e) => RecommendedItem.fromJson(
+              Map<String, dynamic>.from(e)).toGameModel())
+          .toList();
+    } catch (_) {}
     final token = await StorageService.instance.getSteamBackendToken();
-    if (token != null && token.isNotEmpty) {
+    if (list.isEmpty && token != null && token.isNotEmpty) {
       try {
         final lang = await PriceRegionResolver.effectiveSteamUiLanguage();
         final data = await _backend.getExploreRecommendations(

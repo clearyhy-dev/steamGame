@@ -32,6 +32,19 @@ export type Env = {
 
   /** Video pipeline */
   videoGcsBucket?: string;
+  /** 公开 JSON 缓存（如 `cache/top-discounts-us.json`）；未设时可回退为 VIDEO_GCS_BUCKET */
+  gcsCacheBucket?: string;
+  /** `gcs` 或 `s3`（MinIO / Vultr / R2 等 S3 兼容）；`r2` 视为 `s3` */
+  cacheUploadBackend: 'gcs' | 's3';
+  s3Endpoint?: string;
+  s3AccessKeyId?: string;
+  s3SecretAccessKey?: string;
+  s3Bucket?: string;
+  /** R2 / S3 兼容 endpoint，如 `https://<accountid>.r2.cloudflarestorage.com` */
+  r2Endpoint?: string;
+  r2AccessKeyId?: string;
+  r2SecretAccessKey?: string;
+  r2CacheBucket?: string;
   ffmpegPath: string;
   ffprobePath: string;
   ytDlpPath: string;
@@ -50,6 +63,11 @@ export type Env = {
   appDeeplinkSuccessHost: string;
   appDeeplinkFailHost: string;
   appBaseUrl: string;
+  /**
+   * 可选：公开静态 JSON（GCS/Cloud CDN）根 URL，无尾斜杠；客户端优先拉 `.../cache/*.json`。
+   * 例：`https://storage.googleapis.com/<bucket>` 或自有 CDN 域名。
+   */
+  publicCacheCdnBase?: string;
   /** Hints for mobile clients (also served via GET /api/config); tunable in admin runtime settings */
   appConnectTimeoutSec: number;
   appReceiveTimeoutSec: number;
@@ -63,6 +81,28 @@ export type Env = {
   steamAutoSyncBatchSize: number;
   steamAutoSyncDelayMs: number;
   requestLogRetentionDays: number;
+  /**
+   * 非空时开放内部 Cron（Header: X-Cron-Secret）：`POST /api/internal/cron/daily-schedules`（全部已启用计划任务，刷新 lastRun 状态）、
+   * `POST /api/internal/cron/daily-deal-schedules`（仅折扣类）、
+   * `POST /api/internal/cron/daily-deals`（单任务 Top1000 四渠道）、
+   * `POST /api/internal/cron/weekly-heat`（周在线人数 → `game_weekly_heat`）、
+   * `POST /api/internal/cron/build-cache`（写入 `cache/*.json`：默认 GCS，或 `CACHE_UPLOAD_BACKEND=r2` 时写 R2）。
+   */
+  cronSecret: string;
+  /**
+   * 折扣分桶持久化：`firestore`（默认，`game_discount_offers`）或 `object_storage`（GCS/R2 上 `cache/discount-offers/v1/*.json`，无 Firestore 写入）。
+   */
+  discountOffersPersistence: 'firestore' | 'object_storage';
+  /** 折扣「今日」日历 IANA 时区，默认 Asia/Shanghai */
+  dealSyncPriceDayTz: string;
+  /** false：不启动定时任务 cron、视频 worker；「立即运行」亦拒绝（省 Cloud Run / 外部 API 费用） */
+  backgroundWorkersEnabled: boolean;
+  /** firestore=GCP Firestore；vultr_sqlite=Vultr SQLite Data API（停 Firestore 计费） */
+  dataStore: 'firestore' | 'vultr_sqlite';
+  sqliteApiUrl?: string;
+  sqliteApiSecret?: string;
+  /** false 时不写入 api_request_logs（省存储） */
+  requestLogEnabled: boolean;
 };
 
 export function loadEnv(): Env {
@@ -70,6 +110,12 @@ export function loadEnv(): Env {
   if (!Number.isFinite(port) || port <= 0) throw new Error('Invalid PORT');
 
   const jwtSecret = required('JWT_SECRET');
+  const env = buildEnv(jwtSecret, port);
+  validateEnv(env);
+  return env;
+}
+
+function buildEnv(jwtSecret: string, port: number): Env {
 
   const corsRaw = process.env.CORS_ORIGINS?.trim();
   const corsOrigins = corsRaw
@@ -84,6 +130,18 @@ export function loadEnv(): Env {
     : path.join(process.cwd(), 'admin', 'dist');
 
   const serveAdminStatic = process.env.SERVE_ADMIN_STATIC !== 'false';
+
+  const rawBackend = (process.env.CACHE_UPLOAD_BACKEND ?? 's3').trim().toLowerCase();
+  const cacheUploadBackend: 'gcs' | 's3' =
+    rawBackend === 'gcs' ? 'gcs' : 's3';
+
+  const rawDiscountPersist = (process.env.DISCOUNT_OFFERS_PERSISTENCE ?? 'object_storage').trim().toLowerCase();
+  const discountOffersPersistence: 'firestore' | 'object_storage' =
+    rawDiscountPersist === 'object_storage' ? 'object_storage' : 'firestore';
+
+  const rawDataStore = (process.env.DATA_STORE ?? 'vultr_sqlite').trim().toLowerCase();
+  const dataStore: 'firestore' | 'vultr_sqlite' =
+    rawDataStore === 'firestore' ? 'firestore' : 'vultr_sqlite';
 
   return {
     corsOrigins,
@@ -112,9 +170,17 @@ export function loadEnv(): Env {
     appDeeplinkSuccessHost: process.env.APP_DEEP_LINK_SUCCESS_HOST ?? 'auth',
     appDeeplinkFailHost: process.env.APP_DEEP_LINK_FAIL_HOST ?? 'auth',
     appBaseUrl: process.env.APP_BASE_URL?.trim() || 'http://localhost:8080',
+    publicCacheCdnBase: process.env.PUBLIC_CACHE_CDN_BASE?.trim().replace(/\/+$/, '') || undefined,
 
-    firebaseProjectId: required('FIREBASE_PROJECT_ID'),
+    firebaseProjectId: process.env.FIREBASE_PROJECT_ID?.trim() || 'steamdeal',
     googleApplicationCredentials: process.env.GOOGLE_APPLICATION_CREDENTIALS,
+    dataStore,
+    sqliteApiUrl: process.env.SQLITE_API_URL?.trim().replace(/\/+$/, '') || undefined,
+    sqliteApiSecret: process.env.SQLITE_API_SECRET?.trim() || undefined,
+    requestLogEnabled:
+      process.env.REQUEST_LOG_ENABLED != null
+        ? process.env.REQUEST_LOG_ENABLED !== 'false'
+        : dataStore === 'firestore',
 
     steamHttpTimeoutMs: Number(process.env.STEAM_HTTP_TIMEOUT_MS ?? 8000),
     steamAutoSyncEnabled: process.env.STEAM_AUTO_SYNC_ENABLED === 'true',
@@ -122,6 +188,7 @@ export function loadEnv(): Env {
     steamAutoSyncBatchSize: Number(process.env.STEAM_AUTO_SYNC_BATCH_SIZE ?? 200),
     steamAutoSyncDelayMs: Number(process.env.STEAM_AUTO_SYNC_DELAY_MS ?? 120),
     requestLogRetentionDays: Number(process.env.REQUEST_LOG_RETENTION_DAYS ?? 14),
+    cronSecret: process.env.CRON_SECRET?.trim() ?? '',
 
     adminUsername: process.env.ADMIN_USERNAME ?? 'admin',
     adminPassword: process.env.ADMIN_PASSWORD ?? '',
@@ -129,6 +196,27 @@ export function loadEnv(): Env {
     adminJwtExpiresIn: process.env.ADMIN_JWT_EXPIRES_IN ?? '12h',
 
     videoGcsBucket: process.env.VIDEO_GCS_BUCKET?.trim() || undefined,
+    gcsCacheBucket: process.env.GCS_CACHE_BUCKET?.trim() || undefined,
+    cacheUploadBackend,
+    discountOffersPersistence,
+    dealSyncPriceDayTz:
+      process.env.DEAL_SYNC_PRICE_DAY_TZ?.trim() || 'Asia/Shanghai',
+    s3Endpoint:
+      process.env.S3_ENDPOINT?.trim().replace(/\/+$/, '') ||
+      process.env.R2_ENDPOINT?.trim().replace(/\/+$/, '') ||
+      undefined,
+    s3AccessKeyId: process.env.S3_ACCESS_KEY_ID?.trim() || process.env.R2_ACCESS_KEY_ID?.trim() || undefined,
+    s3SecretAccessKey:
+      process.env.S3_SECRET_ACCESS_KEY?.trim() || process.env.R2_SECRET_ACCESS_KEY?.trim() || undefined,
+    s3Bucket:
+      process.env.S3_BUCKET?.trim() ||
+      process.env.R2_CACHE_BUCKET?.trim() ||
+      process.env.GCS_CACHE_BUCKET?.trim() ||
+      undefined,
+    r2Endpoint: process.env.R2_ENDPOINT?.trim().replace(/\/+$/, '') || undefined,
+    r2AccessKeyId: process.env.R2_ACCESS_KEY_ID?.trim() || undefined,
+    r2SecretAccessKey: process.env.R2_SECRET_ACCESS_KEY?.trim() || undefined,
+    r2CacheBucket: process.env.R2_CACHE_BUCKET?.trim() || undefined,
     ffmpegPath: process.env.FFMPEG_PATH ?? 'ffmpeg',
     ffprobePath: process.env.FFPROBE_PATH ?? 'ffprobe',
     ytDlpPath: process.env.YTDLP_PATH ?? 'yt-dlp',
@@ -140,6 +228,25 @@ export function loadEnv(): Env {
 
     appConnectTimeoutSec: Number(process.env.APP_CONNECT_TIMEOUT_SEC ?? 15),
     appReceiveTimeoutSec: Number(process.env.APP_RECEIVE_TIMEOUT_SEC ?? 90),
+
+    backgroundWorkersEnabled: process.env.BACKGROUND_WORKERS_ENABLED !== 'false',
   };
+}
+
+function validateEnv(env: Env): void {
+  if (env.dataStore === 'vultr_sqlite' && !env.sqliteApiUrl) {
+    throw new Error('DATA_STORE=vultr_sqlite requires SQLITE_API_URL (Vultr data-api, e.g. http://HOST:8090)');
+  }
+  if (env.dataStore === 'vultr_sqlite' && env.discountOffersPersistence !== 'object_storage') {
+    throw new Error(
+      'DATA_STORE=vultr_sqlite requires DISCOUNT_OFFERS_PERSISTENCE=object_storage (MinIO on Vultr, not Firestore)',
+    );
+  }
+  if (env.dataStore === 'vultr_sqlite' && env.cacheUploadBackend !== 's3') {
+    throw new Error('DATA_STORE=vultr_sqlite requires CACHE_UPLOAD_BACKEND=s3 (Vultr MinIO)');
+  }
+  if (env.dataStore === 'firestore' && !process.env.FIREBASE_PROJECT_ID?.trim()) {
+    throw new Error('DATA_STORE=firestore requires FIREBASE_PROJECT_ID');
+  }
 }
 

@@ -39,4 +39,7 @@ ENV ADMIN_DIST_PATH=/app/admin/dist
 
 EXPOSE 8080
 
+# 默认：Cloud Run 服务。定时构建缓存 JSON 时使用同一镜像，在 Job 中覆盖命令为：
+#   node dist/jobs/run-cache-builder.js
+# （需 ADC / 服务账号 + GCS 或 R2 环境变量，见 server/.env.example）
 CMD ["node", "dist/index.js"]

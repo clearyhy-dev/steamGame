@@ -5,12 +5,26 @@ import type { MetaEndpointRow, MetaEndpointsResponse } from '../types';
 
 function scopeTag(scope: MetaEndpointRow['scope']) {
   const map: Record<MetaEndpointRow['scope'], { color: string; label: string }> = {
-    app_backend: { color: 'blue', label: 'App (auth)' },
-    app_public: { color: 'green', label: 'App (public)' },
-    admin: { color: 'purple', label: 'Admin' },
-    third_party: { color: 'orange', label: '3rd party' },
+    app_backend: { color: 'blue', label: '域 · App需登录' },
+    app_public: { color: 'green', label: '域 · 公开' },
+    admin: { color: 'purple', label: '域 · Admin' },
+    third_party: { color: 'orange', label: '外部第三方' },
   };
   const v = map[scope];
+  return <Tag color={v.color}>{v.label}</Tag>;
+}
+
+function audienceTag(audience: MetaEndpointRow['audience']) {
+  if (!audience) return null;
+  const map: Record<NonNullable<MetaEndpointRow['audience']>, { color: string; label: string }> = {
+    app: { color: 'cyan', label: '调用·App' },
+    admin: { color: 'geekblue', label: '调用·后台' },
+    public: { color: 'lime', label: '调用·公开' },
+    browser_oauth: { color: 'gold', label: '调用·OAuth' },
+    ops: { color: 'default', label: '调用·运维' },
+    mixed: { color: 'magenta', label: '调用·混合' },
+  };
+  const v = map[audience];
   return <Tag color={v.color}>{v.label}</Tag>;
 }
 
@@ -53,7 +67,7 @@ export function AppDiagnosticsPage() {
         App Diagnostics
       </Typography.Title>
       <Typography.Paragraph type="secondary">
-        This page is read-only troubleshooting metadata. Endpoint paths are intentionally not configurable.
+        只读排障元数据。标签「调用·*」表示主要调用方（App / 后台 / 公开等）；「域 · *」表示接口域。进程内定时 Worker（无 HTTP）见 Swagger 文档首页说明。
       </Typography.Paragraph>
 
       <Card loading={loading} style={{ marginBottom: 16 }}>
@@ -70,6 +84,7 @@ export function AppDiagnosticsPage() {
             <div key={`${r.method}_${r.path}_${idx}`} style={{ marginBottom: 10 }}>
               <Typography.Text strong>
                 <Tag color={r.authRequired ? 'red' : 'default'}>{r.authRequired ? 'auth' : 'public'}</Tag>
+                {audienceTag(r.audience)}
                 <Tag>{r.method}</Tag>
                 <Typography.Text code>{r.path}</Typography.Text>
               </Typography.Text>
@@ -80,6 +95,13 @@ export function AppDiagnosticsPage() {
                 ) : null}
                 {r.notes ? <Typography.Text type="secondary"> · {r.notes}</Typography.Text> : null}
               </div>
+              {r.whenToCall || r.purpose ? (
+                <Typography.Paragraph type="secondary" style={{ marginBottom: 0, marginTop: 4, fontSize: 12 }}>
+                  {r.whenToCall ? <>何时：{r.whenToCall}</> : null}
+                  {r.whenToCall && r.purpose ? <br /> : null}
+                  {r.purpose ? <>作用：{r.purpose}</> : null}
+                </Typography.Paragraph>
+              ) : null}
             </div>
           ))}
         </Card>

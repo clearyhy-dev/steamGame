@@ -1,14 +1,32 @@
 import { Button, Card, Form, Input, InputNumber, Switch, Tabs, Typography, message } from 'antd';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { adminApi } from '../api/admin';
-import type { DiscountProvidersSettings, RuntimeEffectiveSettings } from '../types';
+import type { DiscountProvidersSettings, RuntimeEffectiveSettings, RuntimeSettingsResponse } from '../types';
+import { InfrastructureStorageTab } from './InfrastructureStorageTab';
 
 export function SettingsPage() {
   const [discountForm] = Form.useForm<DiscountProvidersSettings>();
   const [runtimeForm] = Form.useForm<RuntimeEffectiveSettings>();
   const [runtime, setRuntime] = useState<RuntimeEffectiveSettings | null>(null);
+  const [resolvedDocs, setResolvedDocs] = useState<{ appSwaggerUiUrl: string; appOpenApiJsonUrl: string }>({
+    appSwaggerUiUrl: '',
+    appOpenApiJsonUrl: '',
+  });
   const [loading, setLoading] = useState(false);
   const runtimeBase = (runtime?.appBaseUrl ?? '').replace(/\/+$/, '');
+
+  const applyRuntimeResponse = useCallback(
+    (rt: RuntimeSettingsResponse) => {
+      const merged = {
+        ...rt.effective,
+        ...(rt.stored as Partial<RuntimeEffectiveSettings>),
+      } as RuntimeEffectiveSettings;
+      runtimeForm.setFieldsValue(merged);
+      setRuntime(merged);
+      setResolvedDocs(rt.resolved);
+    },
+    [runtimeForm],
+  );
 
   useEffect(() => {
     (async () => {
@@ -18,17 +36,12 @@ export function SettingsPage() {
           adminApi.getRuntimeSettings(),
         ]);
         discountForm.setFieldsValue(disc);
-        const merged = {
-          ...rt.effective,
-          ...(rt.stored as Partial<RuntimeEffectiveSettings>),
-        } as RuntimeEffectiveSettings;
-        runtimeForm.setFieldsValue(merged);
-        setRuntime(merged);
+        applyRuntimeResponse(rt);
       } catch (e) {
         message.error(e instanceof Error ? e.message : '加载配置失败');
       }
     })();
-  }, [discountForm, runtimeForm]);
+  }, [applyRuntimeResponse, discountForm, runtimeForm]);
 
   return (
     <Card title="系统配置">
@@ -51,8 +64,7 @@ export function SettingsPage() {
                   try {
                     await adminApi.patchRuntimeSettings(v);
                     const rt = await adminApi.getRuntimeSettings();
-                    runtimeForm.setFieldsValue(rt.effective);
-                    setRuntime(rt.effective);
+                    applyRuntimeResponse(rt);
                     message.success('已保存（进程内配置约 1 分钟内刷新）');
                   } catch (e) {
                     message.error(e instanceof Error ? e.message : '保存失败');
@@ -61,20 +73,34 @@ export function SettingsPage() {
                   }
                 }}
               >
-                <Typography.Title level={5}>运行时链接（只读）</Typography.Title>
+                <Typography.Title level={5}>API 文档链接（Swagger / OpenAPI）</Typography.Title>
                 <Typography.Paragraph type="secondary">
-                  便于排错：以下链接由 <Typography.Text code>APP_BASE_URL</Typography.Text> 自动拼接，不参与路由配置。
+                  填写完整 URL 可指向反向代理、备用域名或内网排障入口；<Typography.Text strong>留空</Typography.Text>则使用{' '}
+                  <Typography.Text code>APP_BASE_URL</Typography.Text> 拼接 <Typography.Text code>/api/docs</Typography.Text> 与{' '}
+                  <Typography.Text code>/api/openapi.json</Typography.Text>。保存后客户端{' '}
+                  <Typography.Text code>GET /api/config</Typography.Text> 会下发「当前生效」地址。
                 </Typography.Paragraph>
-                <Form.Item label="Swagger UI（可视化调用）" name="__swaggerUiUrl">
-                  <Input
-                    readOnly
-                    value={runtimeBase ? `${runtimeBase}/api/docs` : ''}
-                  />
+                <Typography.Paragraph type="secondary">
+                  当前生效（合并后）：
+                  <br />
+                  Swagger UI：<Typography.Text code copyable>{resolvedDocs.appSwaggerUiUrl || '—'}</Typography.Text>
+                  <br />
+                  OpenAPI JSON：<Typography.Text code copyable>{resolvedDocs.appOpenApiJsonUrl || '—'}</Typography.Text>
+                </Typography.Paragraph>
+                <Form.Item
+                  label="Swagger UI URL（可选覆盖）"
+                  name="appSwaggerUiUrl"
+                  extra={runtimeBase ? `默认：${runtimeBase}/api/docs` : undefined}
+                >
+                  <Input placeholder={runtimeBase ? `${runtimeBase}/api/docs` : 'https://api.example.com/api/docs'} />
                 </Form.Item>
-                <Form.Item label="OpenAPI JSON（机器可读）" name="__openApiJsonUrl">
+                <Form.Item
+                  label="OpenAPI JSON URL（可选覆盖）"
+                  name="appOpenApiJsonUrl"
+                  extra={runtimeBase ? `默认：${runtimeBase}/api/openapi.json` : undefined}
+                >
                   <Input
-                    readOnly
-                    value={runtimeBase ? `${runtimeBase}/api/openapi.json` : ''}
+                    placeholder={runtimeBase ? `${runtimeBase}/api/openapi.json` : 'https://api.example.com/api/openapi.json'}
                   />
                 </Form.Item>
 
@@ -122,28 +148,13 @@ export function SettingsPage() {
                 <Form.Item label="客户端读超时 (秒)" name="appReceiveTimeoutSec">
                   <InputNumber min={5} max={600} style={{ width: '100%' }} />
                 </Form.Item>
-                <Typography.Title level={5}>国家与货币映射（App 与后端统一）</Typography.Title>
-                <Form.Item
-                  label="支持的折扣国家 (CSV)"
-                  name="appSupportedDealCountriesCsv"
-                  extra="例如：US,CN,JP,KR,HK,SG,TW,GB,DE,FR,CA,AU,BR,RU"
-                >
-                  <Input placeholder="US,CN,JP,KR,HK,SG,TW,GB,DE,FR,CA,AU,BR,RU" />
-                </Form.Item>
-                <Form.Item
-                  label="国家映射 JSON（App国家/语言 -> 后端国家）"
-                  name="appCountryMapJson"
-                  extra='示例：{"JP":"JP","JA":"JP","CN":"CN","ZH":"CN","EN":"US","DE":"DE","FR":"FR"}'
-                >
-                  <Input.TextArea rows={4} placeholder='{"EN":"US","JA":"JP","ZH":"CN"}' />
-                </Form.Item>
-                <Form.Item
-                  label="国家-货币映射 JSON"
-                  name="appCountryCurrencyMapJson"
-                  extra='示例：{"US":"USD","JP":"JPY","CN":"CNY","GB":"GBP","DE":"EUR"}'
-                >
-                  <Input.TextArea rows={4} placeholder='{"US":"USD","JP":"JPY","CN":"CNY"}' />
-                </Form.Item>
+                <Typography.Title level={5}>国家 / 货币 / Steam 语言</Typography.Title>
+                <Typography.Paragraph type="secondary">
+                  App 的 `GET /api/config` 中国家 CSV、语言→国家、国家→货币 **均由 Firestore「Country / Steam」表推导**，与{' '}
+                  <Typography.Text code>/api/v1/config/countries</Typography.Text> 同源；请勿在此处重复配置。请到侧边栏{' '}
+                  <Typography.Text strong>Country / Steam</Typography.Text>（<Typography.Text code>/country-region-mapping</Typography.Text>
+                  ）维护启用国家、排序、货币与 uiLanguage。
+                </Typography.Paragraph>
 
                 <Typography.Title level={5}>Steam HTTP / 自动同步</Typography.Title>
                 <Form.Item label="Steam HTTP 超时 (ms)" name="steamHttpTimeoutMs">
@@ -170,9 +181,10 @@ export function SettingsPage() {
                 </Form.Item>
 
                 <Typography.Title level={5}>视频流水线</Typography.Title>
-                <Form.Item label="VIDEO_GCS_BUCKET" name="videoGcsBucket">
-                  <Input placeholder="可选" />
-                </Form.Item>
+                <Typography.Paragraph type="secondary">
+                  大文件存储（视频、缓存 JSON、折扣分桶）请在侧边栏 <Typography.Text strong>Settings → 数据存储 (Vultr)</Typography.Text>{' '}
+                  查看 MinIO 地址与凭据；勿再配置 GCS 桶。
+                </Typography.Paragraph>
                 <Form.Item label="ffmpeg 路径" name="ffmpegPath">
                   <Input />
                 </Form.Item>
@@ -203,6 +215,11 @@ export function SettingsPage() {
                 </Button>
               </Form>
             ),
+          },
+          {
+            key: 'infrastructure',
+            label: '数据存储 (Vultr)',
+            children: <InfrastructureStorageTab />,
           },
           {
             key: 'discount',
@@ -244,12 +261,12 @@ export function SettingsPage() {
                 <Form.Item label="Steam Store Base URL" name="steamStoreBaseUrl">
                   <Input placeholder="https://store.steampowered.com" />
                 </Form.Item>
-                <Form.Item
-                  label="折扣国家列表 (CSV)"
-                  name="dealCountriesCsv"
-                  extra="例如：US,CN,JP。折扣同步会按国家分别抓取并落库。"
-                >
-                  <Input placeholder="US,CN,JP" />
+                <Form.Item noStyle shouldUpdate={() => true}>
+                  {() => (
+                    <div style={{ marginBottom: 16, color: 'rgba(0,0,0,0.45)', fontSize: 12 }}>
+                      折扣同步默认国家：后台「国家 / Steam」页中对公众启用的国家列表（可在该页维护，无需在此配置 CSV）。
+                    </div>
+                  )}
                 </Form.Item>
                 <Button type="primary" htmlType="submit">
                   保存折扣渠道

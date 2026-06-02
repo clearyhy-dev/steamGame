@@ -1,7 +1,9 @@
 import { getFirestore } from '../../config/firebase';
+import { useSqliteRelationalStore } from '../../config/database';
 import type { UserDoc } from './users.types';
 import { ApiError } from '../../utils/apiError';
 import type { Query, QueryDocumentSnapshot } from 'firebase-admin/firestore';
+import * as sqliteUsers from '../../storage/sqlite/users.store';
 
 const COLLECTION = 'users';
 
@@ -17,19 +19,24 @@ export class UsersRepository {
   private db = getFirestore();
 
   async findById(userId: string): Promise<UserDoc | null> {
+    if (useSqliteRelationalStore()) return sqliteUsers.sqliteFindUserById(userId);
     const doc = await this.db.collection(COLLECTION).doc(userId).get();
     if (!doc.exists) return null;
     return doc.data() as UserDoc;
   }
 
   async findBySteamId(steamId: string): Promise<UserDoc | null> {
-    // Firestore index might be required in production.
+    if (useSqliteRelationalStore()) return sqliteUsers.sqliteFindUserBySteamId(steamId);
     const snap = await this.db.collection(COLLECTION).where('steamId', '==', steamId).limit(1).get();
     if (snap.empty) return null;
     return snap.docs[0].data() as UserDoc;
   }
 
   async createUser(user: Omit<UserDoc, 'createdAt' | 'updatedAt'> & { createdAt?: any; updatedAt?: any }): Promise<void> {
+    if (useSqliteRelationalStore()) {
+      await sqliteUsers.sqliteCreateUser(user);
+      return;
+    }
     try {
       const now = new Date();
       const payload = omitUndefinedRecord({
@@ -47,6 +54,10 @@ export class UsersRepository {
   }
 
   async updateUser(userId: string, patch: Partial<UserDoc>): Promise<void> {
+    if (useSqliteRelationalStore()) {
+      await sqliteUsers.sqliteUpdateUser(userId, patch);
+      return;
+    }
     try {
       const payload = omitUndefinedRecord({
         ...patch,
@@ -62,6 +73,7 @@ export class UsersRepository {
   }
 
   async listUsers(params: { provider?: 'google' | 'steam'; keyword?: string; limit?: number }): Promise<UserDoc[]> {
+    if (useSqliteRelationalStore()) return sqliteUsers.sqliteListUsers(params);
     let q: Query = this.db.collection(COLLECTION).orderBy('updatedAt', 'desc');
     q = q.limit(Math.min(params.limit ?? 500, 1000));
     const snap = await q.get();

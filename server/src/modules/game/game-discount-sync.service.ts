@@ -1,10 +1,29 @@
 import axios from 'axios';
 import admin from 'firebase-admin';
+import type { DealProviderCountryCodes, ResolvedCountryForSteam } from '../config/region-country.repository';
+import { RegionCountryRepository } from '../config/region-country.repository';
+import { mapToSteamAppDetailsLang } from '../steam/steam-language.util';
+import { buildRegionalSteamStoreAppUrl } from '../steam/steam-store-url.util';
 import { SteamStoreService } from '../steam/steam-store.service';
 import { fetchDealGameInfo, fetchGameBySteamAppId } from '../recommendations/cheapshark.client';
 import type { DealSource, GameDealLinkDoc, GameDealLinkRepository } from './game-deal-link.repository';
+import type { GameCatalogRepository, RegionalSourcePriceSnapshot } from './game-catalog.repository';
+import { GameDiscountOffersRepository } from './game-discount-offers.repository';
+import { GameWeeklyHeatRepository } from './game-weekly-heat.repository';
+import { fetchItadEnrichmentForCountry } from './itad-enrichment.service';
+import { resolveItadOfferUrl } from './itad-url.util';
+import { pickItadDealFromPricesV3Entry, itadDealToPriceFields } from './itad-deal-pick.util';
+import { itadLookupBySteamAppId, itadFetchGamePricesV3, itadPricesV3EntryForGameId } from './itad-api.client';
+import { ggDealsFetchPricesBySteamAppId } from './gg-deals-api.client';
+import { isGgDealsOfficialRegion } from '../config/external-deal-api.catalog';
+import { computeWorthBuy } from './worth-buy.util';
+import {
+  buildGgDetailSnapshot,
+  buildGgDealOfferFromGameNode,
+} from './gg-deals-detail.util';
 import type { Env } from '../../config/env';
 import { getEffectiveEnv } from '../../config/runtime-config';
+import { syncTimestampToMs } from '../../storage/sqlite/timestamp';
 
 type DealOffer = {
   source: DealSource;
@@ -51,7 +70,29 @@ function num(v: unknown): number | undefined {
   return undefined;
 }
 
+/** 与 deal 扁平化 `dealId` 生成规则一致 */
+function syncDealIdForSource(appid: string, source: DealSource, countryCode: string): string {
+  const cc = String(countryCode || 'US').toUpperCase();
+  return `${String(appid).trim()}_${source}_${cc}`.toLowerCase();
+}
+
+/** 某日历日在某 IANA 时区下的 YYYY-MM-DD（用于「当天是否已拉过价」） */
+function calendarDayKey(ms: number, timeZone: string): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date(ms));
+}
+
+const DEFAULT_DEAL_PRICE_DAY_TZ = 'America/New_York';
+
 export class GameDiscountSyncService {
+  private regionCountries = new RegionCountryRepository();
+  private offers: GameDiscountOffersRepository;
+  private weeklyHeat = new GameWeeklyHeatRepository();
+
   private async probeOfferUrl(url: string): Promise<{ ok: boolean; reason?: string }> {
     const u = String(url ?? '').trim();
     if (!u) return { ok: false, reason: 'missing_url' };
@@ -69,6 +110,18 @@ export class GameDiscountSyncService {
     }
   }
 
+  private offerFromStoredDeal(prev: GameDealLinkDoc): DealOffer {
+    return {
+      source: prev.source,
+      url: prev.url,
+      countryCode: String(prev.countryCode ?? 'US').toUpperCase(),
+      currency: prev.currency,
+      originalPrice: prev.originalPrice,
+      finalPrice: prev.finalPrice,
+      discountPercent: prev.discountPercent,
+    };
+  }
+
   private hotnessScore(o: DealOffer): number {
     const discount = Number(o.discountPercent ?? 0);
     const original = Number(o.originalPrice ?? 0);
@@ -83,16 +136,78 @@ export class GameDiscountSyncService {
   constructor(
     private env: Env,
     private deals: GameDealLinkRepository,
+    private catalog: GameCatalogRepository,
   ) {
     this.steam = new SteamStoreService(env);
+    this.offers = new GameDiscountOffersRepository(env);
   }
 
-  private async fetchSteam(appid: string, countryCode = 'US'): Promise<DealOffer | null> {
+  private offerToSnapshot(offer: DealOffer, now: admin.firestore.Timestamp): RegionalSourcePriceSnapshot {
+    return {
+      url: offer.url,
+      currency: offer.currency,
+      originalPrice: offer.originalPrice,
+      finalPrice: offer.finalPrice,
+      discountPercent: offer.discountPercent,
+      syncedAt: now,
+      lastPriceSyncAt: now,
+    };
+  }
+
+  private async writeCountrySourceSnapshot(
+    appid: string,
+    businessCountryCode: string,
+    pc: DealProviderCountryCodes,
+    source: 'steam' | 'isthereanydeal' | 'ggdeals' | 'cheapshark',
+    result: { ok: boolean; offer?: DealOffer | null; reason?: string },
+    now: admin.firestore.Timestamp,
+  ): Promise<void> {
+    const providerCodes = {
+      steamCc: pc.steamStoreCc.toUpperCase(),
+      itadCountry: pc.itadCountry,
+      ggDealsRegion: pc.ggDealsRegion,
+      cheapsharkCountry: pc.cheapsharkCountry,
+    };
+    const fail = (reason: string): RegionalSourcePriceSnapshot => ({
+      error: reason,
+      syncedAt: now,
+    });
+    const patch =
+      result.ok && result.offer
+        ? this.offerToSnapshot(result.offer, now)
+        : fail(String(result.reason ?? 'empty_response'));
+
+    if (source === 'steam') {
+      await this.offers.mergeCountryPriceBucket(appid, businessCountryCode, { providerCodes, steam: patch });
+    } else if (source === 'isthereanydeal') {
+      await this.offers.mergeCountryPriceBucket(appid, businessCountryCode, { providerCodes, isthereanydeal: patch });
+    } else if (source === 'ggdeals') {
+      await this.offers.mergeCountryPriceBucket(appid, businessCountryCode, { providerCodes, ggdeals: patch });
+    } else {
+      await this.offers.mergeCountryPriceBucket(appid, businessCountryCode, { providerCodes, cheapshark: patch });
+    }
+  }
+
+  /**
+   * 按业务国解析出的 Steam `cc`、商店语言 `l` 拉价；购买/商店链接带 `cc`+`l`，各国独立 URL。
+   * 标价货币优先 Steam 返回，缺省时用国家配置 `defaultCurrency`。
+   */
+  private async fetchSteam(appid: string, pc: DealProviderCountryCodes, resolved: ResolvedCountryForSteam): Promise<DealOffer | null> {
     const e = await getEffectiveEnv(this.env);
-    const cc = String(countryCode || 'US').trim().toLowerCase();
+    const cc = String(pc.steamStoreCc || 'us')
+      .trim()
+      .toLowerCase();
+    const biz = String(resolved.countryCode || 'US')
+      .trim()
+      .toUpperCase()
+      .slice(0, 2);
+    const l = mapToSteamAppDetailsLang(resolved.steamLanguage);
+    const cfgCurrency = String(resolved.defaultCurrency ?? '')
+      .trim()
+      .toUpperCase();
     try {
       const { data } = await axios.get<Record<string, any>>('https://store.steampowered.com/api/appdetails', {
-        params: { appids: appid, cc, l: 'en' },
+        params: { appids: appid, cc, l },
         timeout: Math.max(e.steamHttpTimeoutMs, 12000),
         validateStatus: () => true,
       });
@@ -100,11 +215,16 @@ export class GameDiscountSyncService {
       if (!row?.success || !row?.data) return null;
       const d = row.data as Record<string, any>;
       const price = (d.price_overview ?? {}) as Record<string, any>;
+      const apiCurrency = String(price.currency ?? '')
+        .trim()
+        .toUpperCase();
+      const currency = apiCurrency || cfgCurrency || 'USD';
+      const storeUrl = buildRegionalSteamStoreAppUrl(appid, pc.steamStoreCc, resolved.steamLanguage);
       return {
         source: 'steam',
-        url: `https://store.steampowered.com/app/${appid}`,
-        countryCode: cc.toUpperCase(),
-        currency: String(price.currency ?? 'USD'),
+        url: storeUrl,
+        countryCode: /^[A-Z]{2}$/.test(biz) ? biz : 'US',
+        currency,
         originalPrice: num(price.initial) ?? 0,
         finalPrice: num(price.final) ?? 0,
         discountPercent: num(price.discount_percent) ?? 0,
@@ -114,7 +234,11 @@ export class GameDiscountSyncService {
     }
   }
 
-  private async fetchCheapShark(appid: string, cheapSharkBaseUrl?: string): Promise<DealOffer | null> {
+  private async fetchCheapShark(
+    appid: string,
+    cheapSharkBaseUrl?: string,
+    offerCountryCode = 'US',
+  ): Promise<DealOffer | null> {
     const e = await getEffectiveEnv(this.env);
     const to = e.steamHttpTimeoutMs;
     if (cheapSharkBaseUrl && cheapSharkBaseUrl.trim()) {
@@ -137,10 +261,14 @@ export class GameDiscountSyncService {
         const sale = num(gi?.salePrice) ?? 0;
         const retail = num(gi?.retailPrice) ?? 0;
         const discountPercent = retail > 0 ? Math.round((1 - sale / retail) * 100) : 0;
+        const cc = String(offerCountryCode || 'US')
+          .trim()
+          .toUpperCase()
+          .slice(0, 2);
         return {
           source: 'cheapshark',
           url: `https://www.cheapshark.com/redirect?dealID=${encodeURIComponent(String(g.cheapestDealID))}`,
-          countryCode: 'US',
+          countryCode: /^[A-Z]{2}$/.test(cc) ? cc : 'US',
           currency: 'USD',
           originalPrice: retail,
           finalPrice: sale,
@@ -154,10 +282,14 @@ export class GameDiscountSyncService {
     if (!g?.cheapestDealID) return null;
     const info = await fetchDealGameInfo(String(g.cheapestDealID), Math.max(to, 8000));
     if (!info) return null;
+    const cc2 = String(offerCountryCode || 'US')
+      .trim()
+      .toUpperCase()
+      .slice(0, 2);
     return {
       source: 'cheapshark',
       url: `https://www.cheapshark.com/redirect?dealID=${encodeURIComponent(String(g.cheapestDealID))}`,
-      countryCode: 'US',
+      countryCode: /^[A-Z]{2}$/.test(cc2) ? cc2 : 'US',
       currency: 'USD',
       originalPrice: info.retailPrice,
       finalPrice: info.salePrice,
@@ -165,111 +297,112 @@ export class GameDiscountSyncService {
     };
   }
 
-  private async fetchGgDeals(appid: string, ggDealsApiKey?: string, ggDealsBaseUrl?: string, countryCode = 'US'): Promise<DealOffer | null> {
-    if (!ggDealsApiKey) return null;
+  private async fetchGgDeals(
+    appid: string,
+    ggDealsApiKey: string | undefined,
+    ggDealsBaseUrl: string | undefined,
+    ggRegion: string,
+    businessCountryCode: string,
+  ): Promise<{ offer: DealOffer | null; rawNode: Record<string, unknown> | null }> {
+    if (!ggDealsApiKey) return { offer: null, rawNode: null };
+    const biz = String(businessCountryCode || 'US')
+      .trim()
+      .toUpperCase()
+      .slice(0, 2);
+    const regionLc = String(ggRegion || 'us').trim().toLowerCase();
+    if (!isGgDealsOfficialRegion(regionLc)) return { offer: null, rawNode: null };
     try {
       const e = await getEffectiveEnv(this.env);
-      const rawBase = (ggDealsBaseUrl || 'https://api.gg.deals').replace(/\/+$/, '');
-      const baseCandidates = rawBase.includes('gg.deals/api')
-        ? [rawBase, rawBase.replace('https://gg.deals/api', 'https://api.gg.deals')]
-        : [rawBase, 'https://api.gg.deals', 'https://gg.deals/api'];
-      const endpointCandidates = ['/v1/prices/by-steam-app-id/', '/prices/by-steam-app-id/'];
-
-      for (const base of Array.from(new Set(baseCandidates))) {
-        for (const endpoint of endpointCandidates) {
-          const { data } = await axios.get<any>(`${base}${endpoint}`, {
-            params: {
-              key: ggDealsApiKey,
-              ids: appid,
-              region: String(countryCode || 'US').toLowerCase(),
-            },
-            timeout: Math.max(e.steamHttpTimeoutMs, 10000),
-            validateStatus: () => true,
-          });
-          const node = data?.result?.[appid] ?? data?.data?.[appid] ?? data?.[appid];
-          if (!node) continue;
-          const priceNode = node?.price ?? node?.current ?? node;
-          const original = num(priceNode?.regular ?? priceNode?.basePrice ?? priceNode?.oldPrice);
-          const finalPrice = num(priceNode?.price ?? priceNode?.amount ?? priceNode?.newPrice);
-          const discount = num(priceNode?.discount ?? priceNode?.discountPercent);
-          return {
-            source: 'ggdeals',
-            url: String(node?.url ?? `https://gg.deals/game/steam-app/${appid}/`),
-            countryCode: String(countryCode || 'US').toUpperCase(),
-            currency: String(priceNode?.currency ?? 'USD'),
-            originalPrice: original,
-            finalPrice,
-            discountPercent:
-              discount ??
-              (typeof original === 'number' && typeof finalPrice === 'number' && original > 0
-                ? Math.round((1 - finalPrice / original) * 100)
-                : undefined),
-          };
-        }
-      }
-      return null;
+      const timeoutMs = Math.max(e.steamHttpTimeoutMs, 10000);
+      const hit = await ggDealsFetchPricesBySteamAppId({
+        apiKey: ggDealsApiKey,
+        baseUrl: ggDealsBaseUrl,
+        appid,
+        region: regionLc,
+        timeoutMs,
+      });
+      const rawNode = hit?.rawNode ?? null;
+      if (!rawNode) return { offer: null, rawNode: null };
+      const mapped = buildGgDealOfferFromGameNode({ rawNode, appid, regionLower: regionLc });
+      if (!mapped) return { offer: null, rawNode };
+      return {
+        offer: {
+          source: 'ggdeals',
+          url: mapped.url,
+          countryCode: /^[A-Z]{2}$/.test(biz) ? biz : 'US',
+          currency: mapped.currency,
+          originalPrice: undefined,
+          finalPrice: mapped.finalPrice,
+          discountPercent: undefined,
+        },
+        rawNode,
+      };
     } catch {
-      return null;
+      return { offer: null, rawNode: null };
     }
   }
 
-  private async fetchItad(appid: string, itadApiKey?: string, itadBaseUrl?: string, countryCode = 'US'): Promise<DealOffer | null> {
-    if (!itadApiKey) return null;
+  private async fetchItad(
+    appid: string,
+    itadApiKey: string | undefined,
+    itadBaseUrl: string | undefined,
+    itadCountry: string,
+    businessCountryCode: string,
+  ): Promise<{ offer: DealOffer | null; itadGameId?: string; pricesV3Payload?: unknown }> {
+    if (!itadApiKey) return { offer: null };
+    const biz = String(businessCountryCode || 'US')
+      .trim()
+      .toUpperCase()
+      .slice(0, 2);
     try {
       const e = await getEffectiveEnv(this.env);
-      const base = (itadBaseUrl || 'https://api.isthereanydeal.com').replace(/\/+$/, '');
-      const lookupCandidates = [{ key: itadApiKey }, { token: itadApiKey }];
-      let lookupData: any = null;
-      for (const authParams of lookupCandidates) {
-        const lookup = await axios.get<any>(`${base}/games/lookup/v1`, {
-          params: { ...authParams, appid: Number(appid) },
-          timeout: Math.max(e.steamHttpTimeoutMs, 10000),
-          validateStatus: () => true,
-        });
-        if (lookup.data && !lookup.data?.error) {
-          lookupData = lookup.data;
-          break;
-        }
-      }
-      if (!lookupData) return null;
-      const gameId = lookupData?.id ?? lookupData?.game?.id;
-      if (!gameId) return null;
-      let pricesData: any = null;
-      for (const authParams of lookupCandidates) {
-        const prices = await axios.post<any>(
-          `${base}/games/prices/v3`,
-          [gameId],
-          {
-            params: { ...authParams, country: String(countryCode || 'US').toUpperCase() },
-            timeout: Math.max(e.steamHttpTimeoutMs, 12000),
-            validateStatus: () => true,
-          },
-        );
-        if (prices.data && !prices.data?.error) {
-          pricesData = prices.data;
-          break;
-        }
-      }
-      if (!pricesData) return null;
-      const first = Array.isArray(pricesData) ? pricesData[0] : null;
-      const low = first?.deals?.[0] ?? first?.prices?.[0] ?? null;
-      if (!low) return null;
-      const original = num(low?.regular?.amount ?? low?.price?.old ?? low?.price?.amount_old);
-      const finalPrice = num(low?.price?.amount ?? low?.cut ?? low?.price_new);
-      const discount = num(low?.cut ?? low?.price?.cut ?? low?.discount);
-      const url = String(low?.url ?? low?.shop?.url ?? `https://isthereanydeal.com/game/${appid}/`);
+      const timeoutMs = Math.max(e.steamHttpTimeoutMs, 10000);
+      const lookup = await itadLookupBySteamAppId({
+        apiKey: itadApiKey,
+        baseUrl: itadBaseUrl,
+        appid,
+        timeoutMs,
+      });
+      if (!lookup) return { offer: null };
+      const itadGameId = lookup.itadGameId;
+      const itadC = String(itadCountry || 'US')
+        .trim()
+        .toUpperCase()
+        .slice(0, 2);
+      const priceTimeout = Math.max(e.steamHttpTimeoutMs, 12000);
+      const pricesData = await itadFetchGamePricesV3({
+        apiKey: itadApiKey,
+        baseUrl: itadBaseUrl,
+        itadGameIds: [itadGameId],
+        country: itadC,
+        timeoutMs: priceTimeout,
+      });
+      const first = itadPricesV3EntryForGameId(pricesData, itadGameId);
+      const low = pickItadDealFromPricesV3Entry(first);
+      if (!low) return { offer: null };
+      const parsed = itadDealToPriceFields(low);
+      const url = resolveItadOfferUrl({
+        deal: low,
+        lookupData: lookup.lookupData,
+        itadGameId,
+        steamAppid: appid,
+      });
       return {
-        source: 'isthereanydeal',
-        url,
-        countryCode: String(countryCode || 'US').toUpperCase(),
-        currency: String(low?.price?.currency ?? low?.regular?.currency ?? 'USD'),
-        originalPrice: original,
-        finalPrice,
-        discountPercent:
-          discount ?? (typeof original === 'number' && typeof finalPrice === 'number' && original > 0 ? Math.round((1 - finalPrice / original) * 100) : undefined),
+        offer: {
+          source: 'isthereanydeal',
+          url,
+          countryCode: /^[A-Z]{2}$/.test(biz) ? biz : 'US',
+          currency: parsed.currency,
+          originalPrice: parsed.originalPrice,
+          finalPrice: parsed.finalPrice,
+          discountPercent: parsed.discountPercent,
+        },
+        itadGameId,
+        /** 供 enrichment 复用，避免再打一次 `games/prices/v3` */
+        pricesV3Payload: pricesData,
       };
     } catch {
-      return null;
+      return { offer: null };
     }
   }
 
@@ -283,6 +416,23 @@ export class GameDiscountSyncService {
       cheapSharkBaseUrl?: string;
       countries?: string[];
       sources?: DealSource[];
+      /** 为 true 时不做「当日已同步则跳过」；管理端单游戏实时同步、公开 refresh 等应传 true */
+      forceRefresh?: boolean;
+      /** 批量仅刷价：跳过 URL 探测、ITAD enrichment、worthBuy 计算 */
+      bulkPricesOnly?: boolean;
+      /** 批级预取结果（跳过对应 HTTP 请求） */
+      pricePrefetch?: {
+        steamOffer?: DealOffer | null;
+        itad?: {
+          lookup: { itadGameId: string; lookupData: Record<string, unknown> };
+          pricesV3Payload: unknown[];
+          offer: DealOffer | null;
+        };
+        gg?: {
+          rawNode: Record<string, unknown>;
+          offer: DealOffer | null;
+        };
+      };
     },
   ): Promise<{
     upserted: number;
@@ -307,32 +457,162 @@ export class GameDiscountSyncService {
     }
     const now = admin.firestore.Timestamp.now();
     const providers: ProviderSyncResult[] = [];
-    const allowSources = new Set((opts?.sources ?? ['steam', 'ggdeals', 'isthereanydeal', 'cheapshark']).map((x) => String(x)));
+    const allowSources = new Set(
+      (opts?.sources ?? (opts?.bulkPricesOnly ? ['steam', 'ggdeals', 'isthereanydeal'] : ['steam', 'ggdeals', 'isthereanydeal', 'cheapshark'])).map(
+        (x) => String(x),
+      ),
+    );
     const countries = Array.from(
       new Set((opts?.countries ?? ['US']).map((x) => String(x || '').trim().toUpperCase()).filter(Boolean)),
     );
-    const run = async (
-      source: DealSource,
-      fn: () => Promise<DealOffer | null>,
-      skipReason?: string,
-    ) => {
-      if (skipReason) {
-        providers.push({ source, ok: false, reason: skipReason });
-        return;
-      }
-      try {
-        const offer = await fn();
-        if (offer?.url) providers.push({ source, ok: true, offer });
-        else providers.push({ source, ok: false, reason: 'empty_response' });
-      } catch (e) {
-        providers.push({ source, ok: false, reason: e instanceof Error ? e.message : String(e) });
-      }
+
+    const forceRefresh = opts?.forceRefresh === true;
+    const bulk = opts?.bulkPricesOnly === true;
+    const existingLinksEarly =
+      bulk && forceRefresh ? [] : await this.deals.listByAppid(id);
+    const existingByDealId = new Map(existingLinksEarly.map((x) => [x.dealId, x] as const));
+    const priceDayTz = String(process.env.DEAL_SYNC_PRICE_DAY_TZ ?? DEFAULT_DEAL_PRICE_DAY_TZ).trim() || DEFAULT_DEAL_PRICE_DAY_TZ;
+
+    const alreadyFetchedToday = (source: DealSource, businessCc: string): GameDealLinkDoc | null => {
+      if (forceRefresh) return null;
+      const row = existingByDealId.get(syncDealIdForSource(id, source, businessCc));
+      if (!row?.lastPriceSyncAt || !String(row.url ?? '').trim()) return null;
+      const lastMs = syncTimestampToMs(row.lastPriceSyncAt);
+      if (lastMs == null) return null;
+      const nowMs = now.toMillis();
+      if (calendarDayKey(lastMs, priceDayTz) !== calendarDayKey(nowMs, priceDayTz)) return null;
+      return row;
     };
 
-    // First fetch Steam prices; if all regions are zero/free, skip external providers.
-    if (allowSources.has('steam')) {
-      await Promise.all(countries.map((cc) => run('steam', () => this.fetchSteam(id, cc))));
+    const record = (source: DealSource, ok: boolean, offer?: DealOffer | null, reason?: string) => {
+      providers.push({ source, ok, offer: offer ?? undefined, reason });
+    };
+
+    // 1) Steam + 2) GG + 3) ITAD：按国并行；4) CheapShark：一次抓取
+    const itadPerCountryOk: { cc: string; ok: boolean; itadGameId?: string; pricesV3Payload?: unknown }[] = [];
+
+    for (const businessCc of countries) {
+      const pc = await this.regionCountries.resolveDealProviderCodes(businessCc);
+      const resolved = await this.regionCountries.resolveForRegionalDetail(businessCc);
+
+      const runSteam = async (): Promise<void> => {
+        if (!allowSources.has('steam')) return;
+        const skipRow = alreadyFetchedToday('steam', businessCc);
+        if (skipRow) {
+          const offer = this.offerFromStoredDeal(skipRow);
+          record('steam', true, offer, 'skipped_same_calendar_day');
+          return;
+        }
+        let offer: DealOffer | null = null;
+        let reason: string | undefined;
+        const pfSteam = opts?.pricePrefetch?.steamOffer;
+        if (pfSteam !== undefined) {
+          offer = pfSteam;
+          if (!offer?.url) reason = 'empty_response';
+        } else {
+          try {
+            offer = await this.fetchSteam(id, pc, resolved);
+            if (!offer?.url) reason = 'empty_response';
+          } catch (e) {
+            reason = e instanceof Error ? e.message : String(e);
+          }
+        }
+        const ok = !!(offer && offer.url);
+        record('steam', ok, offer, ok ? undefined : reason);
+        await this.writeCountrySourceSnapshot(id, businessCc, pc, 'steam', { ok, offer, reason }, now);
+      };
+
+      const runGg = async (): Promise<void> => {
+        if (!allowSources.has('ggdeals')) return;
+        const skipGg = alreadyFetchedToday('ggdeals', businessCc);
+        if (skipGg) {
+          const offer = this.offerFromStoredDeal(skipGg);
+          record('ggdeals', true, offer, 'skipped_same_calendar_day');
+          return;
+        }
+        let offer: DealOffer | null = null;
+        let reason: string | undefined;
+        let rawGg: Record<string, unknown> | null = null;
+        const pfGg = opts?.pricePrefetch?.gg;
+        if (pfGg !== undefined) {
+          offer = pfGg.offer;
+          rawGg = pfGg.rawNode ?? null;
+          if (!offer?.url) {
+            reason = !isGgDealsOfficialRegion(pc.ggDealsRegion) ? 'region_not_supported' : 'empty_response';
+          }
+        } else if (!opts?.ggDealsApiKey) {
+          reason = 'missing_api_key';
+        } else {
+          try {
+            const gg = await this.fetchGgDeals(id, opts.ggDealsApiKey, opts.ggDealsBaseUrl, pc.ggDealsRegion, businessCc);
+            offer = gg.offer;
+            rawGg = gg.rawNode;
+            if (!offer?.url) {
+              reason = !isGgDealsOfficialRegion(pc.ggDealsRegion) ? 'region_not_supported' : 'empty_response';
+            }
+          } catch (e) {
+            reason = e instanceof Error ? e.message : String(e);
+          }
+        }
+        const ok = !!(offer && offer.url);
+        record('ggdeals', ok, offer, ok ? undefined : reason);
+        await this.writeCountrySourceSnapshot(id, businessCc, pc, 'ggdeals', { ok, offer, reason }, now);
+        if (!bulk) {
+          const ggDetail = buildGgDetailSnapshot({
+            rawNode: rawGg,
+            ggRegionLower: pc.ggDealsRegion,
+            priceSyncOk: ok,
+          });
+          await this.offers.mergeCountryPriceBucket(id, businessCc, { ggDetail });
+        }
+      };
+
+      const runItad = async (): Promise<void> => {
+        if (!allowSources.has('isthereanydeal')) return;
+        const skipItad = alreadyFetchedToday('isthereanydeal', businessCc);
+        if (skipItad) {
+          const offer = this.offerFromStoredDeal(skipItad);
+          record('isthereanydeal', true, offer, 'skipped_same_calendar_day');
+          itadPerCountryOk.push({ cc: businessCc, ok: false });
+          return;
+        }
+        let offer: DealOffer | null = null;
+        let itadGameId: string | undefined;
+        let pricesV3Payload: unknown;
+        let reason: string | undefined;
+        const pfItad = opts?.pricePrefetch?.itad;
+        if (pfItad !== undefined) {
+          offer = pfItad.offer;
+          itadGameId = pfItad.lookup.itadGameId;
+          pricesV3Payload = pfItad.pricesV3Payload;
+          if (!offer?.url) reason = 'empty_response';
+        } else if (!opts?.itadApiKey) {
+          reason = 'missing_api_key';
+        } else {
+          try {
+            const itad = await this.fetchItad(id, opts.itadApiKey, opts.itadBaseUrl, pc.itadCountry, businessCc);
+            offer = itad.offer;
+            itadGameId = itad.itadGameId;
+            pricesV3Payload = itad.pricesV3Payload;
+            if (!offer?.url) reason = 'empty_response';
+          } catch (e) {
+            reason = e instanceof Error ? e.message : String(e);
+          }
+        }
+        const ok = !!(offer && offer.url);
+        record('isthereanydeal', ok, offer, ok ? undefined : reason);
+        itadPerCountryOk.push({
+          cc: businessCc,
+          ok,
+          itadGameId: ok ? itadGameId : undefined,
+          pricesV3Payload: ok ? pricesV3Payload : undefined,
+        });
+        await this.writeCountrySourceSnapshot(id, businessCc, pc, 'isthereanydeal', { ok, offer, reason }, now);
+      };
+
+      await Promise.all([runSteam(), runGg(), runItad()]);
     }
+
     const steamOffers = providers
       .filter((x) => x.source === 'steam' && x.ok && x.offer)
       .map((x) => x.offer as DealOffer);
@@ -341,107 +621,149 @@ export class GameDiscountSyncService {
       const finalPrice = Number(o.finalPrice ?? 0);
       return original > 0 || finalPrice > 0;
     });
-    if (!hasPaidPrice) {
-      return {
-        upserted: 0,
-        offers: [],
-        rows: [],
-        providers,
-        writeStats: { inserted: 0, updated: 0, deduped: 0 },
-        skipped: true,
-        skipReason: 'zero_price',
-      };
-    }
+    const steamOnlyFree = !hasPaidPrice;
 
-    // Execute provider fetches by platform hotness (high -> low), so top platforms are always fetched first.
-    const providerTasks: Array<{
-      source: DealSource;
-      fn: () => Promise<DealOffer | null>;
-      skipReason?: string;
-    }> = [];
-    for (const cc of countries) {
-      if (allowSources.has('ggdeals')) {
-        providerTasks.push({
-          source: 'ggdeals',
-          fn: () => this.fetchGgDeals(id, opts?.ggDealsApiKey, opts?.ggDealsBaseUrl, cc),
-          skipReason: opts?.ggDealsApiKey ? undefined : 'missing_api_key',
-        });
-      }
-      if (allowSources.has('isthereanydeal')) {
-        providerTasks.push({
-          source: 'isthereanydeal',
-          fn: () => this.fetchItad(id, opts?.itadApiKey, opts?.itadBaseUrl, cc),
-          skipReason: opts?.itadApiKey ? undefined : 'missing_api_key',
-        });
+    let csTemplate: DealOffer | null = null;
+    if (allowSources.has('cheapshark') && !bulk) {
+      const primary = countries[0] ?? 'US';
+      const skipCs = alreadyFetchedToday('cheapshark', primary);
+      if (skipCs) {
+        csTemplate = this.offerFromStoredDeal(skipCs);
+        record('cheapshark', true, csTemplate, 'skipped_same_calendar_day');
+      } else {
+        const csPc = await this.regionCountries.resolveDealProviderCodes(primary);
+        let reason: string | undefined;
+        try {
+          csTemplate = await this.fetchCheapShark(id, opts?.cheapSharkBaseUrl, csPc.cheapsharkCountry);
+          if (!csTemplate?.url) reason = 'empty_response';
+        } catch (e) {
+          reason = e instanceof Error ? e.message : String(e);
+        }
+        const ok = !!(csTemplate && csTemplate.url);
+        record('cheapshark', ok, csTemplate, ok ? undefined : reason);
+        for (const businessCc of countries) {
+          const pc = await this.regionCountries.resolveDealProviderCodes(businessCc);
+          await this.writeCountrySourceSnapshot(id, businessCc, pc, 'cheapshark', { ok, offer: csTemplate, reason }, now);
+        }
       }
     }
-    // CheapShark is US-centric; run once per app.
-    if (allowSources.has('cheapshark')) {
-      providerTasks.push({
-        source: 'cheapshark',
-        fn: () => this.fetchCheapShark(id, opts?.cheapSharkBaseUrl),
-      });
-    }
-    providerTasks.sort((a, b) => (SOURCE_HOTNESS_WEIGHT[b.source] ?? 0) - (SOURCE_HOTNESS_WEIGHT[a.source] ?? 0));
-    for (const t of providerTasks) {
-      await run(t.source, t.fn, t.skipReason);
-    }
 
-    const offers = providers
-      .filter((x) => x.ok && x.offer)
-      .map((x) => {
-        const o = x.offer as DealOffer;
-        return { ...o, hotnessScore: this.hotnessScore(o) };
-      })
-      .filter((o) => String(o.url ?? '').trim().length > 0)
-      .sort((a, b) => Number(b.hotnessScore ?? 0) - Number(a.hotnessScore ?? 0));
-    const existingLinks = await this.deals.listByAppid(id);
-    const existingByDealId = new Map(existingLinks.map((x) => [x.dealId, x] as const));
+    const offers: DealOffer[] = [];
+    for (const p of providers) {
+      if (!p.ok || !p.offer) continue;
+      if (p.source === 'cheapshark') {
+        for (const cc of countries) {
+          offers.push({
+            ...p.offer,
+            countryCode: cc,
+            hotnessScore: this.hotnessScore({ ...p.offer, countryCode: cc }),
+          });
+        }
+      } else {
+        offers.push({ ...p.offer, hotnessScore: this.hotnessScore(p.offer) });
+      }
+    }
+    offers.sort((a, b) => Number(b.hotnessScore ?? 0) - Number(a.hotnessScore ?? 0));
     const writeStats: SyncWriteStats = { inserted: 0, updated: 0, deduped: 0 };
     const rows: GameDealLinkDoc[] = [];
-    for (const [idx, o] of offers.entries()) {
-      const dealId = `${id}_${o.source}_${String(o.countryCode || 'US').toUpperCase()}`.toLowerCase();
-      const prev = existingByDealId.get(dealId);
-      const nextUrl = String(o.url ?? '').trim();
-      const nextOriginal = o.originalPrice;
-      const nextFinal = o.finalPrice;
-      const nextDiscount = o.discountPercent;
-      const unchanged =
-        !!prev &&
-        prev.url === nextUrl &&
-        Number(prev.originalPrice ?? -1) === Number(nextOriginal ?? -1) &&
-        Number(prev.finalPrice ?? -1) === Number(nextFinal ?? -1) &&
-        Number(prev.discountPercent ?? -1) === Number(nextDiscount ?? -1);
-      if (unchanged) {
-        writeStats.deduped += 1;
-        continue;
+    if (!bulk) {
+      for (const [idx, o] of offers.entries()) {
+        const dealId = `${id}_${o.source}_${String(o.countryCode || 'US').toUpperCase()}`.toLowerCase();
+        const prev = existingByDealId.get(dealId);
+        const nextUrl = String(o.url ?? '').trim();
+        const nextOriginal = o.originalPrice;
+        const nextFinal = o.finalPrice;
+        const nextDiscount = o.discountPercent;
+        const unchanged =
+          !!prev &&
+          prev.url === nextUrl &&
+          Number(prev.originalPrice ?? -1) === Number(nextOriginal ?? -1) &&
+          Number(prev.finalPrice ?? -1) === Number(nextFinal ?? -1) &&
+          Number(prev.discountPercent ?? -1) === Number(nextDiscount ?? -1);
+        if (unchanged) {
+          writeStats.deduped += 1;
+          continue;
+        }
+        const probe = await this.probeOfferUrl(nextUrl);
+        const deal = await this.deals.upsertForApp(id, {
+          dealId,
+          source: o.source,
+          url: nextUrl,
+          isAffiliate: false,
+          priority: 10 + idx * 10,
+          countryCode: String(o.countryCode || 'US').toUpperCase(),
+          startAt: null,
+          endAt: null,
+          ...(o.currency !== undefined ? { currency: o.currency } : {}),
+          ...(o.originalPrice !== undefined ? { originalPrice: o.originalPrice } : {}),
+          ...(o.finalPrice !== undefined ? { finalPrice: o.finalPrice } : {}),
+          ...(o.discountPercent !== undefined ? { discountPercent: o.discountPercent } : {}),
+          ...(o.hotnessScore !== undefined ? { hotnessScore: o.hotnessScore } : {}),
+          ...(probe.ok
+            ? { offerStatus: 'active' as const, invalidReason: '', isActive: true }
+            : { offerStatus: 'invalid' as const, invalidReason: probe.reason || 'unreachable_url', isActive: false }),
+          lastCheckedAt: now,
+          lastPriceSyncAt: now,
+        });
+        if (prev) writeStats.updated += 1;
+        else writeStats.inserted += 1;
+        rows.push(deal);
       }
-      const probe = await this.probeOfferUrl(nextUrl);
-      const deal = await this.deals.upsertForApp(id, {
-        dealId,
-        source: o.source,
-        url: nextUrl,
-        isAffiliate: false,
-        priority: 10 + idx * 10,
-        countryCode: String(o.countryCode || 'US').toUpperCase(),
-        startAt: null,
-        endAt: null,
-        ...(o.currency !== undefined ? { currency: o.currency } : {}),
-        ...(o.originalPrice !== undefined ? { originalPrice: o.originalPrice } : {}),
-        ...(o.finalPrice !== undefined ? { finalPrice: o.finalPrice } : {}),
-        ...(o.discountPercent !== undefined ? { discountPercent: o.discountPercent } : {}),
-        ...(o.hotnessScore !== undefined ? { hotnessScore: o.hotnessScore } : {}),
-        ...(probe.ok
-          ? { offerStatus: 'active' as const, invalidReason: '', isActive: true }
-          : { offerStatus: 'invalid' as const, invalidReason: probe.reason || 'unreachable_url', isActive: false }),
-        lastCheckedAt: now,
-        lastPriceSyncAt: now,
-      });
-      if (prev) writeStats.updated += 1;
-      else writeStats.inserted += 1;
-      rows.push(deal);
     }
-    return { upserted: rows.length, offers, rows, providers, writeStats };
+
+    const effectiveEnv = await getEffectiveEnv(this.env);
+    const itadTimeout = Math.max(effectiveEnv.steamHttpTimeoutMs, 10000);
+    const itadBase = (opts?.itadBaseUrl || 'https://api.isthereanydeal.com').replace(/\/+$/, '');
+    if (opts?.itadApiKey && allowSources.has('isthereanydeal') && !bulk) {
+      for (const { cc, ok, itadGameId, pricesV3Payload } of itadPerCountryOk) {
+        if (!ok || !itadGameId) continue;
+        const pc = await this.regionCountries.resolveDealProviderCodes(cc);
+        const itadDetail = await fetchItadEnrichmentForCountry({
+          appid: id,
+          itadCountry: pc.itadCountry,
+          apiKey: opts.itadApiKey,
+          baseUrl: itadBase,
+          timeoutMs: itadTimeout,
+          itadGameId,
+          pricesV3Payload,
+        });
+        await this.offers.mergeCountryPriceBucket(id, cc, { itadDetail });
+      }
+    }
+
+    for (const cc of countries) {
+      await this.offers.mergeCountryPriceBucket(id, cc, { markFullSync: true });
+    }
+
+    const catalogDoc = await this.catalog.getByAppid(id);
+    if (catalogDoc && !bulk) {
+      const computedAt = admin.firestore.Timestamp.now();
+      const heatDoc = await this.weeklyHeat.getByAppid(id);
+      const buckets = await this.offers.listBucketsForAppid(id);
+      const countrySet = new Set(countries.map((c) => String(c).toUpperCase()));
+      for (const bucketDoc of buckets) {
+        const cc = String(bucketDoc.countryCode ?? '')
+          .trim()
+          .toUpperCase();
+        if (!countrySet.has(cc)) continue;
+        const b = this.offers.countryBucketFromDoc(bucketDoc);
+        const w = computeWorthBuy(b, {
+          reviewSummary: catalogDoc.reviewSummary,
+          currentPlayers: heatDoc?.currentPlayers ?? catalogDoc.currentPlayers ?? 0,
+        });
+        await this.offers.mergeCountryPriceBucket(id, cc, {
+          worthBuy: { ...w, computedAt },
+        });
+      }
+    }
+
+    return {
+      upserted: rows.length,
+      offers,
+      rows,
+      providers,
+      writeStats,
+      ...(steamOnlyFree && offers.length === 0 ? { skipped: true, skipReason: 'zero_price_steam_only' as const } : {}),
+    };
   }
 }
-

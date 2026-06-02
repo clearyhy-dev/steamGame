@@ -1,0 +1,66 @@
+# Vultr 数据层：Redis + MinIO（SQLite 文件由宿主机卷挂载，见 setup.sh）
+# 在服务器上：cd /opt/steamgame-data && docker compose up -d
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD}
+      - --maxmemory
+      - 200mb
+      - --maxmemory-policy
+      - allkeys-lru
+    ports:
+      # Cloud Run 需经公网访问；务必使用强密码并限制来源 IP（见 setup.sh）
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - '9000:9000'
+      - '127.0.0.1:9001:9001'
+    volumes:
+      - minio_data:/data
+
+  # 可选：启动时创建默认桶
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      sleep 3;
+      mc alias set local http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD};
+      mc mb -p local/steamgame || true;
+      mc anonymous set download local/steamgame/cache || true;
+      exit 0;
+      "
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+
+  data-api:
+    build: ./data-api
+    restart: unless-stopped
+    ports:
+      - '8090:8090'
+    environment:
+      PORT: '8090'
+      SQLITE_PATH: /data/steam.db
+      DATA_API_SECRET: ${DATA_API_SECRET}
+    volumes:
+      - /opt/steamgame-data/sqlite:/data
+
+volumes:
+  redis_data:
+  minio_data:

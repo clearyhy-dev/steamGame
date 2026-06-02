@@ -9,6 +9,7 @@ import '../core/constants/api_constants.dart';
 import '../core/storage_service.dart';
 import '../core/utils/price_region_resolver.dart';
 import '../core/network/backend_client.dart';
+import 'market_v2_adapter.dart';
 
 class SteamBackendException implements Exception {
   final String code;
@@ -93,7 +94,7 @@ class SteamBackendService {
     }
   }
 
-  /// Aggregated regional detail: Steam formatted prices + local/global deals (backend-classified).
+  /// Aggregated regional detail: market v2 (detail + heat + prices per country).
   Future<Map<String, dynamic>> getGameRegionalDetail(String appid,
       {String? country, String? language}) async {
     final id = appid.trim();
@@ -101,11 +102,18 @@ class SteamBackendService {
       throw SteamBackendException(
           code: 'INVALID_APPID', message: 'appid required');
     }
-    final cc = (country ?? await _resolveCountryCode())?.trim().toUpperCase();
+    final cc = (country ?? await _resolveCountryCode())?.trim().toUpperCase() ?? 'US';
+    try {
+      final v2 = await _fetchMarketV2('/api/v2/markets/$cc/games/$id');
+      return MarketV2Adapter.gameResponseToRegionalDetail(v2);
+    } on SteamBackendException catch (e) {
+      if (e.code != 'NOT_FOUND' && e.code != 'HTTP_404') rethrow;
+    } catch (_) {}
+    // Legacy fallback when market row not synced yet
     final lang = language ?? await PriceRegionResolver.effectiveSteamUiLanguage();
     final uri = _uri('/api/v1/games/$id/regional-detail').replace(
       queryParameters: {
-        if (cc != null && cc.isNotEmpty) 'country': cc,
+        'country': cc,
         if (lang.trim().isNotEmpty) 'language': lang.trim().toLowerCase(),
       },
     );
@@ -144,6 +152,79 @@ class SteamBackendService {
       headers['Authorization'] = 'Bearer $token';
     }
     return headers;
+  }
+
+  Future<Map<String, dynamic>> _fetchMarketV2(
+    String path, {
+    Map<String, String>? queryParameters,
+  }) async {
+    final uri = _uri(path).replace(queryParameters: queryParameters);
+    final res = await _client
+        .get(uri, headers: await _authHeaders())
+        .timeout(ApiConstants.receiveTimeout, onTimeout: () {
+      throw SteamBackendException(
+          code: 'REQUEST_TIMEOUT', message: 'Request timeout');
+    });
+    if (res.statusCode == 404) {
+      throw SteamBackendException(code: 'NOT_FOUND', message: 'not_found');
+    }
+    if (res.body.isEmpty) {
+      throw SteamBackendException(
+          code: 'INTERNAL_ERROR', message: 'Empty response body');
+    }
+    final map = jsonDecode(res.body) as Map<String, dynamic>;
+    if (map['success'] != true) {
+      final err = map['error'];
+      final msg = err is Map
+          ? (err['message'] ?? err).toString()
+          : (err ?? map['message'] ?? 'Request failed').toString();
+      throw SteamBackendException(code: 'HTTP_${res.statusCode}', message: msg);
+    }
+    return map;
+  }
+
+  Future<Map<String, dynamic>> _fetchMarketListV2(String cc, String listName) async {
+    final cdn = AppRemoteConfig.instance.publicCacheCdnBase;
+    if (cdn != null && cdn.isNotEmpty) {
+      try {
+        final root = cdn.replaceAll(RegExp(r'/+$'), '');
+        final uri = Uri.parse('$root/cache/markets/v2/$cc/lists/$listName.json');
+        final res = await _client.get(uri).timeout(
+          const Duration(seconds: 8),
+          onTimeout: () => throw SteamBackendException(
+              code: 'REQUEST_TIMEOUT', message: 'CDN cache timeout'),
+        );
+        if (res.statusCode == 200 && res.body.isNotEmpty) {
+          final decoded = jsonDecode(res.body);
+          if (decoded is Map<String, dynamic>) {
+            final items = decoded['items'];
+            if (items is List && items.isNotEmpty) {
+              return MarketV2Adapter.itemsPayloadFromMarketRows(
+                items,
+                countryCode: cc,
+                cacheHit: true,
+              );
+            }
+          }
+        }
+      } catch (_) {}
+    }
+    final raw = await _fetchMarketV2('/api/v2/markets/$cc/lists/$listName');
+    final data = raw['data'];
+    if (data is Map<String, dynamic>) {
+      final items = data['items'] as List<dynamic>? ?? const [];
+      if (items.isNotEmpty) {
+        return MarketV2Adapter.itemsPayloadFromMarketRows(items, countryCode: cc);
+      }
+    }
+    final sortBy = listName == 'top-discounts' ? 'discount_desc' : 'heat_desc';
+    final games = await _fetchMarketV2('/api/v2/markets/$cc/games', queryParameters: {
+      'page': '1',
+      'pageSize': '100',
+      'sortBy': sortBy,
+    });
+    final items = games['items'] as List<dynamic>? ?? const [];
+    return MarketV2Adapter.itemsPayloadFromMarketRows(items, countryCode: cc);
   }
 
   Future<T> _parseData<T>(http.Response response) async {
@@ -357,14 +438,17 @@ class SteamBackendService {
   Future<Map<String, dynamic>> getExploreRecommendations(String token,
       {required String tab, String? country, String? language}) async {
     final resolvedCountry =
-        (country ?? await _resolveCountryCode())?.trim().toUpperCase();
+        (country ?? await _resolveCountryCode())?.trim().toUpperCase() ?? 'US';
+    try {
+      final listName = MarketV2Adapter.listNameForExploreTab(tab);
+      return await _fetchMarketListV2(resolvedCountry, listName);
+    } catch (_) {}
     final resolvedLang =
         language ?? await PriceRegionResolver.effectiveSteamUiLanguage();
     final uri = _uri('/v1/recommendations/explore').replace(
       queryParameters: {
         'tab': tab,
-        if (resolvedCountry != null && resolvedCountry.isNotEmpty)
-          'country': resolvedCountry,
+        'country': resolvedCountry,
         if (resolvedLang.trim().isNotEmpty) 'language': resolvedLang.trim().toLowerCase(),
       },
     );
@@ -397,17 +481,37 @@ class SteamBackendService {
     await _parseData<Map<String, dynamic>>(res);
   }
 
-  /// 无需登录：与首页同源的区域价 enrich 列表（CheapShark/ITAD 池 + Steam 店价）。
+  /// 无需登录：分国 market v2 榜单（CDN → API list → API games）。
   Future<Map<String, dynamic>> getTrendingPublicRecommendations(
       {String? country, String? language}) async {
     final resolvedCountry =
-        (country ?? await _resolveCountryCode())?.trim().toUpperCase();
+        (country ?? await _resolveCountryCode())?.trim().toUpperCase() ?? 'US';
     final resolvedLang =
         language ?? await PriceRegionResolver.effectiveSteamUiLanguage();
+    try {
+      final out = await _fetchMarketListV2(resolvedCountry, 'top-heat');
+      final meta = (out['meta'] as Map<String, dynamic>?) ?? {};
+      meta['effectiveLanguage'] =
+          resolvedLang.trim().isNotEmpty ? resolvedLang.trim().toLowerCase() : 'en';
+      out['meta'] = meta;
+      return out;
+    } catch (_) {}
+
+    final cdn = AppRemoteConfig.instance.publicCacheCdnBase;
+    if (cdn != null && cdn.isNotEmpty) {
+      try {
+        final snap = await _fetchTrendingSnapshotFromCdn(
+          cdnBase: cdn,
+          effectiveCountry: resolvedCountry,
+          effectiveLanguage: resolvedLang.trim().toLowerCase(),
+        );
+        if (snap != null) return snap;
+      } catch (_) {}
+    }
+
     final uri = _uri('/v1/recommendations/trending-public').replace(
       queryParameters: {
-        if (resolvedCountry != null && resolvedCountry.isNotEmpty)
-          'country': resolvedCountry,
+        'country': resolvedCountry,
         if (resolvedLang.trim().isNotEmpty) 'language': resolvedLang.trim().toLowerCase(),
       },
     );
@@ -419,17 +523,97 @@ class SteamBackendService {
     return _parseData<Map<String, dynamic>>(res);
   }
 
-  /// 个性化首页推荐（规则打分 + CheapShark 池）。
+  /// GCS `cache/trending-games.json` 为轻量快照；映射为与 [getTrendingPublicRecommendations] API `data` 相同的 `items` 形态。
+  Future<Map<String, dynamic>?> _fetchTrendingSnapshotFromCdn({
+    required String cdnBase,
+    required String effectiveCountry,
+    required String effectiveLanguage,
+  }) async {
+    final root = cdnBase.replaceAll(RegExp(r'/+$'), '');
+    final uri = Uri.parse('$root/cache/trending-games.json');
+    final res = await _client.get(uri).timeout(
+      const Duration(seconds: 8),
+      onTimeout: () => throw SteamBackendException(
+          code: 'REQUEST_TIMEOUT', message: 'CDN cache timeout'),
+    );
+    if (res.statusCode != 200 || res.body.isEmpty) return null;
+    final decoded = jsonDecode(res.body);
+    if (decoded is! Map<String, dynamic>) return null;
+    final rawItems = decoded['items'];
+    if (rawItems is! List<dynamic>) return null;
+    final items = <Map<String, dynamic>>[];
+    for (final e in rawItems) {
+      if (e is! Map) continue;
+      final m = Map<String, dynamic>.from(e);
+      final appid = (m['appid'] ?? m['steamAppId'])?.toString().trim() ?? '';
+      if (appid.isEmpty) continue;
+      final title = (m['name'] ?? m['title'])?.toString() ?? '';
+      final cap = m['capsuleImage']?.toString() ?? '';
+      final disc = _numInt(m['discountPercent']);
+      final players = _numDouble(m['currentPlayers']);
+      final score = disc + (players / 10000).clamp(0, 10);
+      items.add({
+        'steamAppId': appid,
+        'dealId': appid,
+        'title': title,
+        'capsuleImage': cap,
+        'currentPrice': 0.0,
+        'originalPrice': 0.0,
+        'discountPercent': disc,
+        'score': score,
+        'reasons': <String>[],
+        'tags': <String>['popular_now'],
+        'priceIsGlobalUsd': true,
+      });
+    }
+    if (items.isEmpty) return null;
+    final generatedAt = decoded['generatedAt']?.toString() ?? '';
+    return {
+      'items': items,
+      'meta': {
+        'steamLinked': false,
+        'effectiveCountry': effectiveCountry,
+        'effectiveLanguage':
+            effectiveLanguage.isNotEmpty ? effectiveLanguage : 'en',
+        'countrySource': 'app_country',
+        'generatedAt': generatedAt,
+        'cacheHit': true,
+      },
+    };
+  }
+
+  static int _numInt(dynamic v) {
+    if (v is int) return v;
+    if (v is num) return v.round();
+    return int.tryParse(v?.toString() ?? '') ?? 0;
+  }
+
+  static double _numDouble(dynamic v) {
+    if (v is num) return v.toDouble();
+    return double.tryParse(v?.toString() ?? '') ?? 0;
+  }
+
+  /// 首页推荐：优先 market v2 top-heat；登录态仍可用 v1 个性化作补充。
   Future<Map<String, dynamic>> getHomeRecommendations(String token,
       {String? country, String? language}) async {
     final resolvedCountry =
-        (country ?? await _resolveCountryCode())?.trim().toUpperCase();
+        (country ?? await _resolveCountryCode())?.trim().toUpperCase() ?? 'US';
     final resolvedLang =
         language ?? await PriceRegionResolver.effectiveSteamUiLanguage();
+    try {
+      final out = await _fetchMarketListV2(resolvedCountry, 'top-heat');
+      final items = out['items'] as List<dynamic>? ?? const [];
+      if (items.isNotEmpty) {
+        final meta = (out['meta'] as Map<String, dynamic>?) ?? {};
+        meta['effectiveLanguage'] =
+            resolvedLang.trim().isNotEmpty ? resolvedLang.trim().toLowerCase() : 'en';
+        out['meta'] = meta;
+        return out;
+      }
+    } catch (_) {}
     final uri = _uri('/v1/recommendations/home').replace(
       queryParameters: {
-        if (resolvedCountry != null && resolvedCountry.isNotEmpty)
-          'country': resolvedCountry,
+        'country': resolvedCountry,
         if (resolvedLang.trim().isNotEmpty) 'language': resolvedLang.trim().toLowerCase(),
       },
     );
@@ -539,20 +723,27 @@ class SteamBackendService {
   Future<void> refreshGameDeals(String appid, {String? country}) async {
     final id = appid.trim();
     if (id.isEmpty) return;
-    final selectedCountry = ((country ?? await _resolveCountryCode()) ?? 'AUTO')
+    final selectedCountry = ((country ?? await _resolveCountryCode()) ?? 'US')
         .trim()
         .toUpperCase();
-    // ignore: avoid_print
-    print(
-        'SteamBackendService.refreshGameDeals appid=$id country=$selectedCountry');
-    final uri = _uri('/api/games/$id/refresh-deals').replace(
-      queryParameters: selectedCountry.isNotEmpty && selectedCountry != 'AUTO'
-          ? {'country': selectedCountry}
-          : null,
-    );
+    final uri = _uri('/api/v2/markets/$selectedCountry/games/$id/refresh');
     final headers = await _authHeaders();
+    try {
+      final res = await _requestWithRetry(
+        request: () => _client.post(uri, headers: headers),
+        timeout: const Duration(seconds: 120),
+        timeoutMessage: 'Refresh market game timeout',
+        maxAttempts: 2,
+      );
+      final map = jsonDecode(res.body) as Map<String, dynamic>;
+      if (map['success'] == true) return;
+    } catch (_) {}
+    // Legacy fallback
+    final legacyUri = _uri('/api/games/$id/refresh-deals').replace(
+      queryParameters: {'country': selectedCountry},
+    );
     final res = await _requestWithRetry(
-      request: () => _client.post(uri, headers: headers),
+      request: () => _client.post(legacyUri, headers: headers),
       timeout: const Duration(seconds: 60),
       timeoutMessage: 'Refresh deals timeout',
       maxAttempts: 3,

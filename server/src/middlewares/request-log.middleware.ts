@@ -42,6 +42,7 @@ function requestPathname(req: Request): string {
 
 export function requestLogMiddleware(env: Env) {
   return (req: Request, res: Response, next: NextFunction) => {
+    if (!env.requestLogEnabled) return next();
     const pathname = requestPathname(req);
     if (shouldSkipLogging(req, pathname)) return next();
 

@@ -97,14 +97,21 @@ export async function fetchDealsPage(opts: {
   timeoutMs: number;
   /** CheapShark: Recent | Deal Rating | Metacritic | Release | Savings */
   sortBy?: string;
+  /** ISO2；部分部署/客户端会传；未支持时 CheapShark 可能忽略 */
+  country?: string;
 }): Promise<CheapSharkDealRow[]> {
-  const { pageSize, timeoutMs, sortBy = 'Recent' } = opts;
+  const { pageSize, timeoutMs, sortBy = 'Recent', country } = opts;
+  const cc = String(country ?? '')
+    .trim()
+    .toUpperCase()
+    .slice(0, 2);
   try {
     const resp = await axios.get(`${BASE}/deals`, {
       timeout: timeoutMs,
       params: {
         pageSize: Math.min(Math.max(pageSize, 10), 60),
         sortBy,
+        ...(cc.length === 2 && /^[A-Z]{2}$/.test(cc) ? { country: cc } : {}),
       },
     });
     const data = resp.data;

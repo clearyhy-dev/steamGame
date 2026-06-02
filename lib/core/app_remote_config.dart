@@ -14,6 +14,8 @@ class AppRemoteConfig {
   int connectTimeoutSec = 15;
   int receiveTimeoutSec = 90;
   String? publicAppBaseUrl;
+  /// 与 GET `/api/config` 的 `publicCacheCdnBase` 一致：GCS/Cloud CDN 根（无尾斜杠），用于 `cache/*.json`。
+  String? publicCacheCdnBase;
   List<String> supportedDealCountries = const [
     'US', 'CN', 'JP', 'KR', 'HK', 'SG', 'TW', 'GB', 'DE', 'FR', 'CA', 'AU', 'BR', 'RU',
   ];
@@ -81,6 +83,12 @@ class AppRemoteConfig {
 
   void _applyData(Map<String, dynamic> data) {
     publicAppBaseUrl = data['appBaseUrl'] as String?;
+    final cacheBase = data['publicCacheCdnBase'] as String?;
+    if (cacheBase != null && cacheBase.trim().isNotEmpty) {
+      publicCacheCdnBase = cacheBase.trim().replaceAll(RegExp(r'/+$'), '');
+    } else {
+      publicCacheCdnBase = null;
+    }
     final ds = data['appDeeplinkScheme'] as String?;
     if (ds != null && ds.trim().isNotEmpty) deeplinkScheme = ds.trim();
     final sh = data['appDeeplinkSuccessHost'] as String?;
@@ -91,43 +99,22 @@ class AppRemoteConfig {
     connectTimeoutSec = _int(data['appConnectTimeoutSec'], connectTimeoutSec).clamp(1, 120).toInt();
     receiveTimeoutSec = _int(data['appReceiveTimeoutSec'], receiveTimeoutSec).clamp(5, 600).toInt();
 
-    final csv = '${data['appSupportedDealCountriesCsv'] ?? ''}'.trim();
-    if (csv.isNotEmpty) {
-      supportedDealCountries = csv
-          .split(',')
-          .map((e) => e.trim().toUpperCase())
-          .where((e) => e.length == 2)
-          .toSet()
-          .toList();
-    }
-
-    final mapJson = '${data['appCountryMapJson'] ?? ''}'.trim();
-    if (mapJson.isNotEmpty) {
-      final parsed = _parseStringMap(mapJson);
-      if (parsed.isNotEmpty) countryMap = parsed.map((k, v) => MapEntry(k.toUpperCase(), v.toUpperCase()));
-    }
-    final currencyJson = '${data['appCountryCurrencyMapJson'] ?? ''}'.trim();
-    if (currencyJson.isNotEmpty) {
-      final parsed = _parseStringMap(currencyJson);
-      if (parsed.isNotEmpty) {
-        countryCurrencyMap = parsed.map((k, v) => MapEntry(k.toUpperCase(), v.toUpperCase()));
-      }
-    }
     loaded = true;
   }
 
-  static Map<String, String> _parseStringMap(String raw) {
-    try {
-      final decoded = jsonDecode(raw);
-      if (decoded is Map) {
-        final out = <String, String>{};
-        decoded.forEach((k, v) {
-          out[k.toString()] = v.toString();
-        });
-        return out;
-      }
-    } catch (_) {}
-    return {};
+  /// 由 [GET /api/v1/config/countries] 返回的 `countries[]` 推导（见 `CountryCatalogService._syncRegionToAppRemote`）。
+  void setDerivedRegionFromCountryCatalog({
+    required List<String> supportedCountryCodesInOrder,
+    required Map<String, String> languageCodeToCountry,
+    required Map<String, String> countryCodeToCurrency,
+  }) {
+    supportedDealCountries = supportedCountryCodesInOrder;
+    countryMap = languageCodeToCountry.map(
+      (k, v) => MapEntry(k.toUpperCase(), v.toUpperCase()),
+    );
+    countryCurrencyMap = countryCodeToCurrency.map(
+      (k, v) => MapEntry(k.toUpperCase(), v.toUpperCase()),
+    );
   }
 
   static int _int(dynamic v, int d) {

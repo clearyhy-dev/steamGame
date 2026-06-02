@@ -2,6 +2,8 @@ import { Button, Card, Descriptions, Image, Space, Table, Tag, Typography, messa
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { adminApi } from '../api/admin';
+import { VideoPlayback, resolvePlaybackUrl } from '../components/VideoPlayback';
+import { resolveVideoPoster } from '../utils/videoThumbnail';
 import type { VideoRow, VideoSourceRow } from '../types';
 
 export function VideoDetailPage() {
@@ -31,8 +33,8 @@ export function VideoDetailPage() {
 
   if (loading || !video) return <Typography.Text>加载中…</Typography.Text>;
 
-  const playback = video.playbackUrl ?? video.signedPlaybackUrl ?? '';
-  const isYoutubeEmbed = playback.includes('youtube.com/embed');
+  const playback = resolvePlaybackUrl(video);
+  const poster = resolveVideoPoster(video);
 
   return (
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
@@ -107,19 +109,22 @@ export function VideoDetailPage() {
         </Card>
       )}
 
-      <Card title="预览">
-        {video.thumbnailUrl && (
+      <Card
+        title="预览播放"
+        extra={
+          playback ? (
+            <a href={playback} target="_blank" rel="noreferrer">
+              新窗口打开
+            </a>
+          ) : null
+        }
+      >
+        {poster && (
           <div style={{ marginBottom: 16 }}>
-            <Image src={video.thumbnailUrl} width={200} />
+            <Image src={poster} width={320} style={{ maxWidth: '100%', borderRadius: 8 }} />
           </div>
         )}
-        {playback &&
-          (isYoutubeEmbed ? (
-            <iframe title="yt" src={playback} width="560" height="315" style={{ border: 0, maxWidth: '100%' }} />
-          ) : (
-            <video src={playback} controls width="560" style={{ maxWidth: '100%' }} />
-          ))}
-        {!playback && <Typography.Text type="secondary">无播放地址</Typography.Text>}
+        <VideoPlayback video={video} maxWidth="100%" />
       </Card>
 
       <Card title="Variants">

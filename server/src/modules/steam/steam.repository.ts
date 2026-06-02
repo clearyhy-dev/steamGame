@@ -1,4 +1,6 @@
 import { getFirestore } from '../../config/firebase';
+import { useSqliteRelationalStore } from '../../config/database';
+import * as sqliteSteam from '../../storage/sqlite/steam.store';
 import type {
   SteamFriendsCache,
   SteamOwnedGamesCache,
@@ -28,12 +30,17 @@ export class SteamRepository {
   private db = getFirestore();
 
   async getSteamProfile(steamId: string): Promise<SteamProfileDoc | null> {
+    if (useSqliteRelationalStore()) return sqliteSteam.sqliteGetSteamProfile(steamId);
     const doc = await this.db.collection(USERS_PROFILES_COLLECTION).doc(steamId).get();
     if (!doc.exists) return null;
     return doc.data() as SteamProfileDoc;
   }
 
   async upsertSteamProfile(profile: Omit<SteamProfileDoc, 'lastFetchedAt'> & { lastFetchedAt?: any }): Promise<void> {
+    if (useSqliteRelationalStore()) {
+      await sqliteSteam.sqliteUpsertSteamProfile(profile);
+      return;
+    }
     try {
       const now = new Date();
       const payload = omitUndefinedRecord({
@@ -48,12 +55,17 @@ export class SteamRepository {
   }
 
   async getFriendsCache(ownerSteamId: string): Promise<SteamFriendsCache | null> {
+    if (useSqliteRelationalStore()) return sqliteSteam.sqliteGetFriendsCache(ownerSteamId);
     const doc = await this.db.collection(FRIENDS_CACHE_COLLECTION).doc(ownerSteamId).get();
     if (!doc.exists) return null;
     return doc.data() as SteamFriendsCache;
   }
 
   async setFriendsCache(ownerSteamId: string, friends: SteamFriendStatus[]): Promise<void> {
+    if (useSqliteRelationalStore()) {
+      await sqliteSteam.sqliteSetFriendsCache(ownerSteamId, friends);
+      return;
+    }
     try {
       await this.db
         .collection(FRIENDS_CACHE_COLLECTION)
@@ -72,12 +84,17 @@ export class SteamRepository {
   }
 
   async getOwnedGamesCache(ownerSteamId: string): Promise<SteamOwnedGamesCache | null> {
+    if (useSqliteRelationalStore()) return sqliteSteam.sqliteGetOwnedGamesCache(ownerSteamId);
     const doc = await this.db.collection(OWNED_CACHE_COLLECTION).doc(ownerSteamId).get();
     if (!doc.exists) return null;
     return doc.data() as SteamOwnedGamesCache;
   }
 
   async setOwnedGamesCache(ownerSteamId: string, games: SteamGame[], gameCount: number): Promise<void> {
+    if (useSqliteRelationalStore()) {
+      await sqliteSteam.sqliteSetOwnedGamesCache(ownerSteamId, games, gameCount);
+      return;
+    }
     try {
       await this.db
         .collection(OWNED_CACHE_COLLECTION)
@@ -97,12 +114,17 @@ export class SteamRepository {
   }
 
   async getRecentGamesCache(ownerSteamId: string): Promise<SteamRecentGamesCache | null> {
+    if (useSqliteRelationalStore()) return sqliteSteam.sqliteGetRecentGamesCache(ownerSteamId);
     const doc = await this.db.collection(RECENT_CACHE_COLLECTION).doc(ownerSteamId).get();
     if (!doc.exists) return null;
     return doc.data() as SteamRecentGamesCache;
   }
 
   async setRecentGamesCache(ownerSteamId: string, games: SteamGame[], totalCount: number): Promise<void> {
+    if (useSqliteRelationalStore()) {
+      await sqliteSteam.sqliteSetRecentGamesCache(ownerSteamId, games, totalCount);
+      return;
+    }
     try {
       await this.db
         .collection(RECENT_CACHE_COLLECTION)
@@ -122,12 +144,14 @@ export class SteamRepository {
   }
 
   async listOwnedGamesCaches(limit: number): Promise<SteamOwnedGamesCache[]> {
+    if (useSqliteRelationalStore()) return sqliteSteam.sqliteListOwnedGamesCaches(limit);
     const n = Math.max(1, Math.min(limit, 300));
     const snap = await this.db.collection(OWNED_CACHE_COLLECTION).orderBy('lastFetchedAt', 'desc').limit(n).get();
     return snap.docs.map((d) => d.data() as SteamOwnedGamesCache);
   }
 
   async listRecentGamesCaches(limit: number): Promise<SteamRecentGamesCache[]> {
+    if (useSqliteRelationalStore()) return sqliteSteam.sqliteListRecentGamesCaches(limit);
     const n = Math.max(1, Math.min(limit, 300));
     const snap = await this.db.collection(RECENT_CACHE_COLLECTION).orderBy('lastFetchedAt', 'desc').limit(n).get();
     return snap.docs.map((d) => d.data() as SteamRecentGamesCache);

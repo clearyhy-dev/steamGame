@@ -6,19 +6,27 @@ import { RequestLogRepository } from './request-log.repository';
 const repo = new RequestLogRepository();
 let busy = false;
 
+export type RequestLogCleanupTickOutcome = { deleted: number; skipped?: boolean };
+
 export function startRequestLogCleanupWorker(baseEnv: Env): void {
   void (async () => {
     const intervalMs = 6 * 60 * 60 * 1000;
     logger.info(`[request-log.cleanup] worker started interval=${intervalMs}ms`);
     setInterval(() => {
-      void tick(baseEnv);
+      void runRequestLogCleanupTick(baseEnv).catch((e) =>
+        logger.warn(`[request-log.cleanup] failed: ${e instanceof Error ? e.message : String(e)}`),
+      );
     }, intervalMs);
-    void tick(baseEnv);
+    void runRequestLogCleanupTick(baseEnv).catch((e) =>
+      logger.warn(`[request-log.cleanup] failed: ${e instanceof Error ? e.message : String(e)}`),
+    );
   })();
 }
 
-async function tick(baseEnv: Env): Promise<void> {
-  if (busy) return;
+export async function runRequestLogCleanupTick(baseEnv: Env): Promise<RequestLogCleanupTickOutcome> {
+  if (busy) {
+    return { deleted: 0, skipped: true };
+  }
   busy = true;
   try {
     const env = await getEffectiveEnv(baseEnv);
@@ -31,8 +39,7 @@ async function tick(baseEnv: Env): Promise<void> {
     } else {
       logger.info(`[request-log.cleanup] retentionDays=${retentionDays} deleted=0`);
     }
-  } catch (e) {
-    logger.warn(`[request-log.cleanup] failed: ${e instanceof Error ? e.message : String(e)}`);
+    return { deleted };
   } finally {
     busy = false;
   }

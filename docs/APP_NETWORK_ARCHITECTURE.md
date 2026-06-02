@@ -62,9 +62,8 @@
 
 | 模块 | 路径 | 作用 |
 |------|------|------|
-| `AppRemoteConfig` | `GET /api/config` | 超时、deeplink、国家列表 CSV、API 基址覆盖等 |
-| `CountryCatalogService` | `GET /api/v1/config/countries` | 可选国家、货币、Steam cc、默认国别 |
-| `ClientRegionClient` | `GET /v1/config/client-region` | 边缘/代理推断的访问国别 guess（可选） |
+| `AppRemoteConfig` | `GET /api/config` + 自 `GET /api/v1/config/countries` 推导 | 超时、deeplink、API 基址；**国家/语言/货币映射**在拉取国家表后由客户端从 `countries[]` 计算，与 `/api/config` 解耦 |
+| `CountryCatalogService` | `GET /api/v1/config/countries`（同路径亦挂 `/v1/...`） | 启用国家列表、default/fallback、货币与 Steam 语言等；**同包返回 `clientRegionCountryCode`**（原 `/v1/config/client-region` 的 CDN 头推断，无头为 null） |
 
 ---
 

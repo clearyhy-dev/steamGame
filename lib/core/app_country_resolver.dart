@@ -2,7 +2,6 @@ import 'dart:ui' show PlatformDispatcher;
 
 import 'constants/api_constants.dart';
 import 'country_catalog_service.dart';
-import 'services/client_region_client.dart';
 import 'storage_service.dart';
 import 'utils/steam_ui_language.dart';
 class AppCountryContext {
@@ -83,20 +82,11 @@ class AppCountryResolver {
     }
   }
 
-  static String? _geoGuessMemo;
-  static DateTime? _geoGuessMemoAt;
-
-  static Future<String?> _guessCountryFromEdgeOnce() async {
-    if (_geoGuessMemo != null && _geoGuessMemoAt != null) {
-      if (DateTime.now().difference(_geoGuessMemoAt!) <
-          const Duration(hours: 24)) {
-        return _geoGuessMemo;
-      }
-    }
-    final g = await ClientRegionClient.fetchGuess();
-    _geoGuessMemo = g;
-    _geoGuessMemoAt = DateTime.now();
-    return g;
+  /// 国家目录接口已包含 `clientRegionCountryCode`（同次请求，避免再调 client-region）。
+  static String? _guessFromCatalogHeader() {
+    final g = CountryCatalogService.instance.clientRegionCountryCode;
+    if (g != null && g.length == 2) return g.toUpperCase();
+    return null;
   }
 
   static AppCountryContext resolveSync() {
@@ -142,7 +132,7 @@ class AppCountryResolver {
       }
     }
     if (manual == null || manual.isEmpty) {
-      final guess = await _guessCountryFromEdgeOnce();
+      final guess = _guessFromCatalogHeader();
       if (guess != null && guess.length == 2) {
         if (catalog.findByCountryCode(guess) != null) {
           await storage.setAppCountry(guess);

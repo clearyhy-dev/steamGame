@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import type { Env } from '../../config/env';
 import { getEffectiveEnv, invalidateRuntimeConfigCache } from '../../config/runtime-config';
 import { sendAdminOk } from '../../utils/adminJson';
+import { listExternalDealApiDocs } from '../config/external-deal-api.catalog';
 import { AdminSettingsRepository } from './admin.settings.repository';
 
 function serializeDiscount(cfg: Awaited<ReturnType<AdminSettingsRepository['getDiscountProviders']>>) {
@@ -9,6 +10,16 @@ function serializeDiscount(cfg: Awaited<ReturnType<AdminSettingsRepository['getD
     ...cfg,
     updatedAt: cfg.updatedAt.toDate().toISOString(),
     createdAt: cfg.createdAt.toDate().toISOString(),
+  };
+}
+
+function resolveDocUrls(appBaseUrl: string, stored: Partial<{ appSwaggerUiUrl?: string; appOpenApiJsonUrl?: string }>) {
+  const root = String(appBaseUrl ?? '').trim().replace(/\/+$/, '');
+  const swaggerOverride = String(stored.appSwaggerUiUrl ?? '').trim();
+  const openApiOverride = String(stored.appOpenApiJsonUrl ?? '').trim();
+  return {
+    appSwaggerUiUrl: swaggerOverride || (root ? `${root}/api/docs` : ''),
+    appOpenApiJsonUrl: openApiOverride || (root ? `${root}/api/openapi.json` : ''),
   };
 }
 
@@ -52,7 +63,7 @@ export class AdminSettingsController {
 
   getDiscountProviders = async (_req: Request, res: Response): Promise<void> => {
     const cfg = await this.repo.getDiscountProviders();
-    sendAdminOk(res, serializeDiscount(cfg));
+    sendAdminOk(res, { ...serializeDiscount(cfg), externalDealApis: listExternalDealApiDocs() });
   };
 
   patchDiscountProviders = async (req: Request, res: Response): Promise<void> => {
@@ -66,9 +77,8 @@ export class AdminSettingsController {
     if (typeof body.cheapSharkBaseUrl === 'string') patch.cheapSharkBaseUrl = body.cheapSharkBaseUrl.trim();
     if (typeof body.steamWebApiBaseUrl === 'string') patch.steamWebApiBaseUrl = body.steamWebApiBaseUrl.trim();
     if (typeof body.steamStoreBaseUrl === 'string') patch.steamStoreBaseUrl = body.steamStoreBaseUrl.trim();
-    if (typeof body.dealCountriesCsv === 'string') patch.dealCountriesCsv = body.dealCountriesCsv.trim().toUpperCase();
     const cfg = await this.repo.patchDiscountProviders(patch);
-    sendAdminOk(res, serializeDiscount(cfg));
+    sendAdminOk(res, { ...serializeDiscount(cfg), externalDealApis: listExternalDealApiDocs() });
   };
 
   getRuntime = async (_req: Request, res: Response): Promise<void> => {
@@ -76,6 +86,7 @@ export class AdminSettingsController {
     const stored = await this.repo.getRuntime();
     sendAdminOk(res, {
       effective: serializeRuntimeEffective(effective),
+      resolved: resolveDocUrls(effective.appBaseUrl, stored),
       stored,
     });
   };
@@ -93,9 +104,8 @@ export class AdminSettingsController {
       'appDeeplinkSuccessHost',
       'appDeeplinkFailHost',
       'appBaseUrl',
-      'appSupportedDealCountriesCsv',
-      'appCountryMapJson',
-      'appCountryCurrencyMapJson',
+      'appSwaggerUiUrl',
+      'appOpenApiJsonUrl',
       'videoGcsBucket',
       'ffmpegPath',
       'ffprobePath',
@@ -139,6 +149,7 @@ export class AdminSettingsController {
     const stored = await this.repo.getRuntime();
     sendAdminOk(res, {
       effective: serializeRuntimeEffective(effective),
+      resolved: resolveDocUrls(effective.appBaseUrl, stored),
       stored,
     });
   };

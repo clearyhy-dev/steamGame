@@ -7,6 +7,7 @@ import { VideoAdminService } from '../video/video-admin.service';
 import { serializeVideo, serializeVideoSource } from '../video/video.serializer';
 import type { VideoStatus, Visibility } from '../video/video.types';
 import { GameCatalogRepository } from '../game/game-catalog.repository';
+import { resolveVideoThumbnailUrl } from '../video/video-thumbnail.util';
 import type { AdminAuthedRequest } from './adminAuth.middleware';
 
 export class AdminVideosController {
@@ -45,8 +46,11 @@ export class AdminVideosController {
       return;
     }
     const source = await this.sources.findById(video.sourceId);
+    const game = video.gameId ? await this.catalog.getByAppid(String(video.gameId)) : null;
+    const serialized = serializeVideo(video);
+    const thumbnailUrl = resolveVideoThumbnailUrl(video, game) ?? serialized.thumbnailUrl;
     sendAdminOk(res, {
-      video: serializeVideo(video),
+      video: { ...serialized, thumbnailUrl, gameHeaderImage: game?.headerImage ?? null },
       source: source ? serializeVideoSource(source) : null,
     });
   };

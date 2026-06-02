@@ -2,6 +2,7 @@ import axios from 'axios';
 import type { Env } from '../../config/env';
 import { getEffectiveEnv } from '../../config/runtime-config';
 import { mapToSteamAppDetailsLang } from './steam-language.util';
+import { parseSteamMovies, type SteamTrailerClip } from './steam-trailers.parse';
 
 type RegionalPriceCacheEntry = { expires: number; value: SteamRegionalPrice | null };
 
@@ -16,6 +17,9 @@ export type SteamStoreGameDetail = {
   capsuleImage?: string;
   screenshots: string[];
   trailerUrls: string[];
+  /** 与 trailerUrls 同序的 Steam 预告片封面 */
+  trailerThumbnailUrls: string[];
+  trailerClips: SteamTrailerClip[];
   shortDescription?: string;
   detailedDescription?: string;
   developers: string[];
@@ -111,11 +115,16 @@ export class SteamStoreService {
     }
   }
 
-  async fetchAppDetails(appid: string): Promise<SteamStoreGameDetail | null> {
+  async fetchAppDetails(
+    appid: string,
+    opts?: { cc?: string; language?: string },
+  ): Promise<SteamStoreGameDetail | null> {
     const e = await getEffectiveEnv(this.env);
     const url = 'https://store.steampowered.com/api/appdetails';
+    const cc = String(opts?.cc ?? 'us').trim().toLowerCase() || 'us';
+    const lang = mapToSteamAppDetailsLang(String(opts?.language ?? 'en').trim() || 'en');
     const { data } = await axios.get<Record<string, any>>(url, {
-      params: { appids: appid, cc: 'us', l: 'en' },
+      params: { appids: appid, cc, l: lang },
       timeout: Math.max(e.steamHttpTimeoutMs, 15000),
       validateStatus: () => true,
     });
@@ -129,15 +138,9 @@ export class SteamStoreService {
       .filter(Boolean)
       .slice(0, 20);
     const moviesRaw = Array.isArray(d.movies) ? d.movies : [];
-    const trailerUrls = moviesRaw
-      .map((m: any) => {
-        const mp4Max = String(m?.mp4?.max ?? '').trim();
-        const mp4 = String(m?.mp4?.['480'] ?? '').trim();
-        const webm = String(m?.webm?.max ?? '').trim();
-        return mp4Max || mp4 || webm;
-      })
-      .filter(Boolean)
-      .slice(0, 8);
+    const trailerClips = parseSteamMovies(moviesRaw);
+    const trailerUrls = trailerClips.map((c) => c.url);
+    const trailerThumbnailUrls = trailerClips.map((c) => c.thumbnailUrl ?? '');
 
     const price = (d.price_overview ?? {}) as Record<string, any>;
     const categories = (Array.isArray(d.categories) ? d.categories : [])
@@ -158,6 +161,8 @@ export class SteamStoreService {
       capsuleImage: d.capsule_image ? String(d.capsule_image) : undefined,
       screenshots,
       trailerUrls,
+      trailerThumbnailUrls,
+      trailerClips,
       shortDescription: d.short_description ? String(d.short_description) : undefined,
       detailedDescription: d.detailed_description ? String(d.detailed_description) : undefined,
       developers: (Array.isArray(d.developers) ? d.developers : []).map((x: any) => String(x ?? '').trim()).filter(Boolean),
@@ -170,7 +175,6 @@ export class SteamStoreService {
       priceFinal: intField(price.final),
       discountPercent: intField(price.discount_percent),
       steamDiscounted: intField(price.discount_percent) > 0,
-      currentPlayers: (await this.fetchCurrentPlayers(appid)) ?? undefined,
     };
   }
 
@@ -465,12 +469,18 @@ export class SteamStoreService {
     return all;
   }
 
-  async fetchSteamReviews(appid: string, opts?: { all?: boolean; maxPages?: number }): Promise<{
+  async fetchSteamReviews(
+    appid: string,
+    opts?: { all?: boolean; maxPages?: number; maxReviews?: number },
+  ): Promise<{
     summary: SteamReviewSummary | null;
     reviews: SteamReviewRow[];
   }> {
     const e = await getEffectiveEnv(this.env);
-    const maxPages = Math.max(1, Math.min(opts?.maxPages ?? (opts?.all ? 200 : 3), 200));
+    const maxPages = Math.max(1, Math.min(opts?.maxPages ?? (opts?.all ? 200 : 1), 200));
+    const reviewCap = opts?.all
+      ? undefined
+      : Math.max(1, Math.min(Number(opts?.maxReviews ?? 50), 100));
     const allReviews: SteamReviewRow[] = [];
     let cursor = '*';
     let summary: SteamReviewSummary | null = null;
@@ -528,7 +538,8 @@ export class SteamStoreService {
     }
 
     allReviews.sort((a, b) => b.timestampCreated - a.timestampCreated);
-    return { summary, reviews: allReviews };
+    const reviews = reviewCap ? allReviews.slice(0, reviewCap) : allReviews;
+    return { summary, reviews };
   }
 }
 

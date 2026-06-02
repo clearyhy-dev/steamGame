@@ -56,6 +56,8 @@ server/dist/
 # Local workspace/runtime files
 *.code-workspace
 .vscode/
+server/.env
+logs/
 
 # Exceptions to above rules.
 !/packages/flutter_tools/test/data/dart_dependencies_test/**/.packages

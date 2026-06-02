@@ -14,8 +14,21 @@ import type {
   DiscountProvidersSettings,
   RuntimeEffectiveSettings,
   RuntimeSettingsResponse,
+  InfrastructureConfigResponse,
+  InfrastructureMinioBrowseResponse,
+  InfrastructureRedisBrowseResponse,
   AdminRequestLogRow,
   MetaEndpointsResponse,
+  ScheduledTaskConfigRow,
+  ScheduledTasksConfigResponse,
+  MarketGameRow,
+  MarketGamesListResponse,
+  MarketGameDetailResponse,
+  MarketSyncGlobalState,
+  SqliteDbInfo,
+  SqliteColumnMeta,
+  SqliteTableMeta,
+  SqliteRowsResponse,
 } from '../types';
 
 async function unwrap<T>(p: Promise<{ data: ApiEnvelope<T> }>): Promise<T> {
@@ -67,10 +80,86 @@ export const adminApi = {
   patchRuntimeSettings: (body: Partial<RuntimeEffectiveSettings> & { steamAutoSyncEnabled?: boolean }) =>
     unwrap(api.patch<ApiEnvelope<RuntimeSettingsResponse>>('/api/admin/settings/runtime', body)),
 
+  getInfrastructureConfig: () =>
+    unwrap(api.get<ApiEnvelope<InfrastructureConfigResponse>>('/api/admin/settings/infrastructure')),
+  browseInfrastructureMinio: (params?: { prefix?: string; limit?: number }) =>
+    unwrap(
+      api.get<ApiEnvelope<InfrastructureMinioBrowseResponse>>('/api/admin/settings/infrastructure/minio/objects', {
+        params,
+      }),
+    ),
+  browseInfrastructureRedis: () =>
+    unwrap(api.get<ApiEnvelope<InfrastructureRedisBrowseResponse>>('/api/admin/settings/infrastructure/redis')),
+
+  getScheduledTasks: () => unwrap(api.get<ApiEnvelope<ScheduledTasksConfigResponse>>('/api/admin/scheduled-tasks')),
+  putScheduledTasks: (body: { tasks: ScheduledTaskConfigRow[] }) =>
+    unwrap(api.put<ApiEnvelope<ScheduledTasksConfigResponse>>('/api/admin/scheduled-tasks', body)),
+  /** 默认后台异步执行（避免代理/浏览器断开）；需同步等待时传 sync: true */
+  runScheduledTaskNow: (taskId: string, opts?: { sync?: boolean }) =>
+    unwrap(
+      api.post<ApiEnvelope<{ task: ScheduledTaskConfigRow; async?: boolean }>>(
+        `/api/admin/scheduled-tasks/${encodeURIComponent(taskId)}/run`,
+        { sync: opts?.sync === true },
+        { timeout: opts?.sync ? 3_600_000 : 120_000 },
+      ),
+    ),
+  runAllScheduledTasksEnabled: (opts?: { sync?: boolean }) =>
+    unwrap(
+      api.post<
+        ApiEnvelope<{
+          async?: boolean;
+          message?: string;
+          results?: Array<{ id: string; taskKey: string; ok: boolean; summary?: string; error?: string; skipped?: boolean }>;
+          tasks?: ScheduledTaskConfigRow[];
+          updatedAt?: string;
+        }>
+      >('/api/admin/scheduled-tasks/run-all-enabled', { sync: opts?.sync === true }, { timeout: opts?.sync ? 3_600_000 : 120_000 }),
+    ),
+
+  sqliteInfo: () => unwrap(api.get<ApiEnvelope<SqliteDbInfo>>('/api/admin/sqlite/info')),
+  sqliteTables: () => unwrap(api.get<ApiEnvelope<{ tables: SqliteTableMeta[] }>>('/api/admin/sqlite/tables')),
+  sqliteTableSchema: (table: string) =>
+    unwrap(api.get<ApiEnvelope<{ table: string; columns: SqliteColumnMeta[] }>>(`/api/admin/sqlite/tables/${encodeURIComponent(table)}/schema`)),
+  sqliteTableRows: (table: string, params?: Record<string, string | number>) =>
+    unwrap(
+      api.get<ApiEnvelope<SqliteRowsResponse>>(`/api/admin/sqlite/tables/${encodeURIComponent(table)}/rows`, {
+        params,
+      }),
+    ),
+  dedupeTrailerVideos: (body?: { limit?: number }) =>
+    unwrap(
+      api.post<ApiEnvelope<{ gamesScanned: number; duplicatesRemoved: number }>>(
+        '/api/admin/games/dedupe-trailer-videos',
+        body ?? {},
+        { timeout: 600_000 },
+      ),
+    ),
+
+  sqliteUpdateRow: (table: string, body: { primaryKey: Record<string, unknown>; patch: Record<string, unknown> }) =>
+    unwrap(
+      api.patch<ApiEnvelope<{ changes: number }>>(`/api/admin/sqlite/tables/${encodeURIComponent(table)}/rows`, body),
+    ),
+
+  regionCountriesProviderMeta: () =>
+    unwrap(
+      api.get<
+        ApiEnvelope<{
+          ggDealsSuggestedRegions: string[];
+          cheapsharkListCountry: string;
+          cheapsharkNote: string;
+        }>
+      >(`/api/admin/region-countries/provider-meta`),
+    ),
   regionCountriesList: () =>
     unwrap(api.get<ApiEnvelope<Record<string, unknown>[]>>(`/api/admin/region-countries`)),
   regionCountriesUpsert: (body: Record<string, unknown>) =>
     unwrap(api.post<ApiEnvelope<Record<string, unknown>>>(`/api/admin/region-countries`, body)),
+  regionCountriesSyncProviderCodes: (force?: boolean) =>
+    unwrap(
+      api.post<ApiEnvelope<{ updated: number; force: boolean }>>(`/api/admin/region-countries/sync-provider-codes`, {
+        force: !!force,
+      }),
+    ),
   regionCountriesSetEnabled: (countryCode: string, enabled: boolean) =>
     unwrap(
       api.patch<ApiEnvelope<{ countryCode: string; enabled: boolean }>>(
@@ -147,6 +236,8 @@ export const adminApi = {
     appid?: string;
     discount_percent?: number;
     has_deal_link?: boolean;
+    /** today=今日已同步 | yes=有过价格同步 | no=未同步 */
+    price_synced?: 'today' | 'yes' | 'no';
     has_detail_synced?: boolean;
     page?: number;
     pageSize?: number;
@@ -155,8 +246,15 @@ export const adminApi = {
     discount_country?: string;
     has_discount_info?: boolean;
     hotness_min?: number;
+    /** 返回该业务国分桶洞察（史低、链接、值得买等，数据来自 game_discount_offers） */
+    insight_country?: string;
+    gg_near_historical?: 1;
   }) =>
-    unwrap(api.get<ApiEnvelope<{ total: number; page: number; pageSize: number; rows: GameManageRow[] }>>('/api/admin/games', { params })),
+    unwrap(
+      api.get<
+        ApiEnvelope<{ total: number; page: number; pageSize: number; rows: GameManageRow[]; ggDiscoveryScan?: boolean }>
+      >('/api/admin/games', { params }),
+    ),
 
   syncAppList: (body?: { chunkSize?: number; lastAppId?: number; maxResults?: number }) =>
     unwrap(
@@ -193,6 +291,48 @@ export const adminApi = {
       ),
     ),
 
+  /** 热度 Top500：Steam 在线人数 + 详情 + 每款最新 50 条评论（耗时长） */
+  syncTopHeatPipeline: (body?: {
+    topN?: number;
+    delayMs?: number;
+    maxReviews?: number;
+    refreshPlayers?: boolean;
+    syncDetails?: boolean;
+    syncReviews?: boolean;
+    forcePlayers?: boolean;
+  }) =>
+    unwrap(
+      api.post<
+        ApiEnvelope<{
+          mode: string;
+          topN: number;
+          playersRefreshed: number;
+          playersFailed: number;
+          detailsSynced: number;
+          detailsFailed: number;
+          detailsSkipped: number;
+          reviewsLoaded: number;
+          reviewsFailed: number;
+          reviewsSkipped: number;
+        }>
+      >('/api/admin/games/sync-top-heat-pipeline', body ?? {}, { timeout: 3_600_000 }),
+    ),
+
+  syncWeeklyHeatPage: (body?: { cursorAppid?: string; pageSize?: number; delayMs?: number; force?: boolean }) =>
+    unwrap(
+      api.post<
+        ApiEnvelope<{
+          mode: string;
+          scanned: number;
+          refreshed: number;
+          skippedFresh: number;
+          failed: number;
+          nextCursorAppid: string | null;
+          hasMore: boolean;
+        }>
+      >('/api/admin/games/sync-weekly-heat', body ?? {}, { timeout: 3_600_000 }),
+    ),
+
   gameSyncJobs: (params?: { limit?: number }) =>
     unwrap(api.get<ApiEnvelope<{ rows: SteamSyncJobRow[] }>>('/api/admin/games/sync-jobs', { params })),
 
@@ -202,17 +342,15 @@ export const adminApi = {
   syncGameMeta: (appid: string) =>
     unwrap(api.post<ApiEnvelope<{ synced: boolean; appid: string }>>(`/api/admin/games/${appid}/sync-meta`)),
 
-  loadGameReviews: (appid: string, params?: { maxPages?: number }) =>
+  loadGameReviews: (appid: string, params?: { maxReviews?: number }) =>
     unwrap(
-      api.post<ApiEnvelope<{ loaded: boolean; appid: string; reviewCount: number }>>(
+      api.post<ApiEnvelope<{ loaded: boolean; appid: string; reviewCount: number; maxReviews?: number }>>(
         `/api/admin/games/${appid}/load-reviews`,
         undefined,
         { params },
       ),
     ),
 
-  patchGame: (appid: string, body: { discountUrl: string }) =>
-    unwrap(api.patch<ApiEnvelope<{ appid: string; discountUrl: string }>>(`/api/admin/games/${appid}`, body)),
 
   gameDealLinks: (appid: string) =>
     unwrap(api.get<ApiEnvelope<{ rows: DealLinkRow[] }>>(`/api/admin/games/${appid}/deal-links`)),
@@ -229,4 +367,49 @@ export const adminApi = {
     body: { source: string; url: string; isAffiliate?: boolean; isActive?: boolean; priority?: number; startAt?: string | null; endAt?: string | null },
   ) =>
     unwrap(api.patch<ApiEnvelope<{ deal: DealLinkRow }>>(`/api/admin/games/${appid}/deal-links/${dealId}`, body)),
+
+  marketsList: (cc: string, params?: { page?: number; pageSize?: number; sortBy?: string }) =>
+    unwrap(api.get<ApiEnvelope<MarketGamesListResponse>>(`/api/admin/markets/${cc}/games`, { params })),
+
+  marketsStats: (cc: string) =>
+    unwrap(api.get<ApiEnvelope<{ countryCode: string; gameCount: number; currency: string; currencySymbol: string }>>(
+      `/api/admin/markets/${cc}/stats`,
+    )),
+
+  marketsSyncStatus: () =>
+    unwrap(api.get<ApiEnvelope<{ state: MarketSyncGlobalState | null }>>('/api/admin/markets/sync-status')),
+
+  marketsGameDetail: (cc: string, appid: string) =>
+    unwrap(api.get<ApiEnvelope<MarketGameDetailResponse>>(`/api/admin/markets/${cc}/games/${appid}`)),
+
+  marketsSyncOne: (cc: string, appid: string, body?: { forceRefresh?: boolean }) =>
+    unwrap(
+      api.post<
+        ApiEnvelope<{
+          appid: string;
+          ok: boolean;
+          detailOk: boolean;
+          heatOk: boolean;
+          pricesOk: boolean;
+          skipped?: boolean;
+          message?: string;
+        }>
+      >(`/api/admin/markets/${cc}/games/${appid}/sync`, body ?? {}, { timeout: 600_000 }),
+    ),
+
+  marketsRunRoundRobin: (payload?: Record<string, unknown>) =>
+    unwrap(
+      api.post<
+        ApiEnvelope<{
+          countryCode: string;
+          currency: string;
+          currencySymbol: string;
+          processed: number;
+          success: number;
+          failed: number;
+          skipped: number;
+          summary: string;
+        }>
+      >('/api/admin/markets/round-robin/run', { payload: payload ?? {} }, { timeout: 3_600_000 }),
+    ),
 };

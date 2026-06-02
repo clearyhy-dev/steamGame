@@ -303,21 +303,21 @@ class GameBestPriceCard extends StatelessWidget {
           onTap:
               onTapSource == null ? null : () => _guardedTap(context, l10n, source),
           borderRadius: BorderRadius.circular(10),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
-                      children: [
-                        Text(
+                children: [
+                  Text(
                           _sourceName[source] ?? source,
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                            color: scheme.onSurface,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: scheme.onSurface,
                           ),
                         ),
                         if (source != 'steam') ...[
@@ -340,14 +340,14 @@ class GameBestPriceCard extends StatelessWidget {
                             color:
                                 scheme.onSurfaceVariant.withValues(alpha: 0.8),
                           ),
-                        ),
-                      ),
-                  ],
-                ),
+                    ),
+                  ),
+                ],
               ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
                   if (source == 'steam')
                     Padding(
                       padding: const EdgeInsets.only(bottom: 4),
@@ -356,48 +356,48 @@ class GameBestPriceCard extends StatelessWidget {
                   if (shownOriginal != null &&
                       shownFinal != null &&
                       shownOriginal > shownFinal)
-                    Text(
+                  Text(
                       formatRegionalPrice(
                           amount: shownOriginal, currency: currency),
-                      style: TextStyle(
-                        fontSize: 12,
-                        decoration: TextDecoration.lineThrough,
-                        color: scheme.onSurfaceVariant.withValues(alpha: 0.7),
-                      ),
+                    style: TextStyle(
+                      fontSize: 12,
+                      decoration: TextDecoration.lineThrough,
+                      color: scheme.onSurfaceVariant.withValues(alpha: 0.7),
                     ),
-                  Text(
+                  ),
+                Text(
                     shownFinal == null
                         ? '—'
                         : formatRegionalPrice(
                             amount: shownFinal, currency: currency),
-                    style: const TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.itadOrange,
-                    ),
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.itadOrange,
                   ),
+                ),
                   if ((row['discountPercent'] is num) &&
                       (row['discountPercent'] as num) > 0)
-                    Container(
-                      margin: const EdgeInsets.only(top: 4),
+                  Container(
+                    margin: const EdgeInsets.only(top: 4),
                       padding: const EdgeInsets.symmetric(
                           horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: AppColors.discountRed.withValues(alpha: 0.2),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
+                    decoration: BoxDecoration(
+                      color: AppColors.discountRed.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
                         '-${(row['discountPercent'] as num).toInt()}%',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.discountRed,
-                        ),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.discountRed,
                       ),
                     ),
-                ],
-              ),
-            ],
+                  ),
+              ],
+            ),
+          ],
           ),
         ),
       );
@@ -432,10 +432,10 @@ class GameBestPriceCard extends StatelessWidget {
                 Expanded(
                   child: Text(
                     l10n.get('price_section_local_best'),
-                    style: TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.bold,
-                      color: scheme.onSurface,
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.bold,
+                    color: scheme.onSurface,
                     ),
                   ),
                 ),

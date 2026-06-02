@@ -18,12 +18,15 @@ type SteamMoviesResponse = {
   };
 };
 
-/** Fetch best mp4 trailer URL from Steam store API */
-export async function fetchSteamTrailerMp4(env: Env, steamAppId: string): Promise<{ title: string; mp4Url: string }> {
+/** Fetch best mp4 trailer URL (+ cover) from Steam store API */
+export async function fetchSteamTrailerMp4(
+  env: Env,
+  steamAppId: string,
+): Promise<{ title: string; mp4Url: string; thumbnailUrl?: string }> {
   const url = `https://store.steampowered.com/api/appdetails`;
   const { data } = await axios.get<SteamMoviesResponse>(url, {
-    params: { appids: steamAppId, l: 'english' },
-    timeout: env.steamHttpTimeoutMs,
+    params: { appids: steamAppId, cc: 'us', l: 'en' },
+    timeout: Math.max(env.steamHttpTimeoutMs, 15000),
     validateStatus: () => true,
   });
 
@@ -36,8 +39,10 @@ export async function fetchSteamTrailerMp4(env: Env, steamAppId: string): Promis
   const mp4Url = movie.mp4?.max ?? movie.mp4?.['480'];
   if (!mp4Url) throw new Error('No mp4 trailer URL in Steam response');
 
+  const thumb = String(movie.thumbnail ?? '').trim();
   return {
     title: block.data.name ?? movie.name ?? `App ${steamAppId}`,
     mp4Url,
+    thumbnailUrl: thumb && /^https?:\/\//i.test(thumb) ? thumb : undefined,
   };
 }

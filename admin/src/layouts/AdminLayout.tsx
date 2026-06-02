@@ -1,4 +1,5 @@
 import { Layout, Menu, theme } from 'antd';
+import type { MenuProps } from 'antd';
 import {
   DashboardOutlined,
   DatabaseOutlined,
@@ -9,21 +10,41 @@ import {
   TeamOutlined,
   SettingOutlined,
   FileSearchOutlined,
+  ClockCircleOutlined,
 } from '@ant-design/icons';
+import { useEffect, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { adminApi } from '../api/admin';
 import { setToken } from '../api/client';
 
 const { Header, Sider, Content } = Layout;
 
-const items = [
+const menuItems: MenuProps['items'] = [
   { key: '/dashboard', icon: <DashboardOutlined />, label: 'Dashboard' },
   { key: '/video-sources', icon: <DatabaseOutlined />, label: 'Video Sources' },
   { key: '/videos', icon: <PlayCircleOutlined />, label: 'Videos' },
   { key: '/video-jobs', icon: <UnorderedListOutlined />, label: 'Video Jobs' },
-  { key: '/steam-games', icon: <AppstoreOutlined />, label: 'App Games' },
+  {
+    key: 'sub-app-games',
+    icon: <AppstoreOutlined />,
+    label: 'App Games',
+    children: [
+      { key: '/app-games/market', label: '分国市场 v2' },
+      { key: '/app-games/steam', label: 'Steam 列表' },
+      { key: '/app-games/itad', label: 'ITAD 价格分析' },
+      { key: '/app-games/gg', label: 'GG 发现/趋势' },
+      { key: '/app-games/cheapshark', label: 'CheapShark' },
+      { key: '/app-games/worth-buy', label: '值得买指数' },
+      { key: '/app-games/catalog-sync', label: 'Steam 目录同步' },
+      { key: '/app-games/detail-sync', label: '详情同步' },
+      { key: '/app-games/deal-sync', label: '折扣同步' },
+      { key: '/app-games/sync-results', label: '同步结果' },
+    ],
+  },
   { key: '/users', icon: <TeamOutlined />, label: 'Users' },
   { key: '/settings', icon: <SettingOutlined />, label: 'Settings' },
+  { key: '/scheduled-tasks', icon: <ClockCircleOutlined />, label: 'Scheduled Tasks' },
+  { key: '/sqlite-database', icon: <DatabaseOutlined />, label: 'SQLite 数据库' },
   { key: '/app-diagnostics', icon: <FileSearchOutlined />, label: 'App Diagnostics' },
   { key: '/request-logs', icon: <FileSearchOutlined />, label: 'Request Logs' },
   { key: '/country-region-mapping', icon: <SettingOutlined />, label: 'Country / Steam' },
@@ -36,11 +57,15 @@ export function AdminLayout() {
     token: { colorBgContainer },
   } = theme.useToken();
 
-  /** pathname 形如 /admin/dashboard 或 /admin/videos/xxx（含 basename） */
   let rest = loc.pathname.replace(/^\/admin\/?/, '');
   if (!rest) rest = 'dashboard';
-  const first = rest.split('/')[0] ?? 'dashboard';
-  const selected = `/${first}`;
+  const selectedKey = rest.includes('app-games/') ? `/${rest}` : `/${rest.split('/')[0]}`;
+
+  const [openKeys, setOpenKeys] = useState<string[]>([]);
+  useEffect(() => {
+    if (rest.startsWith('app-games')) setOpenKeys(['sub-app-games']);
+    else setOpenKeys([]);
+  }, [rest]);
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
@@ -50,10 +75,12 @@ export function AdminLayout() {
         <Menu
           theme="dark"
           mode="inline"
-          selectedKeys={[selected]}
-          items={items}
+          selectedKeys={[selectedKey]}
+          openKeys={openKeys}
+          onOpenChange={(keys) => setOpenKeys(keys as string[])}
+          items={menuItems}
           onClick={({ key }) => {
-            nav(key);
+            if (typeof key === 'string' && key.startsWith('/')) nav(key);
           }}
         />
       </Sider>

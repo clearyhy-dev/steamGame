@@ -26,9 +26,11 @@ const HTTP_TIMEOUT_MS = 8000;
 const ITAD_MIN_POOL = 15;
 
 type CacheEntry = { expires: number; payload: HomeRecommendationsResponse };
+type ExploreCacheEntry = { expires: number; payload: ExploreRecommendationsResponse };
 
 const homeCache = new Map<string, CacheEntry>();
 const publicTrendingCache = new Map<string, CacheEntry>();
+const exploreCache = new Map<string, ExploreCacheEntry>();
 
 const STEAM_PRICE_CONCURRENCY = 5;
 const STEAM_ENRICH_MAX_ATTEMPTS = 3;
@@ -308,6 +310,7 @@ export class RecommendationsService {
     cheapSharkSortBy: string,
     itadSort?: string,
   ): Promise<CheapSharkDealRow[]> {
+    const pc = await this.countries.resolveDealProviderCodes(countryCode);
     const cfg = await this.settings.getDiscountProviders();
     const key = cfg.itadApiKey?.trim();
     if (key) {
@@ -315,7 +318,7 @@ export class RecommendationsService {
         const rows = await fetchItadSteamDealsAsCheapSharkRows({
           apiKey: key,
           baseUrl: cfg.itadBaseUrl,
-          country: countryCode,
+          country: pc.itadCountry,
           limit: DEAL_POOL,
           sort: itadSort,
           timeoutMs: HTTP_TIMEOUT_MS,
@@ -331,6 +334,7 @@ export class RecommendationsService {
       pageSize: Math.min(DEAL_POOL, 60),
       timeoutMs: HTTP_TIMEOUT_MS,
       sortBy: cheapSharkSortBy,
+      country: pc.cheapsharkCountry,
     });
   }
 
@@ -544,6 +548,14 @@ export class RecommendationsService {
       return { tab: 'for_you', items: home.items };
     }
 
+    const steamLang = await this.resolveSteamCatalogLanguage(effectiveCountry, languageQuery);
+    const now = Date.now();
+    const exploreKey = `explore:${userId}:${tab}:${effectiveCountry}:${steamLang}`;
+    const exHit = exploreCache.get(exploreKey);
+    if (exHit && exHit.expires > now) {
+      return exHit.payload;
+    }
+
     const steamId = resolved.steamId;
     let ownedIds = new Set<string>();
     let recentIds = new Set<string>();
@@ -591,10 +603,10 @@ export class RecommendationsService {
     let items: HomeRecommendationItem[] = top.map(({ row, score, reasons }) =>
       mapRowToItem(row, score, reasons),
     );
-    const steamLang = await this.resolveSteamCatalogLanguage(effectiveCountry, languageQuery);
     items = await this.enrichItemsWithSteamRegional(items, effectiveCountry, steamLang);
 
     const response = { tab: tabRaw || 'trending', items };
+    exploreCache.set(exploreKey, { expires: Date.now() + CACHE_TTL_MS, payload: response });
     logger.info(
       `[recommendations.explore] user=${userId} tab=${response.tab} steamLinked=${String(Boolean(resolved.steamId))} country=${effectiveCountry} lang=${steamLang} source=${resolved.source} items=${items.length} sources={${summarizePriceSources(items)}} ms=${Date.now() - startedAt}`,
     );

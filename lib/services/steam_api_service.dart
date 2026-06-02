@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../core/constants.dart';
+import '../core/country_catalog_service.dart';
 import '../core/current_players_cache.dart';
 import '../core/utils/price_region_resolver.dart';
 import '../core/utils/steam_ui_language.dart';
@@ -11,6 +12,18 @@ import '../models/game_model.dart';
 /// 文档: https://apidocs.cheapshark.com/
 class SteamApiService {
   static const String _baseUrl = 'https://www.cheapshark.com/api/1.0';
+
+  /// 与 Admin「Country / Steam」中 cheapsharkCountry 一致；目录未加载时回退 ISO2。
+  Future<String> _cheapsharkCountryParam(String? overrideCountry) async {
+    final region = await PriceRegionResolver.resolveContext();
+    final iso = (overrideCountry ?? region.country).trim().toUpperCase();
+    if (iso.length != 2) return 'US';
+    final e = CountryCatalogService.instance.findByCountryCode(iso);
+    if (e != null && e.cheapsharkCountry.trim().length == 2) {
+      return e.cheapsharkCountry.trim().toUpperCase();
+    }
+    return iso;
+  }
 
   /// 与 SteamDB 排行榜一致：常驻 Top 的 Steam appId（按典型人气排序，后续会按实时在线人数重排）
   static const List<String> topSteamAppIds = [
@@ -131,14 +144,12 @@ class SteamApiService {
   /// 拉取当前折扣列表（分页），5 秒超时防止卡死
   Future<List<GameModel>> fetchDeals(
       {int pageSize = 25, int pageNumber = 0, String? country}) async {
-    final region = await PriceRegionResolver.resolveContext();
+    final csCountry = await _cheapsharkCountryParam(country);
     final uri = Uri.parse('$_baseUrl/deals').replace(
       queryParameters: <String, String>{
         'pageSize': pageSize.toString(),
         'pageNumber': pageNumber.toString(),
-        // cheapshark may ignore this param; kept for compatibility and future backend proxy.
-        if ((country ?? region.country).trim().isNotEmpty)
-          'country': (country ?? region.country).trim().toUpperCase(),
+        if (csCountry.isNotEmpty) 'country': csCountry,
       },
     );
     for (var attempt = 0; attempt < 2; attempt++) {
@@ -171,12 +182,11 @@ class SteamApiService {
   Future<GameModel> fetchGameById(String dealId, {String? country}) async {
     if (dealId.isEmpty) return _emptyGame('');
     try {
-      final region = await PriceRegionResolver.resolveContext();
+      final csCountry = await _cheapsharkCountryParam(country);
       final uri = Uri.parse('$_baseUrl/deals').replace(
         queryParameters: <String, String>{
           'id': dealId,
-          if ((country ?? region.country).trim().isNotEmpty)
-            'country': (country ?? region.country).trim().toUpperCase(),
+          if (csCountry.isNotEmpty) 'country': csCountry,
         },
       );
       final response = await http.get(uri).timeout(
@@ -503,13 +513,12 @@ class SteamApiService {
   Future<List<GameModel>> searchGames(String title,
       {int pageSize = 20, String? country}) async {
     try {
-      final region = await PriceRegionResolver.resolveContext();
+      final csCountry = await _cheapsharkCountryParam(country);
       final uri = Uri.parse('$_baseUrl/games').replace(
         queryParameters: <String, String>{
           'title': title,
           'pageSize': pageSize.toString(),
-          if ((country ?? region.country).trim().isNotEmpty)
-            'country': (country ?? region.country).trim().toUpperCase(),
+          if (csCountry.isNotEmpty) 'country': csCountry,
         },
       );
       final response = await http.get(uri).timeout(

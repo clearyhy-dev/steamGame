@@ -38,6 +38,88 @@ Flutter App **不直连业务数据库**。数据来自：
 - **管理后台（Admin）功能说明**：[docs/ADMIN_DASHBOARD.md](docs/ADMIN_DASHBOARD.md)
 - **管理端接口总表**：[docs/BACKEND_ADMIN_APIS.md](docs/BACKEND_ADMIN_APIS.md)
 
+---
+
+## 后端：缓存改造与存储分层（当前实现）
+
+本节说明 **你现在用到的缓存是哪些**、**折扣/热度/评论如何落到对象存储**、以及 **Firestore 仍保留的原因**（全站不可能只靠进程内内存）。
+
+### 「缓存」在你项目里指什么（按可靠性递增）
+
+| 名称 | 实现 | 生命周期 | 典型用途 |
+|------|------|----------|----------|
+| **A. API 短缓存（cacheService）** | 未设 **`REDIS_URL`**：`node-cache`（进程内存）；已设 **`REDIS_URL`**：**Redis**（Upstash / Memorystore 等） | 内存：**部署即丢**。Redis：**TTL 内跨部署保留**（仍非业务真源，过期会没） | 国家列表、`/games/catalog`、`/games/search`、`/games/popular-searches` 等（默认 **600s**） |
+| **B. 推荐 Map** | `recommendations.service.ts` 内 `Map` | 同上，约 **10 分钟** | `home` / `trending-public` / `explore` |
+| **C. 运行时合并缓存** | `runtime-config.ts` | 约 **60s** | 进程内合并 `Env` + Firestore `system_config` |
+| **D. HTTP Cache-Control** | `httpSafePublicCacheMiddleware` | CDN/浏览器按头 | 仅**白名单** GET、且无 `Authorization` 时生效 |
+| **E. 对象存储 JSON（GCS/R2）** | `uploadPublicCacheJson`、`cache/discount-offers/v1/*.json` 等 | **跨实例、可每日整批覆盖**；适合「日更快照」 | 首页/榜单类静态拉取、可选 **`DISCOUNT_OFFERS_PERSISTENCE=object_storage`** 时作为折扣分桶**唯一落盘** |
+
+**结论**：若目标是「每天刷新、少 Firestore Read、可运维删改」，**真正该当“缓存层真源”的是 E（对象存储 + CDN）**；A/B 只是削峰，**不能**替代磁盘级或桶级持久化。
+
+### 重新部署后，哪些会丢、如何避免「像丢数据」
+
+- **业务数据**（Firestore、GCS 桶里的 JSON）**不会因 Cloud Run 换版本而丢失**。  
+- **进程内缓存**（未接 Redis 时的 `cacheService`、推荐的 `Map`、`runtime-config` 合并缓存）**会丢**：新实例冷启动后第一次请求会重新算/再读库，只是 **成本与延迟** 波动，不是删库。  
+- **希望「API 层热点缓存」部署后仍在**：在 Cloud Run 配置 **`REDIS_URL`**（例如 [Upstash](https://upstash.com/) 的 HTTPS Redis URL，或 GCP Memorystore + VPC —— 后者需网络打通）。`cacheService` 会自动走 Redis，**键在 TTL 内跨部署可读回**。  
+- **推荐接口的 `Map`** 目前仍在进程内，**部署仍会清空**；若也要跨部署，需再抽一层 Redis 或改为读静态 JSON/CDN。
+
+
+- **默认 `DISCOUNT_OFFERS_PERSISTENCE=object_storage`（或未设置）**  
+  折扣同步写入 **GCS/R2** `cache/discount-offers/v1/{appid}__{CC}.json`，**不落** Firestore `game_discount_offers`。
+
+- **`DISCOUNT_OFFERS_PERSISTENCE=firestore`**（显式设置时）  
+  与旧版一致，写入 **`game_discount_offers`**（Firestore）。
+
+- **`object_storage` 还需**（R2 时另配 `CACHE_UPLOAD_BACKEND=r2` 与 `R2_*`）  
+  - **读写** `GameDiscountOffersRepository` 走 **GCS/R2** 路径：`cache/discount-offers/v1/{appid}__{CC}.json`。  
+  - **不再**对 `game_discount_offers` 做 merge/get/list（Firestore 该集合对此模式停用）。  
+  - Admin 里依赖 Firestore 全表扫描的 **GG 发现**（`scanGgDiscoveryAgainstCatalog`）在 object_storage 下会返回空并打日志。  
+  - **物理删除 / markStale / 清 invalid 片段** 等维护任务在 object_storage 下**跳过**；日更「删除」请用 **桶生命周期规则** 或运维脚本按前缀清理。
+
+### 定时快照 `runCacheBuild` 写入的 `cache/*.json`（供 CDN）
+
+除原有 `top-discounts-*`、`trending-games`、`hot-deals`、`*-prices`、`popular-searches` 外，另增：
+
+| 文件 | 内容 |
+|------|------|
+| `cache/game-heat.json` | 目录侧热度镜像（当前来自 `game_catalog` 高在线列表，日更） |
+| `cache/review-highlights.json` | 带 `reviewSummary` 的游戏摘要（日更；**读构建仍从 Firestore catalog 抽一次**写入桶） |
+
+客户端优先：`PUBLIC_CACHE_CDN_BASE` + 相对路径（与 `GET /api/config` 下发一致）。
+
+### 为什么「不全站取消 Firestore」
+
+Firestore 仍适合 **强一致、事务、按用户/按文档索引** 的数据，例如：`users`、`user_favorites`、`system_config`、`game_catalog` 元数据、视频任务、请求日志等。  
+**仅**将「高频、可日更、可整包替换」的块（折扣分桶、榜单快照、评论摘要镜像）迁到对象存储，是成本与复杂度之间的常见折中。
+
+### 还适合统一进「日更对象存储 / CDN」的数据（架构师常用清单）
+
+- 全站 **国家/币种/Steam 区映射** 的只读快照（已有 countries API + 可再出一份 JSON）  
+- **推荐 feed** 的匿名兜底块（与 `trending-public` 同源池）  
+- **排行榜 / 标签聚合** 等只读大盘  
+- **SEO 落地页** 所需的结构化片段（若以后做 SSR 壳）
+
+### 主要代码位置
+
+| 用途 | 路径 |
+|------|------|
+| API 短缓存（node / Redis） | `server/src/cache/cacheService.ts` |
+| 折扣分桶 GCS/R2 读写 | `server/src/cache/discount-offers-object-storage.ts` |
+| 分桶 Repository（双模式） | `server/src/modules/game/game-discount-offers.repository.ts` |
+| 上传抽象 GCS/R2 | `server/src/cache/cache-object-upload.ts` |
+| 环境变量 `DISCOUNT_OFFERS_PERSISTENCE` | `server/src/config/env.ts` |
+| 定时构建 + 热度/评论 JSON | `server/src/jobs/cacheBuilder.ts` |
+| HTTP 缓存白名单 | `server/src/middlewares/httpCache.middleware.ts` |
+
+### 已知缺口与建议调整（对照用）
+
+1. **R2 纯写 + 部分 API 仍只从 GCS 拉**：例如 `popular-searches` 回源逻辑若未配 `publicCacheCdnBase`，需对齐 R2 Get 或强制 CDN 域名。  
+2. **Cron 响应** `runCacheBuild` 使用 `target` + `backend` + `keys`。  
+3. **搜索 cursor 语义** 与旧 `page` 不一致，客户端需对齐。  
+4. **object_storage 下** Admin **GG 发现**、**按 Firestore 分页删折扣** 不可用；改用桶策略或离线作业。  
+5. **热度/评论 JSON** 当前由 Job **读 Firestore catalog 一次**生成；若连这一步也要去掉 Firestore，需要上游（如 BigQuery / 另一任务）只写桶。  
+6. **Flutter 文档** [docs/APP_NETWORK_ARCHITECTURE.md](docs/APP_NETWORK_ARCHITECTURE.md) 建议补充静态 `cache/*.json` 与 `DISCOUNT_OFFERS_PERSISTENCE`。
+
 ## 本地开发与打包
 
 - **开发机/打包（D 盘缓存约束）**：[docs/README.md](docs/README.md)

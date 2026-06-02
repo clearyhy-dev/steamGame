@@ -63,4 +63,50 @@ export class VideoRepository {
     const rows = await this.list({ limit: 500 });
     return rows.filter((v) => v.visibility === 'public' && v.status === 'ready').slice(0, limit);
   }
+
+  async deleteById(videoId: string): Promise<void> {
+    const id = String(videoId ?? '').trim();
+    if (!id) return;
+    try {
+      await this.db.collection(COLLECTION).doc(id).delete();
+    } catch (e) {
+      throw new ApiError(500, 'FIRESTORE_WRITE_FAILED', 'Failed to delete video', e);
+    }
+  }
+
+  /** 按 gameId 统计视频条数（管理端列表用，避免拉全表） */
+  async countByGameIds(gameIds: string[]): Promise<Map<string, number>> {
+    const out = new Map<string, number>();
+    const uniq = Array.from(new Set(gameIds.map((x) => String(x ?? '').trim()).filter(Boolean)));
+    if (uniq.length === 0) return out;
+    const { useSqliteRelationalStore } = await import('../../config/database');
+    if (useSqliteRelationalStore()) {
+      const { sqlAll } = await import('../../storage/sqlite/sql-client');
+      const placeholders = uniq.map(() => '?').join(',');
+      const rows = await sqlAll<{ game_id: string; n: number }>(
+        `SELECT game_id, COUNT(*) AS n FROM videos
+         WHERE game_id IN (${placeholders}) GROUP BY game_id`,
+        uniq,
+      );
+      for (const r of rows) {
+        const gid = String(r.game_id ?? '').trim();
+        if (gid) out.set(gid, Number(r.n ?? 0));
+      }
+      return out;
+    }
+    const snap = await this.db.collection(COLLECTION).where('gameId', 'in', uniq.slice(0, 30)).get();
+    for (const d of snap.docs) {
+      const v = d.data() as VideoDoc;
+      const gid = String(v.gameId ?? '').trim();
+      if (!gid) continue;
+      out.set(gid, (out.get(gid) ?? 0) + 1);
+    }
+    if (uniq.length > 30) {
+      for (const gid of uniq.slice(30)) {
+        const snapOne = await this.db.collection(COLLECTION).where('gameId', '==', gid).get();
+        if (snapOne.size > 0) out.set(gid, snapOne.size);
+      }
+    }
+    return out;
+  }
 }

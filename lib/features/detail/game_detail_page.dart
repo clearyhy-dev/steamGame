@@ -175,6 +175,10 @@ class _GameDetailPageState extends State<GameDetailPage> {
         _allDealsLoaded = true;
         _dealsUsingCache = false;
         _dealsCacheUpdatedAt = DateTime.now();
+        final heat = data['heat'];
+        if (heat is Map && heat['currentPlayers'] is num) {
+          _currentPlayers = (heat['currentPlayers'] as num).toInt();
+        }
       });
       await StorageService.instance.setDetailDealsCache(
         appid: steamId,
