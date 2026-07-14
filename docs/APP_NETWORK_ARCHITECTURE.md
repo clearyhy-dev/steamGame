@@ -3,9 +3,10 @@
 本文档面向架构梳理：**Flutter App 调用了哪些网络能力、各自用途、数据来自哪里**（自建后端 / 直连公网 / 仅本地）。  
 **重要**：移动 App **从不直连业务数据库**；凡标注「自建后端」的接口，由 Cloud Run 等服务访问 Firestore、缓存或再转发第三方 API。
 
-- **默认 API 根地址**：`lib/core/constants/api_constants.dart` 的 `ApiConstants.baseUrl`（可用 `--dart-define=API_BASE_URL=...` 覆盖）。
+- **默认 API 根地址**：`lib/core/constants/api_constants.dart` 的 `ApiConstants.baseUrl`（Vultr 业务 API，可用 `--dart-define=API_BASE_URL=...` 覆盖）。
+- **Auth 根地址**：`ApiConstants.authBaseUrl`（GCP `steamgame-auth`，Steam OpenID；可用 `--dart-define=AUTH_BASE_URL=...` 覆盖）。
 - **另一路 Base URL**：`lib/core/config/app_config.dart` 的 `AppConfig.apiBaseUrl`（`SteamRepository` / `ApiClient` 使用，默认值与上通常一致）。
-- **启动时动态覆盖**：`GET /api/config` → `AppRemoteConfig.resolveApiBase()` 可能把请求改到 `publicAppBaseUrl`（运营在服务端配置）。
+- **启动时动态覆盖**：`GET /api/config` → `AppRemoteConfig.resolveApiBase()` / `resolveAuthBase()` 可能分别改业务与 Auth 根地址。
 
 ---
 
@@ -20,7 +21,13 @@
 |-------------|------|------|----------|
 | 区域详情（Steam 价 + 多来源 deals 聚合展示） | GET | `/api/v1/games/:appid/regional-detail` | 游戏详情页区域价、店铺摘要等 |
 | Steam 区域店价格 | GET | `/api/v1/games/:appid/steam-price` | 区域 Steam 标价 |
-| 当前用户 | GET | `/api/me` | 登录态、用户标识 |
+| 当前用户 | GET | `/api/me` | 登录态、用户标识、国家 |
+| 更新用户国家 | PATCH | `/api/me` | `countryCode` / `countrySource` |
+| 收藏按国取价 | GET | `/api/me/favorites/prices?country=` | 愿望单批量区域价 |
+| Google 桥接登录 | POST | `/api/auth/app-session` | 签发 Vultr 平台 JWT |
+| 竖屏视频 Feed | GET | `/api/videos/feed` | 游标分页 + 游戏折扣 enrich |
+| 视频播放 | GET | `/api/videos/:id/playback?variant=vertical` | 竖屏 MP4 签名 URL |
+| 视频互动 | POST | `/api/videos/:id/like` 等 | 点赞/收藏/评分/观看 |
 | Steam 资料摘要 | GET | `/api/me/steam-profile` | 绑定 Steam 后的展示名等 |
 | 应用内收藏列表 | GET | `/api/favorites` | 服务端收藏（与本地愿望单可并存逻辑） |
 | 添加收藏 | POST | `/api/favorites` | 写服务端收藏 |
@@ -45,7 +52,8 @@
 
 **浏览器打开（非 JSON API，但指向后端）**
 
-- **Steam OpenID 登录/绑定**：`{apiRoot}/auth/steam/start?...`（`profile_page.dart`、`steam_library_page.dart` 等通过 `url_launcher` 打开）。
+- **Steam OpenID 登录/绑定**：`{authRoot}/auth/steam/start?...`（`profile_page.dart`、`steam_library_page.dart` 等通过 `url_launcher` 打开；`authRoot` = `AppRemoteConfig.resolveAuthBase(ApiConstants.authBaseUrl)`）。
+- **业务 API**：折扣、收藏、视频、配置等一律走 `ApiConstants.baseUrl`（Vultr）。
 
 ---
 

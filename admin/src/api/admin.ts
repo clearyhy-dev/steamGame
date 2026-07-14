@@ -2,6 +2,7 @@ import axios from 'axios';
 import { api, type ApiEnvelope } from './client';
 import type {
   AdminUserRow,
+  AdminUserFavoriteRow,
   DashboardStats,
   DealLinkRow,
   GameDetailResponse,
@@ -167,6 +168,41 @@ export const adminApi = {
         { enabled },
       ),
     ),
+  regionCountriesGetSyncTierSettings: () =>
+    unwrap(
+      api.get<
+        ApiEnvelope<{
+          settings: { t1TopNPerCountry: number; t2TopNPerCountry: number; t2SyncIntervalDays: number };
+          todaySyncCountries: number;
+          t1Count: number;
+          t2Count: number;
+        }>
+      >(`/api/admin/region-countries/sync-tier-settings`),
+    ),
+  regionCountriesSaveSyncTierSettings: (body: {
+    t1TopNPerCountry?: number;
+    t2TopNPerCountry?: number;
+    t2SyncIntervalDays?: number;
+  }) =>
+    unwrap(
+      api.put<
+        ApiEnvelope<{ settings: { t1TopNPerCountry: number; t2TopNPerCountry: number; t2SyncIntervalDays: number } }>
+      >(`/api/admin/region-countries/sync-tier-settings`, body),
+    ),
+  regionCountriesSetSyncTier: (countryCode: string, syncTier: 'T1' | 'T2') =>
+    unwrap(
+      api.patch<ApiEnvelope<{ countryCode: string; syncTier: string }>>(
+        `/api/admin/region-countries/${encodeURIComponent(countryCode)}/sync-tier`,
+        { syncTier },
+      ),
+    ),
+  regionCountriesResetSyncTiersDefault: (force?: boolean) =>
+    unwrap(
+      api.post<ApiEnvelope<{ updated: number; force: boolean }>>(
+        `/api/admin/region-countries/sync-tier-reset-defaults`,
+        { force: !!force },
+      ),
+    ),
 
   videoSources: (params?: { sourceType?: string; gameId?: string }) =>
     unwrap(api.get<ApiEnvelope<VideoSourceRow[]>>('/api/admin/video-sources', { params })),
@@ -227,6 +263,24 @@ export const adminApi = {
 
   users: (params?: { provider?: 'google' | 'steam'; keyword?: string }) =>
     unwrap(api.get<ApiEnvelope<AdminUserRow[]>>('/api/admin/users', { params })),
+
+  userFavorites: (userId: string, country?: string) =>
+    unwrap(
+      api.get<
+        ApiEnvelope<{
+          userId: string;
+          countryCode: string | null;
+          currency: string | null;
+          country: Pick<
+            AdminUserRow,
+            'countryCode' | 'defaultCountryCode' | 'countrySwitched' | 'countrySource'
+          >;
+          items: AdminUserFavoriteRow[];
+        }>
+      >(`/api/admin/users/${encodeURIComponent(userId)}/favorites`, {
+        params: country ? { country } : undefined,
+      }),
+    ),
 
   patchUser: (userId: string, body: Record<string, unknown>) =>
     unwrap(api.patch<ApiEnvelope<{ userId: string }>>(`/api/admin/users/${userId}`, body)),

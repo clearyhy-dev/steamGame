@@ -2,8 +2,6 @@ import axios from 'axios';
 import type { Env } from '../../config/env';
 import { getEffectiveEnv } from '../../config/runtime-config';
 import type { DealProviderCountryCodes, ResolvedCountryForSteam } from '../config/region-country.repository';
-import { mapToSteamAppDetailsLang } from '../steam/steam-language.util';
-import { buildRegionalSteamStoreAppUrl } from '../steam/steam-store-url.util';
 import {
   itadLookupBySteamAppId,
   itadFetchGamePricesV3,
@@ -17,6 +15,10 @@ import { buildGgDealOfferFromGameNode } from '../game/gg-deals-detail.util';
 import { isGgDealsOfficialRegion } from '../config/external-deal-api.catalog';
 import { mapPool } from '../../utils/map-pool';
 import type { DealSource } from '../game/game-deal-link.repository';
+import {
+  fetchSteamAppDetailsBatch,
+  steamAppDetailsRowToDealOffer,
+} from '../steam/steam-appdetails.client';
 
 type DealOffer = {
   source: DealSource;
@@ -70,58 +72,20 @@ async function prefetchSteamBatch(
   const out = new Map<string, DealOffer | null>();
   if (!appids.length) return out;
 
-  const e = await getEffectiveEnv(env);
-  const cc = String(pc.steamStoreCc || 'us')
-    .trim()
-    .toLowerCase();
-  const biz = String(resolved.countryCode || 'US')
-    .trim()
-    .toUpperCase()
-    .slice(0, 2);
-  const l = mapToSteamAppDetailsLang(resolved.steamLanguage);
-  const cfgCurrency = String(resolved.defaultCurrency ?? '')
-    .trim()
-    .toUpperCase();
-  const timeoutMs = Math.max(e.steamHttpTimeoutMs, 12000);
-  const groups = chunk(appids, 25);
-
-  await mapPool(groups, 4, async (group) => {
-    try {
-      const { data } = await axios.get<Record<string, { success?: boolean; data?: Record<string, unknown> }>>(
-        'https://store.steampowered.com/api/appdetails',
-        {
-          params: { appids: group.join(','), cc, l },
-          timeout: timeoutMs,
-          validateStatus: () => true,
-        },
-      );
-      for (const appid of group) {
-        const row = data?.[appid];
-        if (!row?.success || !row?.data) {
-          out.set(appid, null);
-          continue;
-        }
-        const d = row.data as Record<string, unknown>;
-        const price = (d.price_overview ?? {}) as Record<string, unknown>;
-        const apiCurrency = String(price.currency ?? '')
-          .trim()
-          .toUpperCase();
-        const currency = apiCurrency || cfgCurrency || 'USD';
-        out.set(appid, {
-          source: 'steam',
-          url: buildRegionalSteamStoreAppUrl(appid, pc.steamStoreCc, resolved.steamLanguage),
-          countryCode: /^[A-Z]{2}$/.test(biz) ? biz : 'US',
-          currency,
-          originalPrice: num(price.initial) ?? 0,
-          finalPrice: num(price.final) ?? 0,
-          discountPercent: num(price.discount_percent) ?? 0,
-        });
-      }
-    } catch {
-      for (const appid of group) out.set(appid, null);
-    }
+  const biz = String(resolved.countryCode || 'US').trim().toUpperCase().slice(0, 2);
+  const rows = await fetchSteamAppDetailsBatch(env, appids, {
+    cc: pc.steamStoreCc,
+    language: resolved.steamLanguage,
   });
-
+  for (const appid of appids) {
+    const offer = steamAppDetailsRowToDealOffer(appid, rows.get(appid), {
+      steamStoreCc: pc.steamStoreCc,
+      steamLanguage: resolved.steamLanguage,
+      businessCountryCode: biz,
+      defaultCurrency: resolved.defaultCurrency,
+    });
+    out.set(appid, offer);
+  }
   return out;
 }
 

@@ -4,13 +4,11 @@ import 'dart:io' show exit;
 import 'package:flutter/foundation.dart'
     show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
-import 'package:share_plus/share_plus.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:permission_handler/permission_handler.dart'
-    as permission_handler;
 import '../../core/theme/colors.dart';
 import '../../core/app_country_events.dart';
 import '../../core/app_country_resolver.dart';
+import '../../core/app_user_sync.dart';
 import '../../core/storage_service.dart';
 import '../../data/services/cache_service.dart';
 import '../../core/notification_service.dart';
@@ -18,12 +16,11 @@ import '../../core/services/auth_service.dart';
 import '../../core/services/review_service.dart';
 import '../../l10n/app_localizations.dart';
 import '../subscription/subscription_page.dart';
-import '../onboarding/onboarding_page.dart';
 import '../../core/app_remote_config.dart';
 import '../../core/constants/api_constants.dart';
 import '../../core/country_catalog_service.dart';
 import '../../services/steam_backend_service.dart';
-import '../../core/services/analytics_service.dart';
+import '../video/liked_videos_page.dart';
 import '../../core/steam_auth_events.dart';
 import 'package:url_launcher/url_launcher.dart' as url_launcher;
 import '../steam/presentation/pages/steam_account_page.dart';
@@ -45,10 +42,6 @@ class _ProfilePageState extends State<ProfilePage> {
 
   String? _steamId;
   String? _steamPersonaName;
-
-  /// `/v1/stats/*` 聚合画像
-  Map<String, dynamic>? _statsSummary;
-  Map<String, dynamic>? _shareCard;
 
   /// Google 登录进行中（避免重复点击、并显示加载）
   bool _googleSigningIn = false;
@@ -98,7 +91,6 @@ class _ProfilePageState extends State<ProfilePage> {
         steamId = profile['steamId']?.toString();
         steamPersonaName = profile['personaName']?.toString();
       } catch (_) {
-        // fallback to cache
         final cached = await StorageService.instance.getSteamProfileCache();
         steamId = cached['steamId']?.toString().trim().isNotEmpty == true
             ? cached['steamId']
@@ -119,16 +111,6 @@ class _ProfilePageState extends State<ProfilePage> {
               : null;
     }
 
-    Map<String, dynamic>? statsSummary;
-    Map<String, dynamic>? shareCardData;
-    if (steamToken != null && steamToken.isNotEmpty) {
-      try {
-        final backend = SteamBackendService();
-        statsSummary = await backend.getStatsSummary(steamToken);
-        shareCardData = await backend.getShareCard(steamToken);
-      } catch (_) {}
-    }
-
     if (mounted) {
       setState(() {
         _isPro = pro;
@@ -136,63 +118,8 @@ class _ProfilePageState extends State<ProfilePage> {
         _appCountryCode = resolvedAppCountry;
         _steamId = steamId;
         _steamPersonaName = steamPersonaName;
-        _statsSummary = statsSummary;
-        _shareCard = shareCardData;
       });
     }
-  }
-
-  String _localizedShareOneLiner(
-      AppLocalizations l10n, Map<String, dynamic> s) {
-    final ratio = (s['unplayedRatio'] as num?)?.toDouble() ?? 0;
-    final topList = s['topPlayed'] as List<dynamic>?;
-    var topName = '';
-    if (topList != null && topList.isNotEmpty) {
-      final first = topList.first;
-      if (first is Map) {
-        topName = first['name']?.toString() ?? '';
-      }
-    }
-    if (ratio > 0.5) return l10n.get('stats_share_note_unplayed');
-    if (topName.isNotEmpty) {
-      return l10n.get('stats_share_note_top').replaceAll('{name}', topName);
-    }
-    return l10n.get('stats_share_fallback');
-  }
-
-  String _shareCardSubtitle(AppLocalizations l10n) {
-    if (_statsSummary != null && _statsSummary!['steamLinked'] == true) {
-      return _localizedShareOneLiner(l10n, _statsSummary!);
-    }
-    if (_shareCard != null && _shareCard!['stats'] is Map) {
-      return ((_shareCard!['stats'] as Map)['collectionNote']?.toString()) ??
-          '';
-    }
-    return l10n.get('stats_share_fallback');
-  }
-
-  String _shareCardFullText(AppLocalizations l10n) {
-    final title = l10n.get('stats_share_app_line');
-    if (_statsSummary != null && _statsSummary!['steamLinked'] == true) {
-      final s = _statsSummary!;
-      final n = (s['ownedCount'] as num?)?.toInt() ?? 0;
-      final min = (s['totalPlaytimeMinutes'] as num?)?.toDouble() ?? 0;
-      final hours = min / 60.0;
-      final hStr = hours >= 100 ? '${hours.round()}' : hours.toStringAsFixed(1);
-      final genres = s['favoriteGenres'] as List<dynamic>?;
-      final g =
-          (genres != null && genres.isNotEmpty) ? genres.first.toString() : '';
-      final b = StringBuffer()
-        ..writeln(title)
-        ..writeln(l10n.get('stats_share_line_games').replaceAll('{n}', '$n'))
-        ..writeln(l10n.get('stats_share_line_hours').replaceAll('{h}', hStr));
-      if (g.isNotEmpty) {
-        b.writeln(l10n.get('stats_share_line_genre').replaceAll('{g}', g));
-      }
-      b.write(_localizedShareOneLiner(l10n, s));
-      return b.toString();
-    }
-    return '$title\n${_shareCardSubtitle(l10n)}';
   }
 
   Future<void> _showAppCountryPicker() async {
@@ -253,6 +180,7 @@ class _ProfilePageState extends State<ProfilePage> {
     if (selected == null || selected == _appCountryCode) return;
     await StorageService.instance.setAppCountry(selected);
     await StorageService.instance.setAppCountryManualPick(true);
+    await AppUserSync.syncCountryToServer(countryCode: selected, forceManual: true);
     await StorageService.instance.clearAppCountryScopedCaches();
     await CacheService.clearLastCheckTime();
     await StorageService.instance.clearLastDailyTaskScheduledAt();
@@ -299,7 +227,7 @@ class _ProfilePageState extends State<ProfilePage> {
           ? '/auth/steam/start?mode=bind'
           : '/auth/steam/start?mode=login';
       final apiRoot =
-          AppRemoteConfig.instance.resolveApiBase(ApiConstants.baseUrl);
+          AppRemoteConfig.instance.resolveAuthBase(ApiConstants.authBaseUrl);
       final start = Uri.parse('$apiRoot$startPath');
 
       Uri finalStart = start;
@@ -327,7 +255,6 @@ class _ProfilePageState extends State<ProfilePage> {
         );
       }
 
-      // 勿依赖 canLaunchUrl：Android 11+ 无 <queries> 时常误判为 false，导致永远打不开浏览器
       final withTs = finalStart.replace(queryParameters: {
         ...finalStart.queryParameters,
         'ts': DateTime.now().millisecondsSinceEpoch.toString(),
@@ -530,7 +457,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     onTap: _googleSigningIn ? null : _showLoginMethodSheet,
                   ),
                 )
-              else
+              else ...[
                 Card(
                   child: ListTile(
                     leading: const Icon(Icons.sports_esports,
@@ -547,10 +474,27 @@ class _ProfilePageState extends State<ProfilePage> {
                     },
                   ),
                 ),
+                const SizedBox(height: 12),
+                Card(
+                  child: ListTile(
+                    leading: const Icon(Icons.account_circle,
+                        color: AppColors.itadOrange),
+                    title: Text(l10n.get('sign_in_google')),
+                    subtitle: Text(l10n.get('sign_in_hint')),
+                    trailing: _googleSigningIn
+                        ? const SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.chevron_right),
+                    onTap: _googleSigningIn ? null : _runGoogleSignIn,
+                  ),
+                ),
+              ],
               const SizedBox(height: 16),
             ],
 
-            // 已登录 Google：Steam 绑定 / 进入 Steam 中心
             if (_user != null)
               Card(
                 child: ListTile(
@@ -581,7 +525,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
               ),
 
-            if (_user != null)
+            if (_user != null && (_steamId == null || _steamId!.isEmpty))
               Card(
                 child: ListTile(
                   leading: const Icon(Icons.link),
@@ -607,85 +551,21 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
               ),
 
-            if (_statsSummary != null &&
-                _statsSummary!['steamLinked'] == true) ...[
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        l10n.get('stats_library_summary'),
-                        style: const TextStyle(
-                            fontWeight: FontWeight.w600, fontSize: 16),
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        l10n.get('stats_games_owned').replaceAll(
-                            '{n}', '${_statsSummary!['ownedCount'] ?? 0}'),
-                        style: TextStyle(
-                            fontSize: 14, color: AppColors.textSecondary),
-                      ),
-                      Text(
-                        l10n.get('stats_unplayed_line').replaceAll(
-                              '{p}',
-                              '${(((_statsSummary!['unplayedRatio'] as num?)?.toDouble() ?? 0) * 100).round()}',
-                            ),
-                        style: TextStyle(
-                            fontSize: 14, color: AppColors.textSecondary),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-            ],
-
-            if (_shareCard != null ||
-                (_statsSummary != null &&
-                    _statsSummary!['steamLinked'] == true))
-              Card(
-                child: ListTile(
-                  leading: const Icon(Icons.image_outlined,
-                      color: AppColors.itadOrange),
-                  title: Text(l10n.get('stats_share_card')),
-                  subtitle: Text(
-                    _shareCardSubtitle(l10n),
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  trailing: const Icon(Icons.share),
-                  onTap: () {
-                    AnalyticsService.instance.logProfileShareClick();
-                    Share.share(_shareCardFullText(l10n));
-                  },
-                ),
-              ),
-
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
-              margin: const EdgeInsets.only(bottom: 16),
-              decoration: BoxDecoration(
-                color: AppColors.primary.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.info_outline,
-                      color: AppColors.itadOrange, size: 22),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      l10n.get('profile_enabled_features'),
-                      style: const TextStyle(
-                          fontSize: 13, fontWeight: FontWeight.w500),
-                    ),
-                  ),
-                ],
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.favorite, color: AppColors.itadOrange),
+                title: Text(l10n.get('profile_liked_videos')),
+                subtitle: Text(l10n.get('profile_liked_videos_sub')),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const LikedVideosPage()),
+                  );
+                },
               ),
             ),
+
+            const SizedBox(height: 16),
             if (_isPro)
               Card(
                 color: AppColors.successGreen.withValues(alpha: 0.15),
@@ -733,69 +613,6 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: _showAppCountryPicker,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Card(
-              child: ListTile(
-                leading: const Icon(Icons.notifications_outlined),
-                title: Text(l10n.get('notifications')),
-                subtitle: Text(l10n.get('notifications_hint')),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () async {
-                  await permission_handler.openAppSettings();
-                },
-              ),
-            ),
-            const SizedBox(height: 16),
-            Card(
-              child: ListTile(
-                leading: const Icon(Icons.share),
-                title: Text(l10n.get('share_app')),
-                subtitle: Text(l10n.get('share_app_hint')),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () async {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                          content: Text(l10n.get('share_return_hint')),
-                          duration: const Duration(seconds: 4)),
-                    );
-                  }
-                  final storage = StorageService.instance;
-                  final userId = await storage.getOrCreateUserId();
-                  const baseUrl = 'https://steamdeals.app/invite';
-                  final link = '$baseUrl?ref=$userId';
-                  final msg = '${l10n.get('share_message')}\n$link';
-                  Share.share(msg);
-                  await storage.incrementShareCount();
-                  _load();
-                },
-              ),
-            ),
-            const SizedBox(height: 16),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: Text(
-                l10n.get('daily_limit_hint'),
-                style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Card(
-              child: ListTile(
-                leading: const Icon(Icons.slideshow),
-                title: Text(l10n.get('app_guide')),
-                subtitle: Text(l10n.get('app_guide_hint')),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) =>
-                          const OnboardingPage(showOnlyForReview: true),
-                    ),
-                  );
-                },
               ),
             ),
             const SizedBox(height: 16),

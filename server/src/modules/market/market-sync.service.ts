@@ -31,6 +31,11 @@ import type {
 import type { MarketBatchPricePrefetch } from './market-batch-price-prefetch';
 import { buildMarketGamePriceSummary } from './market-price-summary.util';
 import { jsonPlain } from '../../utils/json-plain';
+import {
+  bucketHasMissingApiKeyError,
+  resolveDiscountCfgForPriceSync,
+} from './market-discount-config.util';
+import { isPlaceholderMarketName } from './market-name.util';
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -119,8 +124,12 @@ export class MarketSyncService {
     const force = opts?.forceRefresh === true;
     const tz = String(process.env.DEAL_SYNC_PRICE_DAY_TZ ?? 'Asia/Shanghai').trim() || 'Asia/Shanghai';
 
+    const pricesOnlySkip =
+      opts?.bulkPricesOnly === true && opts?.includeDetail === false && opts?.includeHeat === false;
     if (opts?.skipIfSyncedToday && !force) {
-      const synced = await sqliteIsMarketGameFullySyncedToday(cc, id, dayStartMs(tz));
+      const synced = await sqliteIsMarketGameFullySyncedToday(cc, id, dayStartMs(tz), {
+        pricesOnly: pricesOnlySkip,
+      });
       if (synced) {
         return { appid: id, ok: true, detailOk: true, heatOk: true, pricesOk: true, skipped: true, message: 'synced_today' };
       }
@@ -135,13 +144,28 @@ export class MarketSyncService {
     let heatOk = !includeHeat;
     let pricesOk = !includePrices;
     const existingRow = await sqliteGetMarketGame(cc, id);
-    const catalogDoc =
-      opts?.bulkPricesOnly && existingRow?.name?.trim()
-        ? null
-        : await this.catalog.getByAppid(id);
+    const existingName = String(existingRow?.name ?? '').trim();
+    const needsNameResolve =
+      !opts?.bulkPricesOnly ||
+      isPlaceholderMarketName(existingName, id) ||
+      !existingName;
+    const catalogDoc = needsNameResolve ? await this.catalog.getByAppid(id) : null;
     let name =
       String(catalogDoc?.name ?? existingRow?.name ?? '')
         .trim() || `App ${id}`;
+    if (isPlaceholderMarketName(name, id) && opts?.bulkPricesOnly) {
+      try {
+        const detail = await this.store.fetchAppDetails(id, {
+          cc: resolved.steamCc,
+          language: resolved.steamLanguage,
+        });
+        if (detail?.name?.trim() && !isPlaceholderMarketName(detail.name, id)) {
+          name = detail.name.trim();
+        }
+      } catch {
+        /* keep placeholder until detail sync */
+      }
+    }
     let discountPercent = 0;
     let finalPrice: number | null = null;
     let originalPrice: number | null = null;
@@ -161,24 +185,28 @@ export class MarketSyncService {
           language: resolved.steamLanguage,
         });
         if (!detail) {
-          return { appid: id, ok: false, detailOk: false, heatOk: false, pricesOk: false, message: 'steam_detail_not_found' };
+          detailOk = false;
+          if (!includeHeat && !includePrices) {
+            return { appid: id, ok: false, detailOk: false, heatOk: false, pricesOk: false, message: 'steam_detail_not_found' };
+          }
+        } else {
+          if (!catalogDoc?.name?.trim() && !existingRow?.name?.trim()) {
+            name = detail.name || name;
+          }
+          discountPercent = detail.discountPercent ?? 0;
+          finalPrice = detail.isFree ? 0 : detail.priceFinal ?? null;
+          detailForSummary = detail;
+          const detailDoc: MarketDetailDoc = {
+            ...detail,
+            steamStoreUrl: buildRegionalSteamStoreAppUrl(id, resolved.steamCc, resolved.steamLanguage),
+            countryCode: cc,
+            steamCc: resolved.steamCc,
+            steamLanguage: resolved.steamLanguage,
+            syncedAt: nowIso,
+          };
+          await writeMarketJson(this.env, detailPath, detailDoc);
+          detailOk = true;
         }
-        if (!catalogDoc?.name?.trim() && !existingRow?.name?.trim()) {
-          name = detail.name || name;
-        }
-        discountPercent = detail.discountPercent ?? 0;
-        finalPrice = detail.isFree ? 0 : detail.priceFinal ?? null;
-        detailForSummary = detail;
-        const detailDoc: MarketDetailDoc = {
-          ...detail,
-          steamStoreUrl: buildRegionalSteamStoreAppUrl(id, resolved.steamCc, resolved.steamLanguage),
-          countryCode: cc,
-          steamCc: resolved.steamCc,
-          steamLanguage: resolved.steamLanguage,
-          syncedAt: nowIso,
-        };
-        await writeMarketJson(this.env, detailPath, detailDoc);
-        detailOk = true;
       }
 
       if (includeHeat) {
@@ -203,12 +231,22 @@ export class MarketSyncService {
           : bulk
             ? (['steam', 'isthereanydeal', 'ggdeals'] as DealSource[])
             : (['steam', 'isthereanydeal', 'ggdeals', 'cheapshark'] as DealSource[]);
-        const cfg = opts?.discountCfg ?? (await this.settings.getDiscountProviders());
+        const cfg = await resolveDiscountCfgForPriceSync(opts?.discountCfg, this.settings);
+        let effectiveForce = force;
+        if (!effectiveForce) {
+          const priorBucketDoc = await this.discountOffers.getBucket(id, cc);
+          const priorBucket = priorBucketDoc
+            ? this.discountOffers.countryBucketFromDoc(priorBucketDoc)
+            : null;
+          if (bucketHasMissingApiKeyError(priorBucket)) {
+            effectiveForce = true;
+          }
+        }
         const prefetch = opts?.batchPricePrefetch;
         const out = await this.discountSync.syncAppDeals(id, {
           countries: [cc],
           sources: platforms,
-          forceRefresh: force,
+          forceRefresh: effectiveForce,
           bulkPricesOnly: opts?.bulkPricesOnly === true,
           itadApiKey: cfg.itadApiKey,
           ggDealsApiKey: cfg.ggDealsApiKey,

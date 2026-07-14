@@ -1,5 +1,7 @@
 export type AuthProvider = 'google' | 'steam';
 
+export type CountrySource = 'manual' | 'locale' | 'steam' | 'cdn';
+
 export type UserDoc = {
   id: string;
   email?: string;
@@ -14,7 +16,17 @@ export type UserDoc = {
   steamPersonaName?: string;
   steamAvatar?: string;
   steamProfileUrl?: string;
+  googleSub?: string;
+  countryCode?: string;
+  countrySource?: CountrySource;
+  countryUpdatedAt?: FirebaseTimestampLike;
+  /** 用户未手动切换前的默认国家（手动切换后保留） */
+  defaultCountryCode?: string;
+
   registeredAt?: FirebaseTimestampLike;
+
+  /** Pro subscription valid until (epoch ms); synced from app IAP / share reward. */
+  proUntilMs?: number;
 
   createdAt: FirebaseTimestampLike;
   updatedAt: FirebaseTimestampLike;

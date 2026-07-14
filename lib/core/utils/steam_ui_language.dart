@@ -54,10 +54,57 @@ String steamAppDetailsLanguageParameter(String uiLanguageCode) {
 /// Short ISO-style code (en, zh, ja) for backend `language=` query.
 String normalizeUiLanguageCode(String? storedOrDevice) {
   final raw = (storedOrDevice ?? '').trim();
+  String primary;
   if (raw.isEmpty) {
     final loc = ui.PlatformDispatcher.instance.locale;
     final c = loc.languageCode.trim().toLowerCase();
-    return c.isEmpty ? 'en' : c.split('_').first.split('-').first;
+    primary = c.isEmpty ? 'en' : c.split('_').first.split('-').first;
+  } else {
+    primary = raw.toLowerCase().split('_').first.split('-').first;
   }
-  return raw.toLowerCase().split('_').first.split('-').first;
+  switch (primary) {
+    case 'japanese':
+      return 'ja';
+    case 'koreana':
+      return 'ko';
+    case 'schinese':
+    case 'tchinese':
+      return 'zh';
+    case 'german':
+      return 'de';
+    case 'french':
+      return 'fr';
+    case 'spanish':
+      return 'es';
+    case 'portuguese':
+      return 'pt';
+    case 'russian':
+      return 'ru';
+    case 'polish':
+      return 'pl';
+    case 'italian':
+      return 'it';
+    case 'turkish':
+      return 'tr';
+    case 'thai':
+      return 'th';
+    case 'vietnamese':
+      return 'vi';
+    case 'arabic':
+      return 'ar';
+    case 'hebrew':
+      return 'he';
+    case 'greek':
+      return 'el';
+    case 'hindi':
+      return 'hi';
+    case 'indonesian':
+      return 'id';
+    case 'dutch':
+      return 'nl';
+    case 'swedish':
+      return 'sv';
+    default:
+      return primary;
+  }
 }

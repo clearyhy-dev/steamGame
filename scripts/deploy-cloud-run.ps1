@@ -34,7 +34,7 @@ param(
   [int]$Cpu = 1,
   [int]$TimeoutSec = 3600,
   [int]$MaxInstances = 1,
-  [int]$MinInstances = 0,
+  [int]$MinInstances = 1,
   [switch]$SkipBuild,
   [switch]$CostOptimized,
   [switch]$PreserveCloudRunEnv

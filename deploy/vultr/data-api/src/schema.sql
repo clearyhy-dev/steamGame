@@ -15,6 +15,11 @@ CREATE TABLE IF NOT EXISTS users (
   steam_avatar TEXT,
   steam_profile_url TEXT,
   registered_at_ms INTEGER,
+  country_code TEXT,
+  country_source TEXT,
+  country_updated_at_ms INTEGER,
+  default_country_code TEXT,
+  google_sub TEXT,
   created_at_ms INTEGER NOT NULL,
   updated_at_ms INTEGER NOT NULL
 );
@@ -76,6 +81,7 @@ CREATE TABLE IF NOT EXISTS region_country_configs (
   ui_language TEXT NOT NULL,
   enabled INTEGER NOT NULL DEFAULT 1,
   sort_order INTEGER NOT NULL DEFAULT 0,
+  sync_tier TEXT NOT NULL DEFAULT 'T2',
   created_at_ms INTEGER NOT NULL,
   updated_at_ms INTEGER NOT NULL
 );
@@ -215,6 +221,18 @@ CREATE TABLE IF NOT EXISTS user_favorites (
   updated_at_ms INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_user_favorites_updated ON user_favorites(updated_at_ms DESC);
+
+CREATE TABLE IF NOT EXISTS video_engagements (
+  user_id TEXT NOT NULL,
+  video_id TEXT NOT NULL,
+  liked INTEGER NOT NULL DEFAULT 0,
+  favorited INTEGER NOT NULL DEFAULT 0,
+  rating INTEGER,
+  watched_ms INTEGER NOT NULL DEFAULT 0,
+  updated_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (user_id, video_id)
+);
+CREATE INDEX IF NOT EXISTS idx_video_engagements_video ON video_engagements(video_id);
 
 CREATE TABLE IF NOT EXISTS game_deal_links (
   doc_id TEXT PRIMARY KEY,

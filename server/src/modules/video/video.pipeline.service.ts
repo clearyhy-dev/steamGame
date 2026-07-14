@@ -19,6 +19,8 @@ export type PipelineResult = {
   storagePrefix: string;
   variants: VideoVariant[];
   signedPlaybackExpiresAt: admin.firestore.Timestamp;
+  audioPresent: boolean;
+  verticalHasAudio: boolean;
 };
 
 async function probeDurationSec(env: Env, filePath: string): Promise<number> {
@@ -34,6 +36,28 @@ async function probeDurationSec(env: Env, filePath: string): Promise<number> {
   const n = Number.parseFloat(stdout.trim());
   if (!Number.isFinite(n)) throw new Error('Could not read media duration');
   return n;
+}
+
+export async function probeHasAudioStream(env: Env, filePath: string): Promise<boolean> {
+  try {
+    const { stdout } = await runCmd(env.ffprobePath, [
+      '-v',
+      'error',
+      '-select_streams',
+      'a',
+      '-show_entries',
+      'stream=codec_type',
+      '-of',
+      'csv=p=0',
+      filePath,
+    ]);
+    return stdout
+      .split('\n')
+      .map((line) => line.trim())
+      .some((line) => line === 'audio');
+  } catch {
+    return false;
+  }
 }
 
 async function downloadSteamMp4(url: string, dest: string, timeoutMs: number): Promise<void> {
@@ -59,58 +83,87 @@ async function transcode(env: Env, srcPath: string, workDir: string): Promise<{
   verticalPath: string;
   thumbPath: string;
   durationUsed: number;
+  audioPresent: boolean;
+  verticalHasAudio: boolean;
 }> {
   const duration = await probeDurationSec(env, srcPath);
   if (duration > env.videoMaxDurationSec) {
     throw new Error(`Source duration ${duration.toFixed(1)}s exceeds limit ${env.videoMaxDurationSec}s`);
   }
 
+  const sourceHasAudio = await probeHasAudioStream(env, srcPath);
   const trim = Math.min(env.videoTrimSec, duration);
   const masterPath = path.join(workDir, 'master.mp4');
   const verticalPath = path.join(workDir, 'vertical_9_16.mp4');
   const thumbPath = path.join(workDir, 'thumbnail.jpg');
 
-  await runCmd(env.ffmpegPath, [
+  const masterArgs = [
     '-y',
     '-i',
     srcPath,
     '-t',
     String(trim),
+    '-map',
+    '0:v:0',
+    '-map',
+    '0:a:0?',
     '-c:v',
     'libx264',
     '-preset',
     'fast',
     '-crf',
     '23',
-    '-c:a',
-    'aac',
-    '-b:a',
-    '128k',
     '-movflags',
     '+faststart',
     masterPath,
-  ]);
+  ];
+  if (sourceHasAudio) {
+    masterArgs.splice(masterArgs.length - 1, 0, '-c:a', 'aac', '-b:a', '128k');
+  } else {
+    masterArgs.splice(masterArgs.length - 1, 0, '-an');
+  }
+  await runCmd(env.ffmpegPath, masterArgs);
 
-  await runCmd(env.ffmpegPath, [
+  const masterHasAudio = await probeHasAudioStream(env, masterPath);
+  const verticalArgs = [
     '-y',
     '-i',
     masterPath,
     '-vf',
     'scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920',
+    '-map',
+    '0:v:0',
+    '-map',
+    '0:a:0?',
     '-c:v',
     'libx264',
     '-preset',
     'fast',
     '-crf',
     '23',
-    '-c:a',
-    'copy',
+    '-movflags',
+    '+faststart',
     verticalPath,
-  ]);
+  ];
+  if (masterHasAudio) {
+    verticalArgs.splice(verticalArgs.length - 1, 0, '-c:a', 'aac', '-b:a', '128k');
+  } else {
+    verticalArgs.splice(verticalArgs.length - 1, 0, '-an');
+  }
+  await runCmd(env.ffmpegPath, verticalArgs);
 
   await runCmd(env.ffmpegPath, ['-y', '-i', masterPath, '-ss', '00:00:01', '-vframes', '1', thumbPath]);
 
-  return { masterPath, verticalPath, thumbPath, durationUsed: trim };
+  const verticalHasAudio = await probeHasAudioStream(env, verticalPath);
+
+  return {
+    masterPath,
+    verticalPath,
+    thumbPath,
+    durationUsed: trim,
+    audioPresent: masterHasAudio,
+    verticalHasAudio,
+  };
 }
 
 export async function runVideoPipeline(
@@ -133,7 +186,8 @@ export async function runVideoPipeline(
       await downloadSteamMp4(input.mp4Url, srcPath, env.steamHttpTimeoutMs);
     }
 
-    const { masterPath, verticalPath, thumbPath, durationUsed } = await transcode(env, srcPath, workDir);
+    const { masterPath, verticalPath, thumbPath, durationUsed, audioPresent, verticalHasAudio } =
+      await transcode(env, srcPath, workDir);
 
     const prefix = `videos/${videoId}`;
     const masterDest = `${prefix}/master.mp4`;
@@ -154,8 +208,18 @@ export async function runVideoPipeline(
     const signedPlaybackExpiresAt = admin.firestore.Timestamp.fromMillis(expiresMs);
 
     const variants: VideoVariant[] = [
-      { name: 'master', storagePath: gsUri(bucket, masterDest), signedUrl: masterSignedUrl },
-      { name: 'vertical_9_16', storagePath: gsUri(bucket, verticalDest), signedUrl: verticalSignedUrl },
+      {
+        name: 'master',
+        storagePath: gsUri(bucket, masterDest),
+        signedUrl: masterSignedUrl,
+        hasAudio: audioPresent,
+      },
+      {
+        name: 'vertical_9_16',
+        storagePath: gsUri(bucket, verticalDest),
+        signedUrl: verticalSignedUrl,
+        hasAudio: verticalHasAudio,
+      },
       { name: 'thumbnail', storagePath: gsUri(bucket, thumbDest), signedUrl: thumbnailSignedUrl },
     ];
 
@@ -167,6 +231,8 @@ export async function runVideoPipeline(
       storagePrefix: gsUri(bucket, prefix),
       variants,
       signedPlaybackExpiresAt,
+      audioPresent,
+      verticalHasAudio,
     };
   } finally {
     await fs.rm(workDir, { recursive: true, force: true }).catch(() => undefined);

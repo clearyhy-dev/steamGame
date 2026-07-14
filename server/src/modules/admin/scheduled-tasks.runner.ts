@@ -13,11 +13,19 @@ import {
 import {
   runMarketCountryRoundRobin,
   runMarketBuildAllLists,
+  runMarketDailyFullSync,
+  runMarketCountryRoundRobinShard,
 } from '../market/market-round-robin.runner';
+import { runMarketStaleDiscountCleanup } from '../market/market-stale-cleanup.service';
 import type { MarketRoundRobinPayload } from '../market/market.types';
+import { AdminSettingsRepository } from './admin.settings.repository';
+import { resolveDiscountCfgForPriceSync } from '../market/market-discount-config.util';
+import { WishlistPriceAlertService } from '../notify/wishlist-price-alert.service';
 
 const MARKET_TASK_KEYS = new Set<ScheduledTaskStored['taskKey']>([
   'market_country_round_robin',
+  'market_country_round_robin_shard',
+  'market_daily_all_countries',
   'market_build_lists',
 ]);
 
@@ -28,6 +36,11 @@ function assertMarketStorage(env: Env, taskKey: ScheduledTaskStored['taskKey']):
       '分国市场任务要求 DISCOUNT_OFFERS_PERSISTENCE=object_storage（价格写入对象存储）。请配置 S3_* 或 GCS_CACHE_BUCKET 后重试。',
     );
   }
+}
+
+async function assertMarketDiscountKeysForPriceSync(payload: Record<string, unknown> | undefined): Promise<void> {
+  if (payload?.includePrices === false) return;
+  await resolveDiscountCfgForPriceSync(undefined, new AdminSettingsRepository());
 }
 
 const jobs: cron.ScheduledTask[] = [];
@@ -93,6 +106,7 @@ export async function runScheduledTask(env: Env, task: ScheduledTaskStored, repo
     const p = task.payload ?? {};
     switch (task.taskKey) {
       case 'market_country_round_robin': {
+        await assertMarketDiscountKeysForPriceSync(p);
         const payload: MarketRoundRobinPayload = {
           batchSize: p.batchSize != null ? Number(p.batchSize) : undefined,
           topNPerCountry: p.topNPerCountry != null ? Number(p.topNPerCountry) : undefined,
@@ -104,12 +118,59 @@ export async function runScheduledTask(env: Env, task: ScheduledTaskStored, repo
           includePrices: p.includePrices !== false,
           concurrency: p.concurrency != null ? Number(p.concurrency) : undefined,
           platforms: Array.isArray(p.platforms) ? (p.platforms as string[]) : undefined,
+          batchesPerRun: p.batchesPerRun != null ? Number(p.batchesPerRun) : undefined,
         };
-        const r = await runMarketCountryRoundRobin(env, payload);
-        summary = r.summary;
-        ok = r.processed === 0 ? false : r.success > 0 || r.skipped > 0;
-        if (!ok && r.failed > 0) error = `本批失败 ${r.failed}/${r.processed}`;
-        logger.info(`[scheduled-tasks] ${task.taskKey} ${summary}`);
+        const batchesPerRun = Math.max(1, Math.min(Number(payload.batchesPerRun ?? 1), 20));
+        let lastR: Awaited<ReturnType<typeof runMarketCountryRoundRobin>> | null = null;
+        const parts: string[] = [];
+        for (let bi = 0; bi < batchesPerRun; bi++) {
+          const r = await runMarketCountryRoundRobin(env, payload);
+          lastR = r;
+          parts.push(r.summary);
+          logger.info(`[scheduled-tasks] ${task.taskKey} batch ${bi + 1}/${batchesPerRun} ${r.summary}`);
+          if (r.failed > 0 && r.success === 0 && r.skipped === 0 && r.processed > 0) break;
+          if (r.countryCompleted) break;
+        }
+        summary = parts.join(' | ');
+        ok = !!lastR && (lastR.processed === 0 ? lastR.skipped > 0 : lastR.success > 0 || lastR.skipped > 0);
+        if (lastR && !ok && lastR.failed > 0) error = `本批失败 ${lastR.failed}/${lastR.processed}`;
+        break;
+      }
+      case 'market_country_round_robin_shard': {
+        await assertMarketDiscountKeysForPriceSync(p);
+        const workerId = Number(p.workerId ?? 0);
+        const payload: MarketRoundRobinPayload & { workerId: number; workerCount?: number; resetShard?: boolean } = {
+          batchSize: p.batchSize != null ? Number(p.batchSize) : undefined,
+          topNPerCountry: p.topNPerCountry != null ? Number(p.topNPerCountry) : undefined,
+          delayMs: p.delayMs != null ? Number(p.delayMs) : undefined,
+          skipSyncedToday: p.skipSyncedToday !== false,
+          forceRefresh: p.forceRefresh === true,
+          includeDetail: p.includeDetail === true,
+          includeHeat: p.includeHeat === true,
+          includePrices: p.includePrices !== false,
+          concurrency: p.concurrency != null ? Number(p.concurrency) : undefined,
+          platforms: Array.isArray(p.platforms) ? (p.platforms as string[]) : undefined,
+          batchesPerRun: p.batchesPerRun != null ? Number(p.batchesPerRun) : undefined,
+          workerId,
+          workerCount: p.workerCount != null ? Number(p.workerCount) : undefined,
+          resetShard: p.resetShard === true,
+        };
+        const batchesPerRun = Math.max(1, Math.min(Number(payload.batchesPerRun ?? 1), 20));
+        let lastR: Awaited<ReturnType<typeof runMarketCountryRoundRobinShard>> | null = null;
+        const parts: string[] = [];
+        let resetShard = payload.resetShard === true;
+        for (let bi = 0; bi < batchesPerRun; bi++) {
+          const r = await runMarketCountryRoundRobinShard(env, { ...payload, resetShard });
+          resetShard = false;
+          lastR = r;
+          parts.push(r.summary);
+          logger.info(`[scheduled-tasks] ${task.taskKey} W${workerId} batch ${bi + 1}/${batchesPerRun} ${r.summary}`);
+          if (r.failed > 0 && r.success === 0 && r.skipped === 0 && r.processed > 0) break;
+          if (r.countryCompleted) break;
+        }
+        summary = parts.join(' | ');
+        ok = !!lastR && (lastR.processed === 0 ? lastR.skipped > 0 : lastR.success > 0 || lastR.skipped > 0);
+        if (lastR && !ok && lastR.failed > 0) error = `Worker ${workerId} 本批失败 ${lastR.failed}/${lastR.processed}`;
         break;
       }
       case 'market_build_lists': {
@@ -120,9 +181,61 @@ export async function runScheduledTask(env: Env, task: ScheduledTaskStored, repo
         logger.info(`[scheduled-tasks] market_build_lists ${summary}`);
         break;
       }
+      case 'market_daily_all_countries': {
+        await assertMarketDiscountKeysForPriceSync(p);
+        const tierRaw = String(p.syncTierFilter ?? '').trim().toUpperCase();
+        const syncTierFilter = tierRaw === 'T1' || tierRaw === 'T2' ? (tierRaw as 'T1' | 'T2') : undefined;
+        const payload: MarketRoundRobinPayload = {
+          batchSize: p.batchSize != null ? Number(p.batchSize) : undefined,
+          topNPerCountry: p.topNPerCountry != null ? Number(p.topNPerCountry) : undefined,
+          delayMs: p.delayMs != null ? Number(p.delayMs) : undefined,
+          concurrency: p.concurrency != null ? Number(p.concurrency) : undefined,
+          platforms: Array.isArray(p.platforms) ? (p.platforms as string[]) : undefined,
+          cleanupBeforeSync: p.cleanupBeforeSync !== false,
+          cleanupMaxRows: p.cleanupMaxRows != null ? Number(p.cleanupMaxRows) : undefined,
+          cleanupMaxBatches: p.cleanupMaxBatches != null ? Number(p.cleanupMaxBatches) : undefined,
+          cleanupStaleOlderThanHours:
+            p.cleanupStaleOlderThanHours != null ? Number(p.cleanupStaleOlderThanHours) : undefined,
+          syncTierFilter,
+        };
+        const r = await runMarketDailyFullSync(env, payload);
+        summary = syncTierFilter ? `[${syncTierFilter}] ${r.summary}` : r.summary;
+        const skippedTierDay = r.countries === 0 && /已跳过/.test(r.summary);
+        ok =
+          skippedTierDay ||
+          (r.totalProcessed > 0 &&
+            (r.countriesCompleted >= Math.max(1, Math.floor(r.countries * 0.9)) || r.totalSuccess > 0));
+        if (r.countries > 0 && r.totalProcessed === 0 && !skippedTierDay) {
+          ok = false;
+          error = '无游戏被处理（Steam 畅销榜为空或未拉取到 appid）';
+        } else if (!ok && r.totalFailed > 0) {
+          error = `失败 ${r.totalFailed}/${r.totalProcessed}`;
+        }
+        logger.info(`[scheduled-tasks] ${task.taskKey} ${summary}`);
+        break;
+      }
       case 'cleanup_invalid_deal_links': {
-        const r = await dealBatch.runInvalidDealLinksCleanup(Number(p.maxDelete ?? 5000));
-        summary = `已清理含 invalid 的折扣文档 ${r.deleted} 个（上限 payload.maxDelete，单文档可删多源字段）`;
+        const intervalDays = Math.max(1, Math.min(Number(p.cleanupIntervalDays ?? 3), 30));
+        const tz = String(process.env.DEAL_SYNC_PRICE_DAY_TZ ?? 'Asia/Shanghai').trim() || 'Asia/Shanghai';
+        const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' });
+        const dayKey = fmt.format(new Date());
+        const dayNum = Math.floor(new Date(`${dayKey}T12:00:00Z`).getTime() / 86400000);
+        if (dayNum % intervalDays !== 0) {
+          summary = `跳过（每 ${intervalDays} 天清理一次，今日不执行）`;
+          ok = true;
+          break;
+        }
+        const legacy = await dealBatch.runInvalidDealLinksCleanup(Number(p.maxDelete ?? 5000));
+        let marketPart = '';
+        if (env.discountOffersPersistence === 'object_storage') {
+          const m = await runMarketStaleDiscountCleanup(env, {
+            maxRows: Number(p.maxMarketRows ?? 5000),
+            staleOlderThanHours: Number(p.staleOlderThanHours ?? 72),
+          });
+          marketPart = ` · market 清索引 ${m.clearedIndex} 对象 ${m.clearedObjects}`;
+        }
+        summary = `legacy invalid 文档 ${legacy.deleted}${marketPart}`;
+        ok = true;
         logger.info(`[scheduled-tasks] cleanup_invalid_deal_links ${summary}`);
         break;
       }
@@ -138,6 +251,15 @@ export async function runScheduledTask(env: Env, task: ScheduledTaskStored, repo
         const out = await runRequestLogCleanupTick(env);
         summary = out.skipped ? '上一轮仍在执行，已跳过' : `已删除请求日志 ${out.deleted} 条`;
         logger.info(`[scheduled-tasks] request_log_cleanup ${summary}`);
+        break;
+      }
+      case 'wishlist_price_email_alert': {
+        const svc = new WishlistPriceAlertService(env);
+        const out = await svc.runProAlerts();
+        summary = `愿望单邮件 users=${out.usersScanned} sent=${out.emailsSent} skipped=${out.alertsSkipped} errors=${out.errors}`;
+        ok = out.errors === 0;
+        if (!ok) error = `${out.errors} user batch errors`;
+        logger.info(`[scheduled-tasks] wishlist_price_email_alert ${summary}`);
         break;
       }
       case 'build_public_cache': {

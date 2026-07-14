@@ -185,18 +185,17 @@ export async function sqliteRecordScheduledTaskLastRun(
   result: { ok?: boolean; error?: string | null; summary?: string | null },
 ): Promise<void> {
   const doc = await sqliteGetScheduledTasks();
+  const task = doc.tasks.find((t) => t.id === taskId);
+  if (!task) return;
   const now = admin.firestore.Timestamp.now();
-  const tasks = doc.tasks.map((t) => {
-    if (t.id !== taskId) return t;
-    const next: ScheduledTaskStored = { ...t, lastRunAt: now };
-    if (typeof result.ok === 'boolean') next.lastRunOk = result.ok;
-    else delete next.lastRunOk;
-    const sum = result.summary != null ? String(result.summary).trim() : '';
-    if (sum) next.lastRunSummary = sum;
-    else delete next.lastRunSummary;
-    if (result.error) next.lastError = result.error;
-    else delete next.lastError;
-    return next;
-  });
-  await sqliteSaveScheduledTasks(tasks);
+  const next: ScheduledTaskStored = { ...task, lastRunAt: now };
+  if (typeof result.ok === 'boolean') next.lastRunOk = result.ok;
+  else delete next.lastRunOk;
+  const sum = result.summary != null ? String(result.summary).trim() : '';
+  if (sum) next.lastRunSummary = sum;
+  else delete next.lastRunSummary;
+  if (result.error) next.lastError = result.error;
+  else delete next.lastError;
+  await upsertTaskRow(next);
+  await ensureMeta();
 }

@@ -9,18 +9,23 @@ import { requestLogMiddleware } from './middlewares/request-log.middleware';
 
 export function createApp(env: Env) {
   const app = express();
+  const httpsSite = env.appBaseUrl.startsWith('https://');
 
   app.use(
     helmet({
+      // 纯 HTTP 部署（如 Vultr IP:8080）时勿升级资源到 HTTPS，否则 Admin JS 会 ERR_SSL_PROTOCOL_ERROR
       contentSecurityPolicy: {
         useDefaults: true,
         directives: {
-          // Admin 页面需要展示 Steam/CDN 外链图与视频资源
-          'img-src': ["'self'", 'data:', 'https:'],
-          'media-src': ["'self'", 'data:', 'https:'],
-          'connect-src': ["'self'", 'https:'],
+          'img-src': ["'self'", 'data:', 'https:', 'http:'],
+          'media-src': ["'self'", 'data:', 'https:', 'http:'],
+          'connect-src': ["'self'", 'https:', 'http:'],
+          ...(httpsSite ? {} : { 'upgrade-insecure-requests': null }),
         },
       },
+      crossOriginOpenerPolicy: httpsSite ? undefined : false,
+      crossOriginResourcePolicy: httpsSite ? undefined : { policy: 'cross-origin' },
+      strictTransportSecurity: httpsSite ? undefined : false,
     }),
   );
 

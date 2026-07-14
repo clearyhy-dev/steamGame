@@ -1,16 +1,12 @@
+import '../core/utils/price_formatter.dart';
+import '../core/utils/steam_price_amount.dart';
+
 /// Maps `/api/v2/markets/:cc/*` payloads to legacy shapes used by UI layers.
 class MarketV2Adapter {
   MarketV2Adapter._();
 
   static String steamHeaderImage(String appid) =>
       'https://cdn.cloudflare.steamstatic.com/steam/apps/$appid/header.jpg';
-
-  static String _formatMoney(num? amount, String symbol) {
-    if (amount == null) return '';
-    if (amount == 0) return 'Free';
-    final sym = symbol.trim().isEmpty ? '\$' : symbol;
-    return '$sym${amount.toDouble().toStringAsFixed(2)}';
-  }
 
   static double? _originalFromFinal(num? finalPrice, int discount) {
     if (finalPrice == null || finalPrice <= 0 || discount <= 0) return null;
@@ -19,10 +15,13 @@ class MarketV2Adapter {
 
   static Map<String, dynamic> marketRowToRecommendationItem(Map<String, dynamic> row) {
     final appid = row['appid']?.toString() ?? '';
-    final sym = row['currencySymbol']?.toString() ?? '\$';
-    final finalPrice = row['finalPrice'] is num
+    final currency =
+        (row['currency'] ?? 'USD').toString().trim().toUpperCase();
+    final finalPriceRaw = row['finalPrice'] is num
         ? (row['finalPrice'] as num).toDouble()
         : double.tryParse(row['finalPrice']?.toString() ?? '') ?? 0;
+    final finalPrice =
+        normalizeDealPriceAmount(finalPriceRaw, currency) ?? finalPriceRaw;
     final discount = row['discountPercent'] is num
         ? (row['discountPercent'] as num).round()
         : int.tryParse(row['discountPercent']?.toString() ?? '') ?? 0;
@@ -32,14 +31,20 @@ class MarketV2Adapter {
     final players = row['currentPlayers'] is num
         ? (row['currentPlayers'] as num).toDouble()
         : double.tryParse(row['currentPlayers']?.toString() ?? '') ?? 0;
-    final original = _originalFromFinal(finalPrice, discount) ?? finalPrice;
-    final fmtFinal = _formatMoney(finalPrice, sym);
-    final fmtInit = discount > 0 ? _formatMoney(original, sym) : fmtFinal;
+    final original =
+        _originalFromFinal(finalPrice, discount) ?? finalPrice;
+    final fmtFinal = formatRegionalPrice(amount: finalPrice, currency: currency);
+    final fmtInit =
+        discount > 0 ? formatRegionalPrice(amount: original, currency: currency) : fmtFinal;
 
+    var rawTitle = row['name']?.toString() ?? '';
+    if (RegExp(r'^App \d+$').hasMatch(rawTitle.trim())) {
+      rawTitle = appid.isNotEmpty ? 'Game #$appid' : rawTitle;
+    }
     return {
       'steamAppId': appid,
       'dealId': appid,
-      'title': row['name']?.toString() ?? 'App $appid',
+      'title': rawTitle.isNotEmpty ? rawTitle : 'App $appid',
       'capsuleImage': steamHeaderImage(appid),
       'currentPrice': finalPrice,
       'originalPrice': original,
@@ -77,6 +82,115 @@ class MarketV2Adapter {
     };
   }
 
+  static double? _cellPrice(num? raw, String currency, {required bool isSteam}) {
+    if (raw == null) return null;
+    return isSteam
+        ? steamMinorUnitsToDisplayAmount(raw, currency)
+        : normalizeDealPriceAmount(raw, currency);
+  }
+
+  static Map<String, dynamic>? _dealFromPlatformCell({
+    required String source,
+    required Map<String, dynamic> cell,
+    required String cc,
+    required String currency,
+    bool steamMinorUnits = false,
+  }) {
+    final isSteam = source == 'steam' && steamMinorUnits;
+    final fpRaw = cell['finalPrice'] is num
+        ? cell['finalPrice'] as num
+        : num.tryParse('${cell['finalPrice']}');
+    final opRaw = cell['originalPrice'] is num
+        ? cell['originalPrice'] as num
+        : num.tryParse('${cell['originalPrice']}');
+    final fp = _cellPrice(fpRaw, currency, isSteam: isSteam);
+    final op = _cellPrice(opRaw, currency, isSteam: isSteam);
+    final disc = cell['discountPercent'] is num
+        ? (cell['discountPercent'] as num).round()
+        : int.tryParse('${cell['discountPercent']}') ?? 0;
+    final url = cell['url']?.toString() ?? '';
+    final hasPrice = fp != null && fp > 0;
+    final hasDiscount = disc > 0;
+    if (!hasPrice && !hasDiscount && url.isEmpty) return null;
+    return {
+      'source': source,
+      'url': url,
+      'finalPrice': hasPrice ? fp : null,
+      'originalPrice': op ?? fp,
+      'discountPercent': disc,
+      'currency': cell['currency']?.toString() ?? currency,
+      'countryCode': cc,
+    };
+  }
+
+  static void _appendDealIfMissing(
+    List<Map<String, dynamic>> out,
+    Map<String, dynamic>? deal,
+  ) {
+    if (deal == null) return;
+    final source = deal['source']?.toString() ?? '';
+    if (source.isEmpty) return;
+    if (out.any((d) => d['source']?.toString() == source)) return;
+    out.add(deal);
+  }
+
+  static List<Map<String, dynamic>> _dealsFromPriceSummary(
+    Map<String, dynamic>? summary,
+    String cc,
+    String currency,
+  ) {
+    if (summary == null) return [];
+    final platforms = summary['platforms'];
+    if (platforms is! Map) return [];
+    final p = Map<String, dynamic>.from(platforms);
+    final out = <Map<String, dynamic>>[];
+    for (final pair in const [
+      ['steam', 'steam'],
+      ['isthereanydeal', 'isthereanydeal'],
+      ['ggdeals', 'ggdeals'],
+    ]) {
+      final cellRaw = p[pair[0]];
+      if (cellRaw is! Map) continue;
+      _appendDealIfMissing(
+        out,
+        _dealFromPlatformCell(
+          source: pair[1],
+          cell: Map<String, dynamic>.from(cellRaw),
+          cc: cc,
+          currency: currency,
+          steamMinorUnits: false,
+        ),
+      );
+    }
+    return out;
+  }
+
+  static void _putDeal(Map<String, Map<String, dynamic>> out, Map<String, dynamic>? deal) {
+    if (deal == null) return;
+    final source = deal['source']?.toString() ?? '';
+    if (source.isEmpty) return;
+    final cur = out[source];
+    if (cur == null) {
+      out[source] = deal;
+      return;
+    }
+    final nextP = deal['finalPrice'] is num
+        ? (deal['finalPrice'] as num).toDouble()
+        : double.tryParse('${deal['finalPrice']}');
+    final curP = cur['finalPrice'] is num
+        ? (cur['finalPrice'] as num).toDouble()
+        : double.tryParse('${cur['finalPrice']}');
+    final nextDisc = deal['discountPercent'] is num
+        ? (deal['discountPercent'] as num).round()
+        : int.tryParse('${deal['discountPercent']}') ?? 0;
+    final curDisc = cur['discountPercent'] is num
+        ? (cur['discountPercent'] as num).round()
+        : int.tryParse('${cur['discountPercent']}') ?? 0;
+    if (nextP != null && nextP > 0 && (curP == null || nextP < curP || nextDisc > curDisc)) {
+      out[source] = deal;
+    }
+  }
+
   static Map<String, dynamic> gameResponseToRegionalDetail(Map<String, dynamic> v2) {
     final detail = v2['detail'] is Map
         ? Map<String, dynamic>.from(v2['detail'] as Map)
@@ -101,40 +215,99 @@ class MarketV2Adapter {
         ? Map<String, dynamic>.from(prices['bucket'] as Map)
         : <String, dynamic>{};
 
+    final indexSummary = index['priceSummary'] is Map
+        ? Map<String, dynamic>.from(index['priceSummary'] as Map)
+        : null;
+    final summaryPlatforms = indexSummary?['platforms'] is Map
+        ? Map<String, dynamic>.from(indexSummary!['platforms'] as Map)
+        : null;
+    final summarySteam = summaryPlatforms?['steam'] is Map
+        ? Map<String, dynamic>.from(summaryPlatforms!['steam'] as Map)
+        : null;
+
     final steamSnap = bucket['steam'] is Map
         ? Map<String, dynamic>.from(bucket['steam'] as Map)
         : null;
 
-    final indexFinal = index['finalPrice'] is num
-        ? (index['finalPrice'] as num).toDouble()
-        : double.tryParse(index['finalPrice']?.toString() ?? '');
-    final indexDisc = index['discountPercent'] is num
-        ? (index['discountPercent'] as num).round()
-        : int.tryParse(index['discountPercent']?.toString() ?? '') ?? 0;
+    final indexFinal = indexSummary?['finalPrice'] is num
+        ? (indexSummary!['finalPrice'] as num).toDouble()
+        : index['finalPrice'] is num
+            ? (index['finalPrice'] as num).toDouble()
+            : double.tryParse(index['finalPrice']?.toString() ?? '');
+    final indexDisc = indexSummary?['discountPercent'] is num
+        ? (indexSummary!['discountPercent'] as num).round()
+        : index['discountPercent'] is num
+            ? (index['discountPercent'] as num).round()
+            : int.tryParse(index['discountPercent']?.toString() ?? '') ?? 0;
 
-    final steamFinal = steamSnap?['finalPrice'] is num
-        ? (steamSnap!['finalPrice'] as num).toDouble()
-        : indexFinal;
-    final steamOrig = steamSnap?['originalPrice'] is num
-        ? (steamSnap!['originalPrice'] as num).toDouble()
-        : _originalFromFinal(steamFinal, indexDisc);
-    final steamDisc = steamSnap?['discountPercent'] is num
-        ? (steamSnap!['discountPercent'] as num).round()
-        : indexDisc;
+    double? steamFinal;
+    double? steamOrig;
+    var steamDisc = indexDisc;
+    String steamCur = currency;
+
+    if (summarySteam != null) {
+      final fp = summarySteam['finalPrice'] is num
+          ? (summarySteam['finalPrice'] as num).toDouble()
+          : double.tryParse('${summarySteam['finalPrice']}');
+      final op = summarySteam['originalPrice'] is num
+          ? (summarySteam['originalPrice'] as num).toDouble()
+          : double.tryParse('${summarySteam['originalPrice']}');
+      final c = summarySteam['currency']?.toString().trim().toUpperCase();
+      if (c != null && c.isNotEmpty) steamCur = c;
+      if (fp != null) {
+        steamFinal = normalizeDealPriceAmount(fp, steamCur) ?? fp;
+      }
+      if (op != null) {
+        steamOrig = normalizeDealPriceAmount(op, steamCur) ?? op;
+      }
+      if (summarySteam['discountPercent'] is num) {
+        steamDisc = (summarySteam['discountPercent'] as num).round();
+      }
+    }
+
+    if (steamFinal == null && steamSnap != null) {
+      final steamFinalRaw = steamSnap['finalPrice'] is num
+          ? steamSnap['finalPrice'] as num
+          : indexFinal;
+      final steamOrigRaw = steamSnap['originalPrice'] is num
+          ? steamSnap['originalPrice'] as num
+          : null;
+      steamCur = steamSnap['currency']?.toString() ?? currency;
+      if (steamFinalRaw is num) {
+        steamFinal = _cellPrice(steamFinalRaw, steamCur, isSteam: true);
+      }
+      if (steamOrigRaw != null) {
+        steamOrig = _cellPrice(steamOrigRaw, steamCur, isSteam: true);
+      }
+      if (steamSnap['discountPercent'] is num) {
+        steamDisc = (steamSnap['discountPercent'] as num).round();
+      }
+    }
+
+    steamFinal ??=
+        indexFinal != null ? (normalizeDealPriceAmount(indexFinal, currency) ?? indexFinal) : null;
+    steamOrig ??= _originalFromFinal(steamFinal, steamDisc);
+
+    final steamStoreUrl = indexSummary?['steamStoreUrl']?.toString() ??
+        summarySteam?['url']?.toString() ??
+        steamSnap?['url']?.toString() ??
+        detail['steamStoreUrl']?.toString() ??
+        '';
 
     final steamPrice = {
-      'currency': steamSnap?['currency']?.toString() ?? currency,
+      'currency': steamCur,
       'initial': steamOrig ?? 0,
       'final': steamFinal ?? 0,
-      'initialFormatted': _formatMoney(steamOrig, sym),
-      'finalFormatted': _formatMoney(steamFinal, sym),
+      'initialFormatted': formatRegionalPrice(amount: steamOrig, currency: steamCur),
+      'finalFormatted': formatRegionalPrice(amount: steamFinal, currency: steamCur),
       'discountPercent': steamDisc,
       'fallbackUsed': false,
       'source': 'steam',
+      'steamStoreUrl': steamStoreUrl,
       if (detail['isFree'] == true) 'isFree': true,
     };
 
-    final localDeals = <Map<String, dynamic>>[];
+    final dealsBySource = <String, Map<String, dynamic>>{};
     const sources = [
       ['steam', 'steam'],
       ['isthereanydeal', 'isthereanydeal'],
@@ -146,27 +319,39 @@ class MarketV2Adapter {
       final source = pair[1];
       final snap = bucket[key];
       if (snap is! Map) continue;
-      final m = Map<String, dynamic>.from(snap);
-      final fp = m['finalPrice'] is num
-          ? (m['finalPrice'] as num).toDouble()
-          : double.tryParse(m['finalPrice']?.toString() ?? '');
-      if (fp == null || fp <= 0) continue;
-      final op = m['originalPrice'] is num
-          ? (m['originalPrice'] as num).toDouble()
-          : double.tryParse(m['originalPrice']?.toString() ?? '');
-      final disc = m['discountPercent'] is num
-          ? (m['discountPercent'] as num).round()
-          : 0;
-      localDeals.add({
-        'source': source,
-        'url': m['url']?.toString() ?? '',
-        'finalPrice': fp,
-        'originalPrice': op ?? fp,
-        'discountPercent': disc,
-        'currency': m['currency']?.toString() ?? currency,
+      _putDeal(
+        dealsBySource,
+        _dealFromPlatformCell(
+          source: source,
+          cell: Map<String, dynamic>.from(snap),
+          cc: cc,
+          currency: currency,
+          steamMinorUnits: key == 'steam',
+        ),
+      );
+    }
+
+    if (indexSummary != null) {
+      for (final d in _dealsFromPriceSummary(indexSummary, cc, currency)) {
+        _putDeal(dealsBySource, d);
+      }
+    }
+
+    if (!dealsBySource.containsKey('steam') &&
+        steamFinal != null &&
+        steamFinal > 0) {
+      _putDeal(dealsBySource, {
+        'source': 'steam',
+        'url': steamStoreUrl,
+        'finalPrice': steamFinal,
+        'originalPrice': steamOrig ?? steamFinal,
+        'discountPercent': steamDisc,
+        'currency': steamCur,
         'countryCode': cc,
       });
     }
+
+    final localDeals = dealsBySource.values.toList();
 
     final appid = (v2['appid'] ?? detail['appid'] ?? index['appid'] ?? '').toString();
     final players = heat['currentPlayers'] is num

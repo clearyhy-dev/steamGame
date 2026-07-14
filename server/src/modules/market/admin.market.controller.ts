@@ -17,7 +17,12 @@ import { MarketSyncService } from '../market/market-sync.service';
 import {
   runMarketCountryRoundRobin,
   getMarketRoundRobinStatus,
+  runMarketDailyFullSync,
+  runMarketCountryRoundRobinShard,
+  getMarketShardSyncStatus,
+  runMarketDailyShardedFullSync,
 } from '../market/market-round-robin.runner';
+import { runMarketStaleDiscountCleanupAll } from '../market/market-stale-cleanup.service';
 import type { MarketDetailDoc, MarketHeatDoc, MarketPricesDoc } from '../market/market.types';
 import { RegionCountryRepository } from '../config/region-country.repository';
 import { buildMarketGamePriceSummary } from '../market/market-price-summary.util';
@@ -114,6 +119,61 @@ export class AdminMarketController {
     sendAdminOk(res, { state });
   };
 
+  shardSyncStatus = async (req: Request, res: Response): Promise<void> => {
+    const workerCount = req.query.workerCount != null ? Number(req.query.workerCount) : undefined;
+    const status = await getMarketShardSyncStatus(workerCount);
+    sendAdminOk(res, status);
+  };
+
+  runRoundRobinShard = async (req: Request, res: Response): Promise<void> => {
+    const payload = (req.body?.payload ?? req.body ?? {}) as Record<string, unknown>;
+    const workerId = Number(payload.workerId);
+    if (!Number.isFinite(workerId) || workerId < 0) {
+      sendAdminFail(res, 400, 'workerId is required (0-based integer)');
+      return;
+    }
+    const result = await runMarketCountryRoundRobinShard(this.env, {
+      workerId,
+      workerCount: payload.workerCount != null ? Number(payload.workerCount) : undefined,
+      batchSize: payload.batchSize != null ? Number(payload.batchSize) : undefined,
+      topNPerCountry: payload.topNPerCountry != null ? Number(payload.topNPerCountry) : undefined,
+      delayMs: payload.delayMs != null ? Number(payload.delayMs) : undefined,
+      skipSyncedToday: payload.skipSyncedToday !== false,
+      forceRefresh: payload.forceRefresh === true,
+      includeDetail: payload.includeDetail === true,
+      includeHeat: payload.includeHeat === true,
+      includePrices: payload.includePrices !== false,
+      concurrency: payload.concurrency != null ? Number(payload.concurrency) : undefined,
+      platforms: Array.isArray(payload.platforms) ? (payload.platforms as string[]) : undefined,
+      resetShard: payload.resetShard === true,
+      batchesPerRun: payload.batchesPerRun != null ? Number(payload.batchesPerRun) : undefined,
+    });
+    sendAdminOk(res, result);
+  };
+
+  runDailyShardedFullSync = async (req: Request, res: Response): Promise<void> => {
+    const payload = (req.body?.payload ?? req.body ?? {}) as Record<string, unknown>;
+    const result = await runMarketDailyShardedFullSync(this.env, {
+      batchSize: payload.batchSize != null ? Number(payload.batchSize) : undefined,
+      topNPerCountry: payload.topNPerCountry != null ? Number(payload.topNPerCountry) : undefined,
+      delayMs: payload.delayMs != null ? Number(payload.delayMs) : undefined,
+      concurrency: payload.concurrency != null ? Number(payload.concurrency) : undefined,
+      workerCount: payload.workerCount != null ? Number(payload.workerCount) : undefined,
+      forceRefresh: payload.forceRefresh === true,
+      platforms: Array.isArray(payload.platforms) ? (payload.platforms as string[]) : undefined,
+      cleanupBeforeSync: payload.cleanupBeforeSync !== false,
+      cleanupMaxRows: payload.cleanupMaxRows != null ? Number(payload.cleanupMaxRows) : undefined,
+      cleanupMaxBatches: payload.cleanupMaxBatches != null ? Number(payload.cleanupMaxBatches) : undefined,
+      cleanupStaleOlderThanHours:
+        payload.cleanupStaleOlderThanHours != null ? Number(payload.cleanupStaleOlderThanHours) : undefined,
+      syncTierFilter:
+        payload.syncTierFilter === 'T1' || payload.syncTierFilter === 'T2'
+          ? payload.syncTierFilter
+          : undefined,
+    });
+    sendAdminOk(res, result);
+  };
+
   syncOne = async (req: Request, res: Response): Promise<void> => {
     const cc = normCc(req.params.cc);
     const appid = String(req.params.appid ?? '').trim();
@@ -121,10 +181,15 @@ export class AdminMarketController {
       sendAdminFail(res, 400, 'invalid country or appid');
       return;
     }
-    const force = req.body?.forceRefresh === true;
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const force = body.forceRefresh === true;
     const result = await this.sync.syncGameMarket(cc, appid, {
       forceRefresh: force,
       skipIfSyncedToday: !force,
+      includeDetail: body.includeDetail !== false,
+      includeHeat: body.includeHeat !== false,
+      includePrices: body.includePrices !== false,
+      bulkPricesOnly: body.bulkPricesOnly === true,
     });
     sendAdminOk(res, result);
   };
@@ -143,6 +208,43 @@ export class AdminMarketController {
       concurrency: payload.concurrency != null ? Number(payload.concurrency) : undefined,
       platforms: Array.isArray(payload.platforms) ? (payload.platforms as string[]) : undefined,
       resetQueue: payload.resetQueue === true,
+    });
+    sendAdminOk(res, result);
+  };
+
+  runStaleDiscountCleanup = async (req: Request, res: Response): Promise<void> => {
+    if (this.env.discountOffersPersistence !== 'object_storage') {
+      sendAdminFail(res, 503, 'market 折扣清理需要 DISCOUNT_OFFERS_PERSISTENCE=object_storage');
+      return;
+    }
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const result = await runMarketStaleDiscountCleanupAll(this.env, {
+      cutoffMode: body.cutoffMode === 'stale_hours' ? 'stale_hours' : 'before_today',
+      maxRows: body.maxRows != null ? Number(body.maxRows) : 5000,
+      maxBatches: body.maxBatches != null ? Number(body.maxBatches) : 30,
+      staleOlderThanHours: body.staleOlderThanHours != null ? Number(body.staleOlderThanHours) : 72,
+    });
+    sendAdminOk(res, result);
+  };
+
+  runDailyFullSync = async (req: Request, res: Response): Promise<void> => {
+    const payload = (req.body?.payload ?? req.body ?? {}) as Record<string, unknown>;
+    const result = await runMarketDailyFullSync(this.env, {
+      batchSize: payload.batchSize != null ? Number(payload.batchSize) : undefined,
+      topNPerCountry: payload.topNPerCountry != null ? Number(payload.topNPerCountry) : undefined,
+      delayMs: payload.delayMs != null ? Number(payload.delayMs) : undefined,
+      concurrency: payload.concurrency != null ? Number(payload.concurrency) : undefined,
+      workerCount: payload.workerCount != null ? Number(payload.workerCount) : undefined,
+      platforms: Array.isArray(payload.platforms) ? (payload.platforms as string[]) : undefined,
+      cleanupBeforeSync: payload.cleanupBeforeSync !== false,
+      cleanupMaxRows: payload.cleanupMaxRows != null ? Number(payload.cleanupMaxRows) : undefined,
+      cleanupMaxBatches: payload.cleanupMaxBatches != null ? Number(payload.cleanupMaxBatches) : undefined,
+      cleanupStaleOlderThanHours:
+        payload.cleanupStaleOlderThanHours != null ? Number(payload.cleanupStaleOlderThanHours) : undefined,
+      syncTierFilter:
+        payload.syncTierFilter === 'T1' || payload.syncTierFilter === 'T2'
+          ? payload.syncTierFilter
+          : undefined,
     });
     sendAdminOk(res, result);
   };

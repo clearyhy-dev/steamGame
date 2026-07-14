@@ -2,6 +2,7 @@ import 'dart:ui' show PlatformDispatcher;
 
 import 'constants/api_constants.dart';
 import 'country_catalog_service.dart';
+import 'region_config.dart';
 import 'storage_service.dart';
 import 'utils/steam_ui_language.dart';
 class AppCountryContext {
@@ -92,10 +93,24 @@ class AppCountryResolver {
   static AppCountryContext resolveSync() {
     final catalog = CountryCatalogService.instance;
     final manual = StorageService.instance.getAppCountrySync();
-    if (manual != null) {
-      final e = catalog.findByCountryCode(manual);
+    if (manual != null && manual.isNotEmpty) {
+      final code = manual.trim().toUpperCase();
+      final e = catalog.findByCountryCode(code);
       if (e != null) {
-        return _fromEntry(entry: e, source: 'sync');
+        return _fromEntry(entry: e, source: 'manual');
+      }
+      if (RegionConfig.isRegionId(code)) {
+        final uiLang = RegionConfig.getLocaleCodeForApp(code) ?? 'en';
+        return AppCountryContext(
+          countryCode: code,
+          countryName: code,
+          steamCc: code,
+          steamLanguage: uiLang,
+          currency: 'USD',
+          currencySymbol: r'$',
+          uiLanguageCode: uiLang,
+          source: 'manual',
+        );
       }
     }
     final d = catalog.findDefault();

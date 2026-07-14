@@ -1,16 +1,17 @@
 # 按 ITAD / GG 官方 API 强制重拉各国 Top N 价（批量模式：Steam+ITAD+GG，跳过 CheapShark）。
-# 用法: .\scripts\resync-market-prices-force.ps1 [-TopN 200] [-ResetQueue] [-BatchSize 50] [-Concurrency 6]
+# 用法: .\scripts\resync-market-prices-force.ps1 [-TopN 200] [-ResetQueue] [-BatchSize 50] [-Concurrency 6] [-SkipCleanup]
 param(
-  [string]$BaseUrl = "https://steam-game-api-803425642695.asia-southeast1.run.app",
+  [string]$BaseUrl = "http://139.180.199.42:8080",
   [string]$Username = "admin",
   [string]$Password = "123456",
   [int]$TopN = 200,
   [int]$BatchSize = 80,
-  [int]$Concurrency = 10,
+  [int]$Concurrency = 5,
   [int]$InterBatchSec = 0,
   [int]$MaxRuns = 800,
   [int]$RequestTimeoutSec = 1200,
-  [switch]$ResetQueue
+  [switch]$ResetQueue,
+  [switch]$SkipCleanup
 )
 $ErrorActionPreference = "Continue"
 
@@ -26,6 +27,20 @@ for ($loginTry = 1; $loginTry -le 5; $loginTry++) {
   }
 }
 $auth = @{ Authorization = "Bearer $($login.data.token)" }
+
+if (-not $SkipCleanup) {
+  Write-Host "=== Cleanup stale discounts (before today) ==="
+  try {
+    $cl = Invoke-RestMethod -Method Post -Uri "$BaseUrl/api/admin/markets/stale-discounts/cleanup" `
+      -Headers $auth -ContentType "application/json" `
+      -Body (@{ cutoffMode = "before_today"; maxRows = 5000; maxBatches = 30 } | ConvertTo-Json) `
+      -TimeoutSec 600
+    $d = $cl.data
+    Write-Host "Cleanup done: scanned=$($d.scanned) clearedIndex=$($d.clearedIndex) clearedObjects=$($d.clearedObjects) skipped=$($d.skipped)"
+  } catch {
+    Write-Host "Cleanup WARN: $($_.Exception.Message) (continuing with price sync)"
+  }
+}
 
 $bodyObj = @{
   payload = @{

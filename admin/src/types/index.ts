@@ -420,6 +420,7 @@ export type GameDetailResponse = {
 export type ScheduledTaskKey =
   | 'steam_catalog_sync'
   | 'market_country_round_robin'
+  | 'market_country_round_robin_shard'
   | 'market_build_lists'
   | 'cleanup_invalid_deal_links'
   | 'build_public_cache'
@@ -562,4 +563,22 @@ export type AdminUserRow = {
   registeredAt: string | null;
   createdAt: string | null;
   updatedAt: string | null;
+  countryCode: string | null;
+  defaultCountryCode: string | null;
+  effectiveCountryCode: string | null;
+  countrySource: string | null;
+  countrySwitched: boolean;
+  countryUpdatedAt: string | null;
+};
+
+export type AdminUserFavoriteRow = {
+  appid: string;
+  name: string;
+  headerImage: string;
+  source: string;
+  createdAt: string | null;
+  discountPercent: number | null;
+  currency: string | null;
+  priceSummary: unknown;
+  priceSyncedAtMs: number | null;
 };

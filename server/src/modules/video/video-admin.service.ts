@@ -209,6 +209,8 @@ export class VideoAdminService {
         signedPlaybackExpiresAt: result.signedPlaybackExpiresAt,
         storagePath: result.storagePrefix,
         variants: result.variants,
+        audioPresent: result.audioPresent,
+        verticalHasAudio: result.verticalHasAudio,
         errorMessage: FieldValue.delete() as unknown as undefined,
       });
 

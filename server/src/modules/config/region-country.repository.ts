@@ -7,6 +7,7 @@ import { nowMs } from '../../storage/sqlite/timestamp';
 import { REGION_COUNTRY_DEFAULTS } from './region-country.defaults';
 import { defaultCurrencySymbol, effectiveCurrencySymbol } from './currency-symbol.util';
 import { CHEAPSHARK_LIST_COUNTRY, ggDealsRegionFromSteamCc } from './deal-provider-region.catalog';
+import { DEFAULT_T1_COUNTRY_CODES, normalizeMarketSyncTier } from './market-sync-tier.config';
 
 const COL = 'region_country_configs';
 
@@ -27,9 +28,13 @@ export type RegionCountryConfigDoc = {
   uiLanguage: string;
   enabled: boolean;
   sortOrder: number;
+  /** 分层折扣同步：T1 高频大 TopN；T2 低频小 TopN */
+  syncTier?: MarketSyncTier;
   createdAt: admin.firestore.Timestamp;
   updatedAt: admin.firestore.Timestamp;
 };
+
+export type MarketSyncTier = 'T1' | 'T2';
 
 /** 与 Steam 解耦：各比价/折扣 API 使用各自国家或区域码（Admin Country/Steam 页可配）。 */
 export type DealProviderCountryCodes = {
@@ -123,7 +128,10 @@ export class RegionCountryRepository {
   private db = getFirestore();
 
   async listAllForAdmin(): Promise<RegionCountryConfigDoc[]> {
-    if (useSqliteRelationalStore()) return sqliteRegion.sqliteListAllRegionCountries();
+    if (useSqliteRelationalStore()) {
+      await sqliteRegion.sqliteEnsureRegionSyncTierColumn();
+      return sqliteRegion.sqliteListAllRegionCountries();
+    }
     const snap = await this.db.collection(COL).get();
     if (snap.empty) {
       await this.seedDefaults();
@@ -135,7 +143,10 @@ export class RegionCountryRepository {
   }
 
   async listEnabledPublic(): Promise<RegionCountryConfigDoc[]> {
-    if (useSqliteRelationalStore()) return sqliteRegion.sqliteListEnabledRegionCountries();
+    if (useSqliteRelationalStore()) {
+      await sqliteRegion.sqliteEnsureRegionSyncTierColumn();
+      return sqliteRegion.sqliteListEnabledRegionCountries();
+    }
     const snap = await this.db.collection(COL).get();
     if (snap.empty) {
       await this.seedDefaults();
@@ -349,6 +360,10 @@ export class RegionCountryRepository {
       }),
       enabled: input.enabled !== undefined ? Boolean(input.enabled) : (prev?.enabled ?? true),
       sortOrder: input.sortOrder !== undefined ? Number(input.sortOrder) : (prev?.sortOrder ?? 500),
+      syncTier:
+        input.syncTier !== undefined
+          ? normalizeMarketSyncTier(input.syncTier)
+          : normalizeMarketSyncTier(prev?.syncTier),
       createdAt: prev?.createdAt ?? now,
       updatedAt: now,
     };
@@ -377,6 +392,46 @@ export class RegionCountryRepository {
       .collection(COL)
       .doc(c)
       .set({ enabled, updatedAt: admin.firestore.Timestamp.now() }, { merge: true });
+  }
+
+  async setSyncTier(countryCode: string, syncTier: MarketSyncTier): Promise<void> {
+    const c = String(countryCode).trim().toUpperCase();
+    const tier = normalizeMarketSyncTier(syncTier);
+    if (useSqliteRelationalStore()) {
+      await sqliteRegion.sqliteEnsureRegionSyncTierColumn();
+      await sqlRun('UPDATE region_country_configs SET sync_tier = ?, updated_at_ms = ? WHERE country_code = ?', [
+        tier,
+        nowMs(),
+        c,
+      ]);
+      return;
+    }
+    await this.db.collection(COL).doc(c).set(
+      { syncTier: tier, updatedAt: admin.firestore.Timestamp.now() },
+      { merge: true },
+    );
+  }
+
+  /** 首次迁移：按 DEFAULT_T1_COUNTRY_CODES 写入 T1，其余 T2（不覆盖已有非空 sync_tier） */
+  async backfillDefaultSyncTiers(force = false): Promise<{ updated: number }> {
+    if (useSqliteRelationalStore()) {
+      return sqliteRegion.sqliteBackfillDefaultSyncTiers(force);
+    }
+    const snap = await this.db.collection(COL).get();
+    let updated = 0;
+    const batch = this.db.batch();
+    for (const doc of snap.docs) {
+      const row = doc.data() as RegionCountryConfigDoc;
+      const cc = String(row.countryCode ?? doc.id).trim().toUpperCase();
+      const want = DEFAULT_T1_COUNTRY_CODES.has(cc) ? 'T1' : 'T2';
+      const cur = normalizeMarketSyncTier(row.syncTier);
+      if (!force && row.syncTier != null && String(row.syncTier).trim() !== '') continue;
+      if (!force && cur === want) continue;
+      batch.set(doc.ref, { syncTier: want, updatedAt: admin.firestore.Timestamp.now() }, { merge: true });
+      updated++;
+    }
+    if (updated > 0) await batch.commit();
+    return { updated };
   }
 
   /**

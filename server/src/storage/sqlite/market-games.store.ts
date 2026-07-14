@@ -141,11 +141,15 @@ export async function sqliteIsMarketGameFullySyncedToday(
   countryCode: string,
   appid: string,
   dayStartMs: number,
+  opts?: { pricesOnly?: boolean },
 ): Promise<boolean> {
   const row = await sqlGet<{ detail_synced_at_ms: number | null; price_synced_at_ms: number | null }>(
     'SELECT detail_synced_at_ms, price_synced_at_ms FROM market_games WHERE country_code = ? AND appid = ?',
     [countryCode.toUpperCase(), appid],
   );
+  if (opts?.pricesOnly) {
+    return !!row?.price_synced_at_ms && row.price_synced_at_ms >= dayStartMs;
+  }
   if (!row?.detail_synced_at_ms || !row?.price_synced_at_ms) return false;
   return row.detail_synced_at_ms >= dayStartMs && row.price_synced_at_ms >= dayStartMs;
 }

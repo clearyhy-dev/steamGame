@@ -16,6 +16,12 @@ import { serializeByCountryMap, serializeGameCountryBucket } from './game-by-cou
 import { CACHE_DEFAULT_TTL_SEC, cacheService } from '../../cache/cacheService';
 import { DealAggregatorService, type AggregatedDealCard } from './deal-aggregator.service';
 import { downloadJsonBuffer } from '../video/gcs.service';
+import { syncTimestampToMs } from '../../storage/sqlite/timestamp';
+
+function timestampToIso(v: unknown): string | null {
+  const ms = syncTimestampToMs(v as Parameters<typeof syncTimestampToMs>[0]);
+  return ms != null ? new Date(ms).toISOString() : null;
+}
 
 function serializeDealLink(d: GameDealLinkDoc): Record<string, unknown> {
   return {
@@ -32,9 +38,9 @@ function serializeDealLink(d: GameDealLinkDoc): Record<string, unknown> {
     finalPrice: d.finalPrice,
     discountPercent: d.discountPercent,
     offerStatus: d.offerStatus,
-    startAt: d.startAt ? d.startAt.toDate().toISOString() : null,
-    endAt: d.endAt ? d.endAt.toDate().toISOString() : null,
-    lastPriceSyncAt: d.lastPriceSyncAt ? d.lastPriceSyncAt.toDate().toISOString() : null,
+    startAt: timestampToIso(d.startAt),
+    endAt: timestampToIso(d.endAt),
+    lastPriceSyncAt: timestampToIso(d.lastPriceSyncAt),
   };
 }
 
@@ -426,11 +432,11 @@ export class PublicGamesController {
       links: fallbackLinks.map((d) => ({
         ...d,
         isPurchasable: String(d.url ?? '').trim().length > 0,
-        startAt: d.startAt ? d.startAt.toDate().toISOString() : null,
-        endAt: d.endAt ? d.endAt.toDate().toISOString() : null,
-        lastPriceSyncAt: d.lastPriceSyncAt ? d.lastPriceSyncAt.toDate().toISOString() : null,
-        createdAt: d.createdAt ? d.createdAt.toDate().toISOString() : null,
-        updatedAt: d.updatedAt ? d.updatedAt.toDate().toISOString() : null,
+        startAt: timestampToIso(d.startAt),
+        endAt: timestampToIso(d.endAt),
+        lastPriceSyncAt: timestampToIso(d.lastPriceSyncAt),
+        createdAt: timestampToIso(d.createdAt),
+        updatedAt: timestampToIso(d.updatedAt),
       })),
       bestDeal,
     });

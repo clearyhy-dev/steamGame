@@ -57,10 +57,13 @@ function sanitizeScheduledTaskForFirestore(t: ScheduledTaskStored): ScheduledTas
 export type ScheduledTaskKey =
   | 'steam_catalog_sync'
   | 'market_country_round_robin'
+  | 'market_country_round_robin_shard'
+  | 'market_daily_all_countries'
   | 'market_build_lists'
   | 'cleanup_invalid_deal_links'
   | 'build_public_cache'
-  | 'request_log_cleanup';
+  | 'request_log_cleanup'
+  | 'wishlist_price_email_alert';
 
 export type ScheduledTaskStored = {
   id: string;
@@ -123,13 +126,25 @@ export const SCHEDULED_TASK_TIMEZONE = 'Asia/Shanghai';
 /** 每日依次执行顺序（按任务 id；Cloud Scheduler / 管理端「运行全部」） */
 export const SCHEDULED_TASK_RUN_ORDER: string[] = [
   'steam_catalog_sync',
-  'market_rr_02',
-  'market_rr_10',
-  'market_rr_18',
+  'market_daily_t1_sync',
+  'market_daily_t2_sync',
   'market_build_lists',
+  'wishlist_price_email_pro',
   'request_log_cleanup',
   'cleanup_invalid_deal_links',
 ];
+
+const OBSOLETE_SCHEDULED_TASK_IDS = new Set([
+  'market_daily_full_sync',
+  'market_rr_02',
+  'market_rr_10',
+  'market_rr_18',
+  'market_shard_w0',
+  'market_shard_w1',
+  'market_shard_w2',
+  'market_shard_w3',
+  'build_public_cache',
+]);
 
 const LEGACY_V1_DEAL_TASK_IDS = new Set([
   'daily_deals_top_steam',
@@ -146,24 +161,166 @@ const LEGACY_V1_DEAL_TASK_IDS = new Set([
   'steam_top500_heat_pipeline',
 ]);
 
-const MARKET_ROUND_ROBIN_PAYLOAD = {
-  topNPerCountry: 200,
-  batchSize: 50,
-  delayMs: 30,
-  skipSyncedToday: true,
+const MARKET_DAILY_FULL_SYNC_PAYLOAD = {
+  batchSize: 100,
+  delayMs: 0,
+  skipSyncedToday: false,
   forceRefresh: false,
   includeDetail: false,
   includeHeat: false,
   includePrices: true,
-  concurrency: 6,
+  concurrency: 4,
+  workerCount: 2,
+  platforms: ['steam', 'isthereanydeal', 'ggdeals'],
+  cleanupBeforeSync: true,
+  cleanupMaxRows: 5000,
+  cleanupMaxBatches: 30,
+  cleanupStaleOlderThanHours: 72,
 };
+
+const MARKET_SHARD_SYNC_PAYLOAD = {
+  batchSize: 100,
+  delayMs: 0,
+  skipSyncedToday: false,
+  forceRefresh: false,
+  includeDetail: false,
+  includeHeat: false,
+  includePrices: true,
+  concurrency: 4,
+  workerCount: 2,
+  batchesPerRun: 6,
+  platforms: ['steam', 'isthereanydeal', 'ggdeals'],
+};
+
+const MARKET_ROUND_ROBIN_PAYLOAD = {
+  topNPerCountry: 200,
+  batchSize: 80,
+  delayMs: 0,
+  skipSyncedToday: false,
+  forceRefresh: false,
+  includeDetail: false,
+  includeHeat: false,
+  includePrices: true,
+  concurrency: 10,
+  batchesPerRun: 8,
+  platforms: ['steam', 'isthereanydeal', 'ggdeals'],
+};
+
+const CLEANUP_INVALID_DEAL_LINKS_PAYLOAD = {
+  maxDelete: 5000,
+  staleOlderThanHours: 72,
+  maxMarketRows: 5000,
+  cleanupIntervalDays: 3,
+};
+
+function enforceCleanupInvalidDealLinksPayload(tasks: ScheduledTaskStored[]): {
+  tasks: ScheduledTaskStored[];
+  changed: boolean;
+} {
+  let changed = false;
+  const wantLabel = `清理失效折扣（每 ${CLEANUP_INVALID_DEAL_LINKS_PAYLOAD.cleanupIntervalDays} 天，超过 ${CLEANUP_INVALID_DEAL_LINKS_PAYLOAD.staleOlderThanHours}h 未更新）`;
+  const next = tasks.map((t) => {
+    if (t.taskKey !== 'cleanup_invalid_deal_links') return t;
+    const merged = { ...(t.payload ?? {}), ...CLEANUP_INVALID_DEAL_LINKS_PAYLOAD };
+    const payloadChanged = JSON.stringify(t.payload ?? {}) !== JSON.stringify(merged);
+    const labelChanged = t.label !== wantLabel;
+    if (!payloadChanged && !labelChanged) return t;
+    changed = true;
+    return { ...t, label: wantLabel, payload: merged };
+  });
+  return { tasks: next, changed };
+}
+
+function stripObsoleteScheduledTasks(tasks: ScheduledTaskStored[]): { tasks: ScheduledTaskStored[]; changed: boolean } {
+  const next = tasks.filter((t) => !OBSOLETE_SCHEDULED_TASK_IDS.has(t.id));
+  return { tasks: next, changed: next.length !== tasks.length };
+}
+
+function enforceTieredMarketSchedule(tasks: ScheduledTaskStored[]): { tasks: ScheduledTaskStored[]; changed: boolean } {
+  let changed = false;
+  let next = tasks.filter((t) => t.id !== 'market_daily_full_sync');
+  if (next.length !== tasks.length) changed = true;
+
+  const ensureTierTask = (
+    id: string,
+    label: string,
+    timeOfDay: string,
+    syncTierFilter: 'T1' | 'T2',
+    cleanupBeforeSync: boolean,
+  ) => {
+    const idx = next.findIndex((t) => t.id === id);
+    const payload = {
+      ...MARKET_DAILY_FULL_SYNC_PAYLOAD,
+      syncTierFilter,
+      cleanupBeforeSync,
+    };
+    if (idx >= 0) {
+      const t = next[idx]!;
+      const merged = { ...(t.payload ?? {}), ...payload };
+      if (
+        !t.enabled ||
+        t.label !== label ||
+        t.timeOfDay !== timeOfDay ||
+        JSON.stringify(t.payload ?? {}) !== JSON.stringify(merged)
+      ) {
+        changed = true;
+        next = [...next];
+        next[idx] = { ...t, enabled: true, label, timeOfDay, payload: merged };
+      }
+    } else {
+      changed = true;
+      next.push({
+        id,
+        label,
+        enabled: true,
+        taskKey: 'market_daily_all_countries',
+        timezone: SCHEDULED_TASK_TIMEZONE,
+        frequency: 'daily',
+        timeOfDay,
+        payload,
+      });
+    }
+  };
+
+  ensureTierTask(
+    'market_daily_t1_sync',
+    'T1 每日折扣同步 · 01:00 · Top500 · 同步前清理',
+    '01:00',
+    'T1',
+    true,
+  );
+  ensureTierTask(
+    'market_daily_t2_sync',
+    'T2 每2天折扣同步 · 04:00 · Top200',
+    '04:00',
+    'T2',
+    false,
+  );
+  return { tasks: next, changed };
+}
+
+function enforceMarketShardPayload(tasks: ScheduledTaskStored[]): { tasks: ScheduledTaskStored[]; changed: boolean } {
+  let changed = false;
+  const next = tasks.map((t) => {
+    if (t.taskKey !== 'market_country_round_robin_shard') return t;
+    const wid = Number(t.payload?.workerId ?? t.id.replace(/^market_shard_w/, ''));
+    const merged = { ...MARKET_SHARD_SYNC_PAYLOAD, ...(t.payload ?? {}), workerId: wid };
+    const wantLabel = `分片折扣同步 · Worker ${wid}（Top500 · 每国独立游标）`;
+    const payloadChanged = JSON.stringify(t.payload ?? {}) !== JSON.stringify(merged);
+    const labelChanged = t.label !== wantLabel;
+    if (!payloadChanged && !labelChanged) return t;
+    changed = true;
+    return { ...t, label: wantLabel, payload: merged };
+  });
+  return { tasks: next, changed };
+}
 
 function enforceMarketRoundRobinPayload(tasks: ScheduledTaskStored[]): { tasks: ScheduledTaskStored[]; changed: boolean } {
   let changed = false;
   const next = tasks.map((t) => {
     if (t.taskKey !== 'market_country_round_robin') return t;
     const merged = { ...(t.payload ?? {}), ...MARKET_ROUND_ROBIN_PAYLOAD };
-    const wantLabel = `分国市场轮询 · ${t.timeOfDay ?? '—'}（Top200/国，四平台价，并发${merged.concurrency ?? 6}）`;
+    const wantLabel = `分国市场轮询 · ${t.timeOfDay ?? '—'}（已停用，见每日全量任务）`;
     const payloadChanged = JSON.stringify(t.payload ?? {}) !== JSON.stringify(merged);
     const labelChanged = t.label !== wantLabel;
     if (!payloadChanged && !labelChanged) return t;
@@ -208,6 +365,11 @@ function enforceAllTasksDailySchedule(tasks: ScheduledTaskStored[]): { tasks: Sc
       nt = { ...nt, timeOfDay: def.timeOfDay };
       changed = true;
     }
+    // 修正历史错误配置（如 cleanup 与 market_rr_02 同为 02:00）
+    if (def.timeOfDay && nt.timeOfDay !== def.timeOfDay && def.id === 'cleanup_invalid_deal_links') {
+      nt = { ...nt, timeOfDay: def.timeOfDay };
+      changed = true;
+    }
     return nt;
   });
   for (const def of defaults.values()) {
@@ -220,7 +382,6 @@ function enforceAllTasksDailySchedule(tasks: ScheduledTaskStored[]): { tasks: Sc
 }
 
 function defaultTasksInner(): ScheduledTaskStored[] {
-  const rrPayload = { ...MARKET_ROUND_ROBIN_PAYLOAD };
   return [
     {
       id: 'steam_catalog_sync',
@@ -233,34 +394,24 @@ function defaultTasksInner(): ScheduledTaskStored[] {
       payload: {},
     },
     {
-      id: 'market_rr_02',
-      label: '分国市场轮询 · 02:00（Top200/国，四平台价，并发6）',
+      id: 'market_daily_t1_sync',
+      label: 'T1 每日折扣同步 · 01:00 · Top500 · 同步前清理',
       enabled: true,
-      taskKey: 'market_country_round_robin',
+      taskKey: 'market_daily_all_countries',
       timezone: SCHEDULED_TASK_TIMEZONE,
       frequency: 'daily',
-      timeOfDay: '02:00',
-      payload: { ...rrPayload },
+      timeOfDay: '01:00',
+      payload: { ...MARKET_DAILY_FULL_SYNC_PAYLOAD, syncTierFilter: 'T1', cleanupBeforeSync: true },
     },
     {
-      id: 'market_rr_10',
-      label: '分国市场轮询 · 10:00（Top200/国，四平台价，并发6）',
+      id: 'market_daily_t2_sync',
+      label: 'T2 每2天折扣同步 · 04:00 · Top200',
       enabled: true,
-      taskKey: 'market_country_round_robin',
+      taskKey: 'market_daily_all_countries',
       timezone: SCHEDULED_TASK_TIMEZONE,
       frequency: 'daily',
-      timeOfDay: '10:00',
-      payload: { ...rrPayload },
-    },
-    {
-      id: 'market_rr_18',
-      label: '分国市场轮询 · 18:00（Top200/国，四平台价，并发6）',
-      enabled: true,
-      taskKey: 'market_country_round_robin',
-      timezone: SCHEDULED_TASK_TIMEZONE,
-      frequency: 'daily',
-      timeOfDay: '18:00',
-      payload: { ...rrPayload },
+      timeOfDay: '04:00',
+      payload: { ...MARKET_DAILY_FULL_SYNC_PAYLOAD, syncTierFilter: 'T2', cleanupBeforeSync: false },
     },
     {
       id: 'market_build_lists',
@@ -270,6 +421,16 @@ function defaultTasksInner(): ScheduledTaskStored[] {
       timezone: SCHEDULED_TASK_TIMEZONE,
       frequency: 'daily',
       timeOfDay: '20:00',
+      payload: {},
+    },
+    {
+      id: 'wishlist_price_email_pro',
+      label: 'Pro 愿望单降价邮件 · 06:30 · Steam/ITAD/GG',
+      enabled: true,
+      taskKey: 'wishlist_price_email_alert',
+      timezone: SCHEDULED_TASK_TIMEZONE,
+      frequency: 'daily',
+      timeOfDay: '06:30',
       payload: {},
     },
     {
@@ -284,23 +445,13 @@ function defaultTasksInner(): ScheduledTaskStored[] {
     },
     {
       id: 'cleanup_invalid_deal_links',
-      label: '清理无效折扣链接（删除 offerStatus=invalid）',
+      label: '清理失效折扣（每 3 天，超过 72h 未更新）',
       enabled: true,
       taskKey: 'cleanup_invalid_deal_links',
       timezone: SCHEDULED_TASK_TIMEZONE,
       frequency: 'daily',
       timeOfDay: '07:00',
-      payload: {},
-    },
-    {
-      id: 'build_public_cache',
-      label: '构建公开 JSON 缓存 v1（已由 market_build_lists 替代，默认关闭）',
-      enabled: false,
-      taskKey: 'build_public_cache',
-      timezone: SCHEDULED_TASK_TIMEZONE,
-      frequency: 'daily',
-      timeOfDay: '08:00',
-      payload: {},
+      payload: { ...CLEANUP_INVALID_DEAL_LINKS_PAYLOAD },
     },
   ];
 }
@@ -326,9 +477,26 @@ export function migrateScheduledTasksList(tasks: ScheduledTaskStored[]): {
   next = allDaily.tasks;
   const marketPayload = enforceMarketRoundRobinPayload(next);
   next = marketPayload.tasks;
+  const shardPayload = enforceMarketShardPayload(next);
+  next = shardPayload.tasks;
+  const obsolete = stripObsoleteScheduledTasks(next);
+  next = obsolete.tasks;
+  const tierMarket = enforceTieredMarketSchedule(next);
+  next = tierMarket.tasks;
+  const cleanupPayload = enforceCleanupInvalidDealLinksPayload(next);
+  next = cleanupPayload.tasks;
   return {
     tasks: next,
-    changed: stripped.changed || legacyDeal.changed || labelFix || allDaily.changed || marketPayload.changed,
+    changed:
+      stripped.changed ||
+      legacyDeal.changed ||
+      labelFix ||
+      allDaily.changed ||
+      marketPayload.changed ||
+      shardPayload.changed ||
+      obsolete.changed ||
+      tierMarket.changed ||
+      cleanupPayload.changed,
   };
 }
 

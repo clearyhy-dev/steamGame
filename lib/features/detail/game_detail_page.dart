@@ -13,6 +13,7 @@ import '../../../core/storage_service.dart';
 import '../../../core/app_country_events.dart';
 import '../../../core/app_country_resolver.dart';
 import '../../../core/utils/price_region_resolver.dart';
+import '../../../core/third_party_price_access.dart';
 import '../../../core/utils/price_formatter.dart';
 import '../../../core/utils/steam_price_amount.dart' show normalizeDealPriceAmount;
 import '../../../core/utils/countdown_util.dart';
@@ -54,6 +55,7 @@ class _GameDetailPageState extends State<GameDetailPage> {
   List<Map<String, dynamic>> _dealLinks = [];
   String _dealCountryCode = 'US';
   bool _isPro = false;
+  bool _thirdPartyUnlocked = false;
   bool _refreshingDeals = false;
   bool _allDealsLoaded = false;
   bool _metaEnsured = false;
@@ -122,6 +124,21 @@ class _GameDetailPageState extends State<GameDetailPage> {
     } catch (_) {}
   }
 
+  Future<void> _requestThirdPartyUnlock() async {
+    final ok = await ThirdPartyPriceAccess.instance.promptUnlock(
+      context,
+      paywallSource: 'game_detail_itad_gg',
+    );
+    if (!mounted) return;
+    if (ok) {
+      final pro = await StorageService.instance.isPro();
+      setState(() {
+        _thirdPartyUnlocked = true;
+        _isPro = pro;
+      });
+    }
+  }
+
   List<Map<String, dynamic>> _mapDynamicDealList(dynamic raw) {
     if (raw is! List) return [];
     final out = <Map<String, dynamic>>[];
@@ -155,13 +172,13 @@ class _GameDetailPageState extends State<GameDetailPage> {
         _refreshingDeals = true;
       });
     }
-    final region = await AppCountryResolver.resolveContext();
-    _priceCountry = region.countryCode;
+    final cc = await _backend.resolvePriceCountry();
+    _priceCountry = cc;
     try {
       final pro = await StorageService.instance.isPro();
       final steamLang = await PriceRegionResolver.effectiveSteamUiLanguage();
       final data = await _backend.getGameRegionalDetail(steamId,
-          country: region.countryCode, language: steamLang);
+          country: cc, language: steamLang);
       final local = _mapDynamicDealList(data['localDeals']);
       final global = _mapDynamicDealList(data['globalDeals']);
       final merged = <Map<String, dynamic>>[...local, ...global];
@@ -170,8 +187,9 @@ class _GameDetailPageState extends State<GameDetailPage> {
         _regionalDetail = data;
         _steamStoreShortDescription = _readSteamStoreShortDescription(data);
         _dealLinks = merged;
-        _dealCountryCode = region.countryCode;
+        _dealCountryCode = cc;
         _isPro = pro;
+        if (!pro) _thirdPartyUnlocked = false;
         _allDealsLoaded = true;
         _dealsUsingCache = false;
         _dealsCacheUpdatedAt = DateTime.now();
@@ -179,10 +197,11 @@ class _GameDetailPageState extends State<GameDetailPage> {
         if (heat is Map && heat['currentPlayers'] is num) {
           _currentPlayers = (heat['currentPlayers'] as num).toInt();
         }
+        _applyListPriceIfBetter();
       });
       await StorageService.instance.setDetailDealsCache(
         appid: steamId,
-        countryCode: region.countryCode,
+        countryCode: cc,
         rows: merged,
       );
       await _refreshDealsIfMissingOtherPlatforms();
@@ -224,12 +243,12 @@ class _GameDetailPageState extends State<GameDetailPage> {
     if (steamId.isEmpty) return;
     _autoRefreshedDeals = true;
     if (mounted) setState(() => _refreshingDeals = true);
-    final region = await AppCountryResolver.resolveContext();
+    final cc = await _backend.resolvePriceCountry();
     try {
-      await _backend.refreshGameDeals(steamId, country: region.countryCode);
+      await _backend.refreshGameDeals(steamId, country: cc);
       final steamLang = await PriceRegionResolver.effectiveSteamUiLanguage();
       final data = await _backend.getGameRegionalDetail(steamId,
-          country: region.countryCode, language: steamLang);
+          country: cc, language: steamLang);
       final local = _mapDynamicDealList(data['localDeals']);
       final global = _mapDynamicDealList(data['globalDeals']);
       final merged = <Map<String, dynamic>>[...local, ...global];
@@ -238,13 +257,13 @@ class _GameDetailPageState extends State<GameDetailPage> {
         _regionalDetail = data;
         _steamStoreShortDescription = _readSteamStoreShortDescription(data);
         _dealLinks = merged;
-        _dealCountryCode = region.countryCode;
+        _dealCountryCode = cc;
         _dealsUsingCache = false;
         _dealsCacheUpdatedAt = DateTime.now();
       });
       await StorageService.instance.setDetailDealsCache(
         appid: steamId,
-        countryCode: region.countryCode,
+        countryCode: cc,
         rows: merged,
       );
     } catch (_) {
@@ -260,10 +279,10 @@ class _GameDetailPageState extends State<GameDetailPage> {
         ? widget.game.steamAppID.trim()
         : widget.game.appId.trim();
     if (steamId.isEmpty) return;
-    final region = await AppCountryResolver.resolveContext();
+    final cc = await _backend.resolvePriceCountry();
     final steamLang = await PriceRegionResolver.effectiveSteamUiLanguage();
     final data = await _backend.getGameRegionalDetail(steamId,
-        country: region.countryCode, language: steamLang);
+        country: cc, language: steamLang);
     final local = _mapDynamicDealList(data['localDeals']);
     final global = _mapDynamicDealList(data['globalDeals']);
     final merged = <Map<String, dynamic>>[...local, ...global];
@@ -272,14 +291,14 @@ class _GameDetailPageState extends State<GameDetailPage> {
       _regionalDetail = data;
       _steamStoreShortDescription = _readSteamStoreShortDescription(data);
       _dealLinks = merged;
-      _dealCountryCode = region.countryCode;
+      _dealCountryCode = cc;
       _allDealsLoaded = true;
       _dealsUsingCache = false;
       _dealsCacheUpdatedAt = DateTime.now();
     });
     await StorageService.instance.setDetailDealsCache(
       appid: steamId,
-      countryCode: region.countryCode,
+      countryCode: cc,
       rows: merged,
     );
   }
@@ -390,43 +409,123 @@ class _GameDetailPageState extends State<GameDetailPage> {
 
   Future<void> _openSteam() async {
     final steamId = _resolvedSteamId();
-    final webUrl = _steamStoreUrl;
-    if (steamId.isEmpty || webUrl.isEmpty) return;
-    debugPrint('detail:steamTap source=best_price_card appid=$steamId');
+    if (steamId.isEmpty) return;
+
+    var webUrl = '';
+    for (final d in _dealLinks) {
+      if ((d['source']?.toString() ?? '') != 'steam') continue;
+      final u = d['url']?.toString().trim() ?? '';
+      if (u.startsWith('http')) {
+        webUrl = u;
+        break;
+      }
+    }
+    if (webUrl.isEmpty && _boundDiscountUrl.trim().isNotEmpty) {
+      webUrl = _boundDiscountUrl.trim();
+    }
+    if (webUrl.isEmpty) webUrl = _steamStoreUrl;
+    if (webUrl.isEmpty) return;
+
+    debugPrint('detail:steamTap appid=$steamId url=$webUrl');
     final candidates = <Uri>[
-      Uri.parse('steam://store/$steamId'),
       Uri.parse('steam://openurl/$webUrl'),
-      Uri.parse(
-          'market://details?id=com.valvesoftware.android.steam.community'),
-      Uri.parse(
-          'https://play.google.com/store/apps/details?id=com.valvesoftware.android.steam.community'),
+      Uri.parse('steam://store/$steamId'),
       Uri.parse(webUrl),
     ];
     for (final uri in candidates) {
       try {
-        debugPrint('detail:steamLaunch try=$uri');
         final ok = await url_launcher.launchUrl(
           uri,
           mode: url_launcher.LaunchMode.externalApplication,
         );
-        debugPrint('detail:steamLaunch result uri=$uri ok=$ok');
-        if (ok) {
-          if (!mounted) return;
-          if (uri.scheme == 'market' || uri.host.contains('play.google.com')) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('未检测到 Steam App，已为你打开应用商店')),
-            );
-          }
-          return;
-        }
-      } catch (_) {
-        debugPrint('detail:steamLaunch failed uri=$uri');
-      }
+        if (ok) return;
+      } catch (_) {}
     }
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('暂时无法打开 Steam，请稍后重试')),
+      const SnackBar(content: Text('暂时无法打开 Steam 商店，请安装 Steam App 或使用浏览器')),
     );
+  }
+
+  /// 首页列表价往往比详情缓存新；若列表折扣更低则优先展示列表价。
+  void _applyListPriceIfBetter() {
+    final g = widget.game;
+    if (g.price <= 0) return;
+
+    final sp = _regionalDetail?['steamPrice'];
+    final regionalFinal = sp?['final'] is num
+        ? (sp!['final'] as num).toDouble()
+        : double.tryParse('${sp?['final']}');
+    final regionalDisc = sp?['discountPercent'] is num
+        ? (sp!['discountPercent'] as num).toInt()
+        : int.tryParse('${sp?['discountPercent']}') ?? 0;
+
+    final listLower =
+        regionalFinal == null || g.price < regionalFinal - 0.009;
+    final listHasDiscount = g.discount > 0;
+    final regionalMissesDiscount = listHasDiscount && regionalDisc <= 0;
+    if (!listLower && !regionalMissesDiscount) return;
+
+    final regionCtx = PriceRegionResolver.resolveSync();
+    final currency = (sp?['currency']?.toString().trim().isNotEmpty == true)
+        ? sp!['currency'].toString().trim().toUpperCase()
+        : regionCtx.currency;
+    final listPrice =
+        normalizeDealPriceAmount(g.price, currency) ?? g.price;
+    final origRaw = g.originalPrice > 0 ? g.originalPrice : g.price;
+    final orig = normalizeDealPriceAmount(origRaw, currency) ?? origRaw;
+    final disc = listHasDiscount ? g.discount : regionalDisc;
+    final storeUrl = _steamStoreUrl;
+
+    final patchedSteam = {
+      'currency': currency,
+      'initial': orig,
+      'final': listPrice,
+      'initialFormatted': formatRegionalPrice(amount: orig, currency: currency),
+      'finalFormatted': formatRegionalPrice(amount: listPrice, currency: currency),
+      'discountPercent': disc,
+      'fallbackUsed': false,
+      'source': 'steam',
+      'steamStoreUrl': storeUrl,
+    };
+
+    final patchedDeals = <Map<String, dynamic>>[];
+    var replacedSteam = false;
+    for (final d in _dealLinks) {
+      if ((d['source']?.toString() ?? '') == 'steam') {
+        patchedDeals.add({
+          ...d,
+          'finalPrice': listPrice,
+          'originalPrice': orig,
+          'discountPercent': disc,
+          'currency': currency,
+          'url': d['url']?.toString().trim().isNotEmpty == true
+              ? d['url']
+              : storeUrl,
+        });
+        replacedSteam = true;
+      } else {
+        patchedDeals.add(d);
+      }
+    }
+    if (!replacedSteam) {
+      patchedDeals.insert(0, {
+        'source': 'steam',
+        'url': storeUrl,
+        'finalPrice': listPrice,
+        'originalPrice': orig,
+        'discountPercent': disc,
+        'currency': currency,
+        'countryCode': _priceCountry,
+      });
+    }
+
+    _regionalDetail = {
+      ...?_regionalDetail,
+      'steamPrice': patchedSteam,
+      'localDeals': patchedDeals,
+    };
+    _dealLinks = patchedDeals;
   }
 
   Future<void> _toggleWishlist() async {
@@ -461,93 +560,48 @@ class _GameDetailPageState extends State<GameDetailPage> {
   }
 
   Future<void> _onTapDealSource(String source) async {
+    const thirdParty = {'isthereanydeal', 'ggdeals'};
+    if (thirdParty.contains(source) &&
+        !_isPro &&
+        !_thirdPartyUnlocked) {
+      await _requestThirdPartyUnlock();
+      return;
+    }
+    await _loadRegionalDetail();
+    final local = _regionalDetail != null
+        ? _mapDynamicDealList(_regionalDetail!['localDeals'])
+        : _dealLinks;
+    Map<String, dynamic>? pick;
+    for (final d in local) {
+      if ((d['source']?.toString() ?? '') != source) continue;
+      final url = d['url']?.toString().trim() ?? '';
+      if (url.isNotEmpty) {
+        pick = d;
+        break;
+      }
+      pick ??= d;
+    }
+    final url = pick?['url']?.toString().trim() ?? '';
+    if (url.isNotEmpty) {
+      final uri = Uri.tryParse(url);
+      if (uri != null) {
+        try {
+          final ok = await url_launcher.launchUrl(
+            uri,
+            mode: url_launcher.LaunchMode.externalApplication,
+          );
+          if (ok) return;
+        } catch (_) {}
+      }
+    }
     if (source == 'steam') {
       await _openSteam();
       return;
     }
-    final pro = await StorageService.instance.isPro();
-    if (!pro) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('已为你展示该平台最低价，开通会员后可查看购买链接并跳转购买')),
-      );
-      await Navigator.push(
-        context,
-        MaterialPageRoute(
-            builder: (_) =>
-                const SubscriptionPage(paywallSource: 'deal_source_gate')),
-      );
-      if (!mounted) return;
-      setState(() => _isPro = false);
-      return;
-    }
     if (!mounted) return;
-    setState(() => _isPro = true);
-    // 重新按当前手机国家请求一次，避免用到历史缓存国家的数据。
-    await _loadRegionalDetail();
-    await _ensureAllDealsLoaded();
-    final rows = _dealLinks
-        .where((d) => (d['source']?.toString() ?? '') == source)
-        .toList();
-    if (rows.isEmpty) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(AppLocalizations.of(context).get('affiliate_no_other_prices')),
-        ),
-      );
-      return;
-    }
-    if (!mounted) return;
-    await showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: const Color(0xFF151A22),
-      builder: (sheetCtx) => SafeArea(
-        child: ListView.separated(
-          shrinkWrap: true,
-          itemCount: rows.length,
-          separatorBuilder: (_, __) =>
-              const Divider(height: 1, color: Colors.white12),
-          itemBuilder: (_, i) {
-            final r = rows[i];
-            final cc = (r['countryCode'] ?? 'US').toString();
-            final discount = r['discountPercent'];
-            final url = (r['url'] ?? '').toString();
-            final original = r['originalPrice'];
-            final finalPrice = r['finalPrice'];
-            final ctx = PriceRegionResolver.resolveSync();
-            final rowCurrency = (r['currency']?.toString() ?? '').trim().toUpperCase();
-            final currency = rowCurrency.isNotEmpty ? rowCurrency : ctx.currency;
-            final originalNum = original is num ? original.toDouble() : double.tryParse('$original');
-            final finalNum = finalPrice is num ? finalPrice.toDouble() : double.tryParse('$finalPrice');
-            final sameRegion = cc.toUpperCase() == ctx.country.toUpperCase();
-            final sheetL10n = AppLocalizations.of(sheetCtx);
-            return ListTile(
-              title: Text(
-                '$source ($cc${_dealCountryCode.isNotEmpty ? ' · $_dealCountryCode' : ''})',
-                style: const TextStyle(
-                    color: Colors.white, fontWeight: FontWeight.w600),
-              ),
-              subtitle: Text(
-                !sameRegion
-                    ? sheetL10n.get('no_regional_deal_short')
-                    : '${discount is num ? '${discount.toInt()}%' : ''}'
-                        '${(originalNum != null || finalNum != null) ? ' · ${formatRegionalPrice(amount: originalNum, currency: currency)} → ${formatRegionalPrice(amount: finalNum, currency: currency)}' : ''}',
-                style: const TextStyle(color: Colors.white70),
-              ),
-              trailing: const Icon(Icons.open_in_new,
-                  color: Colors.white70, size: 18),
-              onTap: () async {
-                if (url.isEmpty) return;
-                final uri = Uri.parse(url);
-                if (await url_launcher.canLaunchUrl(uri)) {
-                  await url_launcher.launchUrl(uri,
-                      mode: url_launcher.LaunchMode.externalApplication);
-                }
-              },
-            );
-          },
-        ),
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(AppLocalizations.of(context).get('affiliate_no_other_prices')),
       ),
     );
   }
@@ -780,6 +834,8 @@ class _GameDetailPageState extends State<GameDetailPage> {
                         : null,
                     onTapSource: _onTapDealSource,
                     isPro: _isPro,
+                    thirdPartyUnlocked: _thirdPartyUnlocked || _isPro,
+                    onRequestUnlock: _requestThirdPartyUnlock,
                     refreshingDeals: _refreshingDeals,
                     dealsCacheUpdatedAt: _dealsCacheUpdatedAt,
                     dealsUsingCache: _dealsUsingCache,
@@ -1339,6 +1395,74 @@ class _GameDetailPageState extends State<GameDetailPage> {
     final sp = _regionalDetail?['steamPrice'] as Map<String, dynamic>?;
     final finalFmt = sp?['finalFormatted']?.toString().trim() ?? '';
     final initFmt = sp?['initialFormatted']?.toString().trim() ?? '';
+
+    if (game.discount > 0 && game.price > 0) {
+      final regionalDisc = sp?['discountPercent'] is num
+          ? (sp!['discountPercent'] as num).toInt()
+          : 0;
+      final regionalFinal = sp?['final'] is num
+          ? (sp!['final'] as num).toDouble()
+          : double.tryParse('${sp?['final']}');
+      final useList = regionalDisc <= 0 ||
+          (regionalFinal != null && game.price < regionalFinal - 0.009);
+      if (useList) {
+        final currency = (sp?['currency']?.toString().trim().isNotEmpty == true)
+            ? sp!['currency'].toString().trim().toUpperCase()
+            : regionCtx.currency;
+        final normalizedPrice =
+            normalizeDealPriceAmount(game.price, currency) ?? game.price;
+        final normalizedOrig = game.originalPrice > game.price
+            ? (normalizeDealPriceAmount(game.originalPrice, currency) ??
+                game.originalPrice)
+            : 0.0;
+        final showFinal = formatRegionalPrice(
+            amount: normalizedPrice, currency: currency);
+        final showInit = normalizedOrig > normalizedPrice
+            ? formatRegionalPrice(amount: normalizedOrig, currency: currency)
+            : '';
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text(
+              showFinal,
+              style: const TextStyle(
+                fontSize: 20,
+                color: AppColors.itadOrangeLight,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            if (showInit.isNotEmpty) ...[
+              const SizedBox(width: 8),
+              Text(
+                showInit,
+                style: const TextStyle(
+                  decoration: TextDecoration.lineThrough,
+                  color: AppColors.textSecondary,
+                  fontSize: 16,
+                ),
+              ),
+            ],
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: AppColors.itadOrange,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                '-${game.discount}%',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          ],
+        );
+      }
+    }
+
     if (sp != null && sp['isFree'] == true) {
       return const Row(
         children: [
@@ -1416,8 +1540,6 @@ class _GameDetailPageState extends State<GameDetailPage> {
       );
     }
 
-    double? current = game.price;
-    double? original = game.originalPrice;
     int discount = game.discount;
     var currency = regionCtx.currency;
 
@@ -1428,6 +1550,11 @@ class _GameDetailPageState extends State<GameDetailPage> {
       final c = (sp['currency']?.toString() ?? '').trim().toUpperCase();
       if (c.isNotEmpty) currency = c;
     }
+
+    double? current =
+        normalizeDealPriceAmount(game.price, currency) ?? game.price;
+    double? original = normalizeDealPriceAmount(game.originalPrice, currency) ??
+        game.originalPrice;
 
     // Prefer `steamPrice` from regional-detail only; avoid overwriting with merged deal rows when sp exists.
     if (sp == null && steamRow != null) {

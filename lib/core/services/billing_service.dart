@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:in_app_purchase/in_app_purchase.dart';
 import '../storage_service.dart';
 import 'analytics_service.dart';
+import '../../services/steam_backend_service.dart';
 
 /// Google Play Billing 订阅服务（v6+，订阅模式）
 class BillingService {
@@ -59,9 +60,11 @@ class BillingService {
     for (final purchase in purchases) {
       if (purchase.status == PurchaseStatus.purchased) {
         StorageService.instance.setPro(true);
+        unawaited(_syncProToBackend(isPro: true));
         _logPurchaseSuccess(purchase, 'purchase_stream');
       } else if (purchase.status == PurchaseStatus.restored) {
         StorageService.instance.setPro(true);
+        unawaited(_syncProToBackend(isPro: true));
         AnalyticsService.instance.logRestore(
           success: true,
           source: 'purchase_stream',
@@ -94,6 +97,21 @@ class BillingService {
     }
     // 若 restore 后 purchaseStream 会推送历史购买，这里不重复设 isPro；若不会推送，可再查一次
     // 依赖 purchaseStream 推送即可
+  }
+
+  Future<void> _syncProToBackend({required bool isPro}) async {
+    try {
+      final token = await StorageService.instance.getSteamBackendToken();
+      if (token == null || token.isEmpty) return;
+      final until = await StorageService.instance.isPro()
+          ? DateTime.now().add(const Duration(days: 365)).millisecondsSinceEpoch
+          : null;
+      await SteamBackendService().syncProSubscription(
+        token,
+        isPro: isPro,
+        proUntilMs: until,
+      );
+    } catch (_) {}
   }
 
   Future<void> _logBeginCheckout(String productId) async {

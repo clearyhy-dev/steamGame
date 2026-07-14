@@ -32,23 +32,39 @@ export class FavoritesRepository {
   async addFavorite(userId: string, favorite: Omit<FavoriteGame, 'createdAt'>): Promise<void> {
     try {
       const now = admin.firestore.Timestamp.now();
+      const payload: Record<string, unknown> = {
+        userId,
+        appid: favorite.appid,
+        name: favorite.name,
+        headerImage: favorite.headerImage ?? '',
+        source: favorite.source,
+        createdAt: now,
+      };
+      if (favorite.baselinePrices) payload.baselinePrices = favorite.baselinePrices;
+      if (favorite.emailAlertsEnabled != null) payload.emailAlertsEnabled = favorite.emailAlertsEnabled;
       await this.db
         .collection(COLLECTION)
         .doc(this.docId(userId, favorite.appid))
-        .set(
-          {
-            userId,
-            appid: favorite.appid,
-            name: favorite.name,
-            headerImage: favorite.headerImage ?? '',
-            source: favorite.source,
-            createdAt: now,
-          },
-          { merge: true },
-        );
+        .set(payload, { merge: true });
     } catch (e) {
       throw new ApiError(500, 'FIRESTORE_WRITE_FAILED', 'Failed to write favorite', e);
     }
+  }
+
+  async updateFavoriteFields(userId: string, appid: string, patch: Partial<FavoriteGame>): Promise<void> {
+    try {
+      await this.db.collection(COLLECTION).doc(this.docId(userId, appid)).set(patch, { merge: true });
+    } catch (e) {
+      throw new ApiError(500, 'FIRESTORE_WRITE_FAILED', 'Failed to update favorite', e);
+    }
+  }
+
+  async listAllWithUserId(limit = 5000): Promise<Array<FavoriteGame & { userId: string }>> {
+    const snap = await this.db.collection(COLLECTION).limit(limit).get();
+    return snap.docs.map((d) => {
+      const data = d.data() as FavoriteGame & { userId: string };
+      return { ...data, userId: data.userId };
+    });
   }
 
   async deleteFavorite(userId: string, appid: string): Promise<void> {

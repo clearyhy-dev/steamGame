@@ -1,4 +1,4 @@
-import { AutoComplete, Button, Card, Form, Input, InputNumber, Modal, Space, Switch, Table, Typography, message } from 'antd';
+import { AutoComplete, Button, Card, Form, Input, InputNumber, Modal, Select, Space, Switch, Table, Typography, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useCallback, useEffect, useState } from 'react';
 import { adminApi } from '../api/admin';
@@ -21,6 +21,13 @@ type Row = {
   currencySymbol: string;
   enabled: boolean;
   sortOrder: number;
+  syncTier?: 'T1' | 'T2';
+};
+
+type SyncTierSettings = {
+  t1TopNPerCountry: number;
+  t2TopNPerCountry: number;
+  t2SyncIntervalDays: number;
 };
 
 type ProviderMeta = {
@@ -36,6 +43,28 @@ export function CountryRegionMappingPage() {
   const [editing, setEditing] = useState<Row | null>(null);
   const [form] = Form.useForm();
   const [providerMeta, setProviderMeta] = useState<ProviderMeta | null>(null);
+  const [tierSettings, setTierSettings] = useState<SyncTierSettings | null>(null);
+  const [tierStats, setTierStats] = useState<{ todaySyncCountries: number; t1Count: number; t2Count: number } | null>(
+    null,
+  );
+  const [tierForm] = Form.useForm<SyncTierSettings>();
+  const [tierSaving, setTierSaving] = useState(false);
+
+  const loadTierSettings = useCallback(async () => {
+    try {
+      const r = await adminApi.regionCountriesGetSyncTierSettings();
+      setTierSettings(r.settings);
+      setTierStats({
+        todaySyncCountries: r.todaySyncCountries,
+        t1Count: r.t1Count,
+        t2Count: r.t2Count,
+      });
+      tierForm.setFieldsValue(r.settings);
+    } catch {
+      setTierSettings(null);
+      setTierStats(null);
+    }
+  }, [tierForm]);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -72,11 +101,12 @@ export function CountryRegionMappingPage() {
         /* 同步失败仍加载表格 */
       }
       if (!cancelled) await reload();
+      if (!cancelled) await loadTierSettings();
     })();
     return () => {
       cancelled = true;
     };
-  }, [reload, loadProviderMeta]);
+  }, [reload, loadProviderMeta, loadTierSettings]);
 
   const onSubmit = async () => {
     try {
@@ -96,6 +126,7 @@ export function CountryRegionMappingPage() {
         currencySymbol: String(v.currencySymbol ?? '').trim(),
         enabled: !!v.enabled,
         sortOrder: Number(v.sortOrder ?? 500),
+        syncTier: v.syncTier === 'T1' ? 'T1' : 'T2',
       });
       message.success('已保存');
       setOpen(false);
@@ -123,6 +154,32 @@ export function CountryRegionMappingPage() {
       render: (v: string, r: Row) => effectiveCurrencySymbol(r.defaultCurrency, v),
     },
     { title: 'sort', dataIndex: 'sortOrder', width: 70 },
+    {
+      title: '同步层级',
+      dataIndex: 'syncTier',
+      width: 110,
+      render: (tier: 'T1' | 'T2' | undefined, r: Row) => (
+        <Select
+          size="small"
+          style={{ width: 88 }}
+          value={tier === 'T1' ? 'T1' : 'T2'}
+          options={[
+            { value: 'T1', label: 'T1' },
+            { value: 'T2', label: 'T2' },
+          ]}
+          onChange={async (v: 'T1' | 'T2') => {
+            try {
+              await adminApi.regionCountriesSetSyncTier(r.countryCode, v);
+              message.success(`${r.countryCode} → ${v}`);
+              await reload();
+              await loadTierSettings();
+            } catch (e) {
+              message.error(e instanceof Error ? e.message : '更新失败');
+            }
+          }}
+        />
+      ),
+    },
     {
       title: 'enabled',
       dataIndex: 'enabled',
@@ -166,6 +223,73 @@ export function CountryRegionMappingPage() {
 
   return (
     <Card title="Country / Steam · 比价平台国别">
+      <Card size="small" title="分层折扣同步（T1 / T2）" style={{ marginBottom: 16 }}>
+        <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
+          <Typography.Text strong>T1</Typography.Text>：每天同步，Top N 较大（默认 500）。
+          <Typography.Text strong> T2</Typography.Text>：每 N 天同步一次，Top N 较小（默认 200）。
+          下方表格可逐国调整层级；保存后立即作用于分片同步任务。
+          {tierStats ? (
+            <>
+              {' '}
+              今日待同步：<Typography.Text code>{tierStats.todaySyncCountries}</Typography.Text> 国（T1{' '}
+              {tierStats.t1Count} · T2 {tierStats.t2Count}）。
+            </>
+          ) : null}
+        </Typography.Paragraph>
+        <Form
+          form={tierForm}
+          layout="inline"
+          onFinish={async (v) => {
+            setTierSaving(true);
+            try {
+              await adminApi.regionCountriesSaveSyncTierSettings(v);
+              message.success('分层参数已保存');
+              await loadTierSettings();
+            } catch (e) {
+              message.error(e instanceof Error ? e.message : '保存失败');
+            } finally {
+              setTierSaving(false);
+            }
+          }}
+        >
+          <Form.Item name="t1TopNPerCountry" label="T1 TopN">
+            <InputNumber min={1} max={500} />
+          </Form.Item>
+          <Form.Item name="t2TopNPerCountry" label="T2 TopN">
+            <InputNumber min={1} max={500} />
+          </Form.Item>
+          <Form.Item name="t2SyncIntervalDays" label="T2 间隔(天)">
+            <InputNumber min={1} max={14} />
+          </Form.Item>
+          <Form.Item>
+            <Space>
+              <Button type="primary" htmlType="submit" loading={tierSaving}>
+                保存分层参数
+              </Button>
+              <Button
+                onClick={async () => {
+                  try {
+                    const r = await adminApi.regionCountriesResetSyncTiersDefault(false);
+                    message.success(r.updated ? `已初始化 ${r.updated} 国默认层级` : '层级已是最新默认');
+                    await reload();
+                    await loadTierSettings();
+                  } catch (e) {
+                    message.error(e instanceof Error ? e.message : '重置失败');
+                  }
+                }}
+              >
+                恢复默认 T1 列表
+              </Button>
+            </Space>
+          </Form.Item>
+        </Form>
+        {tierSettings ? (
+          <Typography.Text type="secondary">
+            当前：T1 Top{tierSettings.t1TopNPerCountry} · T2 Top{tierSettings.t2TopNPerCountry} · T2 每
+            {tierSettings.t2SyncIntervalDays} 天
+          </Typography.Text>
+        ) : null}
+      </Card>
       <Typography.Paragraph type="secondary">
         <Typography.Text strong>ITAD</Typography.Text>：<Typography.Text code>country</Typography.Text> 用与 Steam 店区一致的 ISO2 大写。
         <Typography.Text strong> GG.deals</Typography.Text>：<Typography.Text code>region</Typography.Text> 用小写；欧元区部分国家用{' '}
@@ -304,6 +428,14 @@ export function CountryRegionMappingPage() {
           </Form.Item>
           <Form.Item name="sortOrder" label="sortOrder">
             <InputNumber min={0} max={99999} style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item name="syncTier" label="同步层级 (T1/T2)" initialValue="T2">
+            <Select
+              options={[
+                { value: 'T1', label: 'T1 · 每天 · 大 TopN' },
+                { value: 'T2', label: 'T2 · 间隔同步 · 小 TopN' },
+              ]}
+            />
           </Form.Item>
           <Form.Item name="enabled" label="enabled" valuePropName="checked">
             <Switch />

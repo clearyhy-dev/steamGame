@@ -5,7 +5,7 @@ import '../../screens/wishlist_screen.dart';
 class WishlistPage extends StatelessWidget {
   final int currentTabIndex;
 
-  const WishlistPage({super.key, this.currentTabIndex = 2});
+  const WishlistPage({super.key, this.currentTabIndex = 3});
 
   @override
   Widget build(BuildContext context) {

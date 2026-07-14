@@ -1,6 +1,43 @@
 import type { UserDoc } from '../../modules/users/users.types';
 import { sqlAll, sqlGet, sqlRun } from './sql-client';
 import { dateToMs, msToDate } from './timestamp';
+import { logger } from '../../utils/logger';
+
+let defaultCountryColumnEnsured = false;
+let proUntilColumnEnsured = false;
+
+async function sqliteEnsureDefaultCountryColumn(): Promise<void> {
+  if (defaultCountryColumnEnsured) return;
+  const cols = await sqlGet<{ n: number }>(
+    "SELECT COUNT(*) AS n FROM pragma_table_info('users') WHERE name='default_country_code'",
+  );
+  if ((cols?.n ?? 0) === 0) {
+    try {
+      await sqlRun(`ALTER TABLE users ADD COLUMN default_country_code TEXT`);
+      logger.info('[users-schema] default_country_code column added');
+    } catch (e) {
+      logger.warn(`[users-schema] default_country_code migrate: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  defaultCountryColumnEnsured = true;
+}
+
+async function sqliteEnsureProUntilColumn(): Promise<void> {
+  if (proUntilColumnEnsured) return;
+  await sqliteEnsureDefaultCountryColumn();
+  const cols = await sqlGet<{ n: number }>(
+    "SELECT COUNT(*) AS n FROM pragma_table_info('users') WHERE name='pro_until_ms'",
+  );
+  if ((cols?.n ?? 0) === 0) {
+    try {
+      await sqlRun(`ALTER TABLE users ADD COLUMN pro_until_ms INTEGER`);
+      logger.info('[users-schema] pro_until_ms column added');
+    } catch (e) {
+      logger.warn(`[users-schema] pro_until_ms migrate: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  proUntilColumnEnsured = true;
+}
 
 type UserRow = {
   id: string;
@@ -16,6 +53,12 @@ type UserRow = {
   steam_avatar: string | null;
   steam_profile_url: string | null;
   registered_at_ms: number | null;
+  country_code: string | null;
+  country_source: string | null;
+  country_updated_at_ms: number | null;
+  default_country_code: string | null;
+  pro_until_ms: number | null;
+  google_sub: string | null;
   created_at_ms: number;
   updated_at_ms: number;
 };
@@ -40,6 +83,12 @@ function rowToDoc(r: UserRow): UserDoc {
     steamPersonaName: r.steam_persona_name ?? undefined,
     steamAvatar: r.steam_avatar ?? undefined,
     steamProfileUrl: r.steam_profile_url ?? undefined,
+    googleSub: r.google_sub ?? undefined,
+    countryCode: r.country_code ?? undefined,
+    countrySource: (r.country_source as UserDoc['countrySource']) ?? undefined,
+    countryUpdatedAt: msToDate(r.country_updated_at_ms),
+    defaultCountryCode: r.default_country_code ?? undefined,
+    proUntilMs: r.pro_until_ms ?? undefined,
     registeredAt: msToDate(r.registered_at_ms),
     createdAt: msToDate(r.created_at_ms) ?? new Date(),
     updatedAt: msToDate(r.updated_at_ms) ?? new Date(),
@@ -47,6 +96,7 @@ function rowToDoc(r: UserRow): UserDoc {
 }
 
 export async function sqliteFindUserById(userId: string): Promise<UserDoc | null> {
+  await sqliteEnsureProUntilColumn();
   const row = await sqlGet<UserRow>('SELECT * FROM users WHERE id = ?', [userId]);
   return row ? rowToDoc(row) : null;
 }
@@ -65,14 +115,22 @@ export async function sqliteCreateUser(
   await sqlRun(
     `INSERT INTO users (
       id, email, password_hash, display_name, avatar_url, auth_providers_json, admin_note, disabled,
-      steam_id, steam_persona_name, steam_avatar, steam_profile_url, registered_at_ms, created_at_ms, updated_at_ms
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      steam_id, steam_persona_name, steam_avatar, steam_profile_url, registered_at_ms,
+      country_code, country_source, country_updated_at_ms, default_country_code, pro_until_ms, google_sub,
+      created_at_ms, updated_at_ms
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     ON CONFLICT(id) DO UPDATE SET
       email=excluded.email, password_hash=excluded.password_hash, display_name=excluded.display_name,
       avatar_url=excluded.avatar_url, auth_providers_json=excluded.auth_providers_json,
       admin_note=excluded.admin_note, disabled=excluded.disabled, steam_id=excluded.steam_id,
       steam_persona_name=excluded.steam_persona_name, steam_avatar=excluded.steam_avatar,
       steam_profile_url=excluded.steam_profile_url, registered_at_ms=excluded.registered_at_ms,
+      country_code=COALESCE(excluded.country_code, users.country_code),
+      country_source=COALESCE(excluded.country_source, users.country_source),
+      country_updated_at_ms=COALESCE(excluded.country_updated_at_ms, users.country_updated_at_ms),
+      default_country_code=COALESCE(excluded.default_country_code, users.default_country_code),
+      pro_until_ms=COALESCE(excluded.pro_until_ms, users.pro_until_ms),
+      google_sub=COALESCE(excluded.google_sub, users.google_sub),
       updated_at_ms=excluded.updated_at_ms`,
     [
       user.id,
@@ -88,6 +146,12 @@ export async function sqliteCreateUser(
       user.steamAvatar ?? null,
       user.steamProfileUrl ?? null,
       dateToMs(user.registeredAt as Date) ?? null,
+      user.countryCode ?? null,
+      user.countrySource ?? null,
+      dateToMs(user.countryUpdatedAt as Date) ?? null,
+      user.defaultCountryCode ?? null,
+      user.proUntilMs ?? null,
+      user.googleSub ?? null,
       created,
       updated,
     ],
@@ -106,6 +170,7 @@ export async function sqliteListUsers(params: {
   keyword?: string;
   limit?: number;
 }): Promise<UserDoc[]> {
+  await sqliteEnsureDefaultCountryColumn();
   const lim = Math.min(params.limit ?? 500, 1000);
   const rows = await sqlAll<UserRow>(`SELECT * FROM users ORDER BY updated_at_ms DESC LIMIT ?`, [lim]);
   let out = rows.map(rowToDoc);

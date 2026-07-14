@@ -9,6 +9,8 @@ export function usersRouter(_env: Env) {
   const controller = new UsersController(_env);
 
   router.get('/me', authMiddleware(_env), controller.me);
+  router.patch('/me', authMiddleware(_env), controller.patchMe);
+  router.post('/me/subscription', authMiddleware(_env), controller.syncSubscription);
   router.get('/me/steam-profile', authMiddleware(_env), controller.steamProfile);
 
   return router;

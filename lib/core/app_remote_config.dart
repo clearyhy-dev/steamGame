@@ -14,6 +14,7 @@ class AppRemoteConfig {
   int connectTimeoutSec = 15;
   int receiveTimeoutSec = 90;
   String? publicAppBaseUrl;
+  String? authServiceUrl;
   /// 与 GET `/api/config` 的 `publicCacheCdnBase` 一致：GCS/Cloud CDN 根（无尾斜杠），用于 `cache/*.json`。
   String? publicCacheCdnBase;
   List<String> supportedDealCountries = const [
@@ -47,14 +48,48 @@ class AppRemoteConfig {
   };
   bool loaded = false;
 
-  /// Prefer server-reported [publicAppBaseUrl] after [loadFromBackend], else the compile-time default.
+  /// Prefer compile-time base when it targets Vultr/self-hosted (avoid stale GCP cache).
   String resolveApiBase(String compileTimeBase) {
-    final p = publicAppBaseUrl;
-    if (p != null && p.trim().isNotEmpty) {
-      return p.trim().replaceAll(RegExp(r'/+$'), '');
-    }
-    return compileTimeBase.replaceAll(RegExp(r'/+$'), '');
+    final compile = compileTimeBase.trim().replaceAll(RegExp(r'/+$'), '');
+    final remote = publicAppBaseUrl?.trim().replaceAll(RegExp(r'/+$'), '');
+    if (_shouldPreferCompileApiBase(compile, remote)) return compile;
+    if (remote != null && remote.isNotEmpty) return remote;
+    return compile;
   }
+
+  String resolveAuthBase(String compileTimeAuthBase) {
+    final compile = compileTimeAuthBase.trim().replaceAll(RegExp(r'/+$'), '');
+    final remote = authServiceUrl?.trim().replaceAll(RegExp(r'/+$'), '');
+    // Steam OpenID 应走 GCP；远程 authServiceUrl 优先于 Vultr 编译地址
+    if (remote != null && remote.isNotEmpty) {
+      if (_looksLikeGcpRun(remote) || !_looksLikeSelfHosted(compile)) return remote;
+      if (_looksLikeGcpRun(compile)) return compile;
+      return remote;
+    }
+    if (compile.isNotEmpty) return compile;
+    return compileTimeAuthBase.trim().replaceAll(RegExp(r'/+$'), '');
+  }
+
+  static bool _shouldPreferCompileApiBase(String compile, String? remote) {
+    if (compile.isEmpty) return false;
+    if (remote == null || remote.isEmpty) return false;
+    final compileIsVultr = _looksLikeSelfHosted(compile);
+    final remoteIsGcp = remote.contains('.run.app') || remote.contains('cloudfunctions.net');
+    if (compileIsVultr && remoteIsGcp) return true;
+    if (compile == remote) return false;
+    // 编译地址非 Cloud Run 默认且远程不同 → 以编译为准（APK dart-define）
+    if (!_looksLikeGcpRun(compile) && compile != remote) return true;
+    return false;
+  }
+
+  static bool _looksLikeSelfHosted(String url) {
+    return RegExp(r'^\d{1,3}(\.\d{1,3}){3}').hasMatch(url) ||
+        url.contains(':8080') ||
+        url.contains('139.180.199.42');
+  }
+
+  static bool _looksLikeGcpRun(String url) =>
+      url.contains('.run.app') || url.contains('cloudfunctions.net');
 
   Future<void> loadFromBackend(String baseUrl, {http.Client? client}) async {
     final c = client ?? http.Client();
@@ -82,7 +117,14 @@ class AppRemoteConfig {
   }
 
   void _applyData(Map<String, dynamic> data) {
-    publicAppBaseUrl = data['appBaseUrl'] as String?;
+    final base = data['appBaseUrl']?.toString().trim();
+    if (base != null && base.isNotEmpty) {
+      publicAppBaseUrl = base.replaceAll(RegExp(r'/+$'), '');
+    }
+    final auth = data['authServiceUrl']?.toString().trim();
+    if (auth != null && auth.isNotEmpty) {
+      authServiceUrl = auth.replaceAll(RegExp(r'/+$'), '');
+    }
     final cacheBase = data['publicCacheCdnBase'] as String?;
     if (cacheBase != null && cacheBase.trim().isNotEmpty) {
       publicCacheCdnBase = cacheBase.trim().replaceAll(RegExp(r'/+$'), '');

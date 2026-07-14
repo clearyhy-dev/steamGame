@@ -11,6 +11,8 @@ import {
 } from '../../cache/market-object-storage';
 import type { MarketDetailDoc, MarketHeatDoc, MarketPricesDoc } from './market.types';
 import { MarketSyncService } from './market-sync.service';
+import { MarketNameEnrichService } from './market-name-enrich.service';
+import { isPlaceholderMarketName } from './market-name.util';
 
 function normCc(raw: unknown): string | null {
   const cc = String(raw ?? '').trim().toUpperCase();
@@ -18,7 +20,24 @@ function normCc(raw: unknown): string | null {
 }
 
 export class PublicMarketController {
-  constructor(private env: Env) {}
+  private nameEnrich: MarketNameEnrichService;
+
+  constructor(private env: Env) {
+    this.nameEnrich = new MarketNameEnrichService(env);
+  }
+
+  private async enrichRows<T extends { appid: string; name: string }>(cc: string, rows: T[]): Promise<T[]> {
+    const out: T[] = [];
+    for (const row of rows) {
+      if (!isPlaceholderMarketName(row.name, row.appid)) {
+        out.push(row);
+        continue;
+      }
+      const resolved = await this.nameEnrich.resolveName(row.appid, cc, row.name);
+      out.push(resolved ? { ...row, name: resolved } : row);
+    }
+    return out;
+  }
 
   listGames = async (req: Request, res: Response): Promise<void> => {
     if (!useSqliteRelationalStore()) {
@@ -36,7 +55,8 @@ export class PublicMarketController {
     const sortBy =
       sortRaw === 'online_desc' || sortRaw === 'discount_desc' ? sortRaw : ('heat_desc' as const);
     const { rows, total } = await sqliteListMarketGames({ countryCode: cc, page, pageSize, sortBy });
-    res.json({ success: true, countryCode: cc, page, pageSize, total, items: rows });
+    const items = await this.enrichRows(cc, rows);
+    res.json({ success: true, countryCode: cc, page, pageSize, total, items });
   };
 
   getGame = async (req: Request, res: Response): Promise<void> => {
@@ -56,7 +76,12 @@ export class PublicMarketController {
       res.status(404).json({ success: false, error: 'not_found' });
       return;
     }
-    res.json({ success: true, countryCode: cc, appid, index, detail, heat, prices });
+    let enrichedIndex = index;
+    if (index && isPlaceholderMarketName(index.name, appid)) {
+      const resolved = await this.nameEnrich.resolveName(appid, cc, index.name);
+      if (resolved) enrichedIndex = { ...index, name: resolved };
+    }
+    res.json({ success: true, countryCode: cc, appid, index: enrichedIndex, detail, heat, prices });
   };
 
   refreshGame = async (req: Request, res: Response): Promise<void> => {

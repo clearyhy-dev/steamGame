@@ -16,6 +16,7 @@ export type VideoVariant = {
   name: string;
   storagePath?: string;
   signedUrl?: string;
+  hasAudio?: boolean;
 };
 
 export interface VideoSourceDoc {
@@ -49,6 +50,10 @@ export interface VideoDoc {
   signedPlaybackExpiresAt?: Timestamp;
   storagePath?: string;
   variants?: VideoVariant[];
+  /** Source/master clip includes an audio stream after transcode. */
+  audioPresent?: boolean;
+  /** vertical_9_16 variant includes audible audio (may differ from master). */
+  verticalHasAudio?: boolean;
   tags?: string[];
   errorMessage?: string;
   gameName?: string;

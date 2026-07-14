@@ -8,6 +8,14 @@ const TOPSELLERS_SEARCH_URL = 'https://store.steampowered.com/search/results/';
 const PAGE_SIZE = 50;
 const APPID_RE = /data-ds-appid="(\d+)"/g;
 
+const STEAM_STORE_HEADERS = {
+  'User-Agent':
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+  Accept: 'text/javascript, text/html, application/xml, text/xml, */*',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'X-Requested-With': 'XMLHttpRequest',
+};
+
 function parseAppidsFromResultsHtml(html: string): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
@@ -47,7 +55,7 @@ export async function fetchRegionalTopSellerAppids(
     pages.map(async (start) => {
       const count = Math.min(PAGE_SIZE, limit - start);
       try {
-        const { data } = await axios.get<{ success?: number; results_html?: string }>(TOPSELLERS_SEARCH_URL, {
+        const { data, status } = await axios.get<{ success?: number; results_html?: string }>(TOPSELLERS_SEARCH_URL, {
           params: {
             query: '',
             start,
@@ -59,10 +67,21 @@ export async function fetchRegionalTopSellerAppids(
             l,
             filter: 'topsellers',
           },
+          headers: {
+            ...STEAM_STORE_HEADERS,
+            Referer: `https://store.steampowered.com/search/?filter=topsellers&cc=${cc}`,
+          },
           timeout: timeoutMs,
           validateStatus: () => true,
         });
-        return parseAppidsFromResultsHtml(data?.results_html ?? '');
+        const html = data?.results_html ?? '';
+        const ids = parseAppidsFromResultsHtml(html);
+        if (ids.length === 0) {
+          logger.warn(
+            `[steam-topsellers] cc=${cc} start=${start} http=${status} htmlLen=${html.length} parsed=0`,
+          );
+        }
+        return ids;
       } catch (err) {
         logger.warn(
           `[steam-topsellers] cc=${cc} start=${start} err=${err instanceof Error ? err.message : String(err)}`,

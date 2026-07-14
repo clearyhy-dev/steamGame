@@ -28,21 +28,33 @@ class SteamBackendException implements Exception {
 
 class SteamBackendService {
   final http.Client _client;
-  final String _baseUrl;
+  final String? _baseUrlOverride;
   BackendClient? _backend;
+  String? _backendBaseUrl;
 
   SteamBackendService({http.Client? client, String? baseUrl})
       : _client = client ?? http.Client(),
-        _baseUrl = baseUrl ??
-            AppRemoteConfig.instance.resolveApiBase(ApiConstants.baseUrl);
+        _baseUrlOverride = baseUrl;
+
+  String get _baseUrl =>
+      _baseUrlOverride ??
+      AppRemoteConfig.instance.resolveApiBase(ApiConstants.baseUrl);
 
   Uri _uri(String path) => Uri.parse('$_baseUrl$path');
 
   BackendClient get _b => _backend!;
 
   void _ensureBackendClient() {
-    // keep http.Client reuse for connection pooling
-    _backend ??= BackendClient(client: _client, baseUrl: _baseUrl);
+    final url = _baseUrl;
+    if (_backend == null || _backendBaseUrl != url) {
+      _backendBaseUrl = url;
+      _backend = BackendClient(client: _client, baseUrl: url);
+    }
+  }
+
+  /// Logged-in user's server country, else app default country.
+  Future<String> resolvePriceCountry() async {
+    return (await _resolveCountryCode())?.trim().toUpperCase() ?? 'US';
   }
 
   Future<http.Response> _requestWithRetry({
@@ -87,6 +99,14 @@ class SteamBackendService {
 
   Future<String?> _resolveCountryCode() async {
     try {
+      final token = await StorageService.instance.getSteamBackendToken();
+      if (token != null && token.isNotEmpty) {
+        try {
+          final me = await getMe(token);
+          final serverCc = me['countryCode']?.toString().trim().toUpperCase();
+          if (serverCc != null && serverCc.length == 2) return serverCc;
+        } catch (_) {}
+      }
       final selected = (await AppCountryResolver.resolveContext()).countryCode;
       return selected.trim().isEmpty ? 'US' : selected.toUpperCase();
     } catch (_) {
@@ -232,7 +252,26 @@ class SteamBackendService {
       throw SteamBackendException(
           code: 'INTERNAL_ERROR', message: 'Empty response body');
 
-    final map = jsonDecode(response.body) as Map<String, dynamic>;
+    final trimmed = response.body.trimLeft();
+    if (trimmed.startsWith('<!DOCTYPE') ||
+        trimmed.startsWith('<html') ||
+        trimmed.startsWith('<HTML')) {
+      throw SteamBackendException(
+        code: 'HTML_RESPONSE',
+        message:
+            'Server returned HTML (HTTP ${response.statusCode}). Check API base URL or VPN.',
+      );
+    }
+
+    final Map<String, dynamic> map;
+    try {
+      map = jsonDecode(response.body) as Map<String, dynamic>;
+    } on FormatException catch (e) {
+      throw SteamBackendException(
+        code: 'INVALID_JSON',
+        message: 'Invalid JSON (HTTP ${response.statusCode}): $e',
+      );
+    }
     if (map['success'] == true || map['ok'] == true) {
       return map['data'] as T;
     }
@@ -271,6 +310,219 @@ class SteamBackendService {
           code: 'REQUEST_TIMEOUT', message: 'Request timeout');
     });
     return _parseData<Map<String, dynamic>>(res);
+  }
+
+  Future<Map<String, dynamic>> patchMe(
+    String token, {
+    required String countryCode,
+    String countrySource = 'manual',
+  }) async {
+    final uri = _uri('/api/me');
+    final body = jsonEncode({
+      'countryCode': countryCode,
+      'countrySource': countrySource,
+    });
+    final res = await _client.patch(
+      uri,
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+      body: body,
+    ).timeout(ApiConstants.receiveTimeout, onTimeout: () {
+      throw SteamBackendException(
+          code: 'REQUEST_TIMEOUT', message: 'Request timeout');
+    });
+    return _parseData<Map<String, dynamic>>(res);
+  }
+
+  Future<void> syncProSubscription(
+    String token, {
+    required bool isPro,
+    int? proUntilMs,
+  }) async {
+    final uri = _uri('/api/me/subscription');
+    final body = jsonEncode({
+      'isPro': isPro,
+      if (proUntilMs != null) 'proUntilMs': proUntilMs,
+    });
+    final res = await _client.post(
+      uri,
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+      body: body,
+    ).timeout(ApiConstants.receiveTimeout, onTimeout: () {
+      throw SteamBackendException(
+          code: 'REQUEST_TIMEOUT', message: 'Request timeout');
+    });
+    _parseData<Map<String, dynamic>>(res);
+  }
+
+  Future<Map<String, dynamic>> createAppSession({
+    required String googleUserId,
+    String? email,
+    String? displayName,
+    String? photoUrl,
+  }) async {
+    final uri = _uri('/api/auth/app-session');
+    final body = jsonEncode({
+      'googleUserId': googleUserId,
+      if (email != null) 'email': email,
+      if (displayName != null) 'displayName': displayName,
+      if (photoUrl != null) 'photoUrl': photoUrl,
+    });
+    final res = await _client
+        .post(
+          uri,
+          headers: {'Content-Type': 'application/json'},
+          body: body,
+        )
+        .timeout(ApiConstants.receiveTimeout, onTimeout: () {
+      throw SteamBackendException(
+          code: 'REQUEST_TIMEOUT', message: 'Request timeout');
+    });
+    return _parseData<Map<String, dynamic>>(res);
+  }
+
+  Future<Map<String, dynamic>> migrateFavorites(
+    String token,
+    List<Map<String, dynamic>> items,
+  ) async {
+    final uri = _uri('/api/favorites/migrate');
+    final res = await _client.post(
+      uri,
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({'items': items}),
+    ).timeout(ApiConstants.receiveTimeout, onTimeout: () {
+      throw SteamBackendException(
+          code: 'REQUEST_TIMEOUT', message: 'Request timeout');
+    });
+    return _parseData<Map<String, dynamic>>(res);
+  }
+
+  Future<Map<String, dynamic>> getFavoritePrices(
+    String token, {
+    String? country,
+  }) async {
+    final cc = country ?? await _resolveCountryCode();
+    final uri = _uri('/api/me/favorites/prices').replace(
+      queryParameters: {
+        if (cc != null && cc.isNotEmpty) 'country': cc,
+      },
+    );
+    final res = await _client.get(
+      uri,
+      headers: {'Authorization': 'Bearer $token'},
+    ).timeout(ApiConstants.receiveTimeout, onTimeout: () {
+      throw SteamBackendException(
+          code: 'REQUEST_TIMEOUT', message: 'Request timeout');
+    });
+    return _parseData<Map<String, dynamic>>(res);
+  }
+
+  Future<Map<String, dynamic>> getVideoFeed({
+    String? token,
+    String? cursor,
+    int limit = 10,
+    String? country,
+  }) async {
+    final cc = country ?? await _resolveCountryCode();
+    final uri = _uri('/api/videos/feed').replace(queryParameters: {
+      if (cursor != null && cursor.isNotEmpty) 'cursor': cursor,
+      'limit': '$limit',
+      if (cc != null && cc.isNotEmpty) 'country': cc,
+    });
+    final headers = <String, String>{};
+    if (token != null && token.isNotEmpty) {
+      headers['Authorization'] = 'Bearer $token';
+    }
+    final res = await _client.get(uri, headers: headers).timeout(
+      ApiConstants.receiveTimeout,
+      onTimeout: () => throw SteamBackendException(
+          code: 'REQUEST_TIMEOUT', message: 'Request timeout'),
+    );
+    return _parseData<Map<String, dynamic>>(res);
+  }
+
+  Future<Map<String, dynamic>> getVideoPlayback(
+    String videoId, {
+    String variant = 'vertical',
+  }) async {
+    final uri = _uri('/api/videos/$videoId/playback').replace(
+      queryParameters: {'variant': variant},
+    );
+    final res = await _client.get(uri).timeout(ApiConstants.receiveTimeout,
+        onTimeout: () => throw SteamBackendException(
+            code: 'REQUEST_TIMEOUT', message: 'Request timeout'));
+    return _parseData<Map<String, dynamic>>(res);
+  }
+
+  Future<Map<String, dynamic>> getMyLikedVideos(
+    String token, {
+    String? country,
+    int limit = 50,
+    int offset = 0,
+  }) async {
+    final cc = country ?? await _resolveCountryCode();
+    final uri = _uri('/api/videos/me/likes').replace(queryParameters: {
+      'limit': '$limit',
+      'offset': '$offset',
+      if (cc != null && cc.isNotEmpty) 'country': cc,
+    });
+    final res = await _client.get(
+      uri,
+      headers: {'Authorization': 'Bearer $token'},
+    ).timeout(ApiConstants.receiveTimeout, onTimeout: () {
+      throw SteamBackendException(
+          code: 'REQUEST_TIMEOUT', message: 'Request timeout');
+    });
+    return _parseData<Map<String, dynamic>>(res);
+  }
+
+  Future<Map<String, dynamic>> toggleVideoLike(String token, String videoId) async {
+    final uri = _uri('/api/videos/$videoId/like');
+    final res = await _client.post(uri, headers: {'Authorization': 'Bearer $token'}).timeout(
+      ApiConstants.receiveTimeout,
+      onTimeout: () => throw SteamBackendException(
+          code: 'REQUEST_TIMEOUT', message: 'Request timeout'),
+    );
+    return _parseData<Map<String, dynamic>>(res);
+  }
+
+  Future<Map<String, dynamic>> toggleVideoFavorite(String token, String videoId) async {
+    final uri = _uri('/api/videos/$videoId/favorite');
+    final res = await _client.post(uri, headers: {'Authorization': 'Bearer $token'});
+    return _parseData<Map<String, dynamic>>(res);
+  }
+
+  Future<Map<String, dynamic>> rateVideo(String token, String videoId, int rating) async {
+    final uri = _uri('/api/videos/$videoId/rating');
+    final res = await _client.post(
+      uri,
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({'rating': rating}),
+    );
+    return _parseData<Map<String, dynamic>>(res);
+  }
+
+  Future<void> reportVideoView(String videoId, {String? token, int watchedMs = 0}) async {
+    final uri = _uri('/api/videos/$videoId/view');
+    final headers = <String, String>{'Content-Type': 'application/json'};
+    if (token != null && token.isNotEmpty) headers['Authorization'] = 'Bearer $token';
+    final res = await _client.post(
+      uri,
+      headers: headers,
+      body: jsonEncode({'watchedMs': watchedMs}),
+    );
+    await _parseData<Map<String, dynamic>>(res);
   }
 
   Future<List<dynamic>> listFavorites(String token) async {
@@ -489,7 +741,7 @@ class SteamBackendService {
     final resolvedLang =
         language ?? await PriceRegionResolver.effectiveSteamUiLanguage();
     try {
-      final out = await _fetchMarketListV2(resolvedCountry, 'top-heat');
+      final out = await _fetchMarketListV2(resolvedCountry, 'top-discounts');
       final meta = (out['meta'] as Map<String, dynamic>?) ?? {};
       meta['effectiveLanguage'] =
           resolvedLang.trim().isNotEmpty ? resolvedLang.trim().toLowerCase() : 'en';

@@ -132,8 +132,8 @@ export function ScheduledTasksPage() {
             分国轮询任务要求 <Typography.Text code>object_storage</Typography.Text>，写入{' '}
             <Typography.Text code>cache/markets/v2/&#123;CC&#125;/games/&#123;appid&#125;/</Typography.Text>
             （detail / heat / prices），索引在 SQLite <Typography.Text code>market_games</Typography.Text>。
-            每国 Top200、每日 3 次轮询（02:00 / 10:00 / 18:00），单批 50 款；游标在{' '}
-            <Typography.Text code>market_sync_global_state</Typography.Text>。
+            索引在 SQLite <Typography.Text code>market_games</Typography.Text>。
+            T1 国家每日 01:00 同步 Top500；T2 国家每 2 天 04:00 同步 Top200；20:00 生成分国榜单 JSON。
           </>
         }
       />

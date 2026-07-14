@@ -29,6 +29,7 @@ export class PublicConfigController {
         appDeeplinkFailHost: e.appDeeplinkFailHost,
         appConnectTimeoutSec: e.appConnectTimeoutSec,
         appReceiveTimeoutSec: e.appReceiveTimeoutSec,
+        ...(e.authServiceUrl ? { authServiceUrl: e.authServiceUrl } : {}),
         ...(cacheBase ? { publicCacheCdnBase: cacheBase } : {}),
       },
     });

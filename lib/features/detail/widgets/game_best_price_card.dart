@@ -20,6 +20,8 @@ class GameBestPriceCard extends StatelessWidget {
     this.dealLinks,
     this.onTapSource,
     this.isPro = false,
+    this.thirdPartyUnlocked = false,
+    this.onRequestUnlock,
     this.refreshingDeals = false,
     this.dealsCacheUpdatedAt,
     this.dealsUsingCache = false,
@@ -40,6 +42,8 @@ class GameBestPriceCard extends StatelessWidget {
   final List<Map<String, dynamic>>? regionalGlobalDeals;
   final Future<void> Function(String source)? onTapSource;
   final bool isPro;
+  final bool thirdPartyUnlocked;
+  final VoidCallback? onRequestUnlock;
   final bool refreshingDeals;
   final DateTime? dealsCacheUpdatedAt;
   final bool dealsUsingCache;
@@ -94,6 +98,21 @@ class GameBestPriceCard extends StatelessWidget {
               ),
       ),
     );
+  }
+
+  static const _thirdPartySources = {'isthereanydeal', 'ggdeals'};
+
+  Future<void> _onSourceTap(
+    BuildContext context,
+    AppLocalizations l10n,
+    String source, {
+    required bool locked,
+  }) async {
+    if (locked) {
+      onRequestUnlock?.call();
+      return;
+    }
+    await _guardedTap(context, l10n, source);
   }
 
   Future<void> _guardedTap(
@@ -175,7 +194,8 @@ class GameBestPriceCard extends StatelessWidget {
     final localBySource = _lowestPerSource(localList, sources);
     final globalBySource = _lowestPerSource(globalList, sources);
 
-    final hasLocal = localBySource.values.any((r) {
+    final hasLocal = regionalLocalDeals != null ||
+        localBySource.values.any((r) {
       final fp = r['finalPrice'];
       final v = fp is num ? fp.toDouble() : double.tryParse('$fp');
       return v != null && v > 0;
@@ -183,6 +203,8 @@ class GameBestPriceCard extends StatelessWidget {
 
     final otherSourceOrder =
         const ['isthereanydeal', 'ggdeals', 'cheapshark', 'steam'];
+
+    final canSeeThirdParty = isPro || thirdPartyUnlocked;
 
     Widget priceChip({
       required String source,
@@ -240,12 +262,6 @@ class GameBestPriceCard extends StatelessWidget {
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                  const SizedBox(width: 6),
-                  Icon(
-                    isPro ? Icons.lock_open : Icons.lock,
-                    size: 12,
-                    color: Colors.white54,
-                  ),
                 ],
               ),
               const SizedBox(height: 4),
@@ -277,16 +293,20 @@ class GameBestPriceCard extends StatelessWidget {
       required String source,
       required Map<String, dynamic>? row,
       required bool isGlobal,
+      bool showWhenEmpty = false,
     }) {
-      if (row == null) return const SizedBox.shrink();
-      final rawFinal = row['finalPrice'];
-      final curStr = (row['currency'] ?? '').toString().trim();
+      final locked = _thirdPartySources.contains(source) && !canSeeThirdParty;
+      if (row == null && !showWhenEmpty && !locked) {
+        return const SizedBox.shrink();
+      }
+      final rawFinal = row?['finalPrice'];
+      final curStr = (row?['currency'] ?? '').toString().trim();
       final currency =
           curStr.isNotEmpty ? curStr.toUpperCase() : 'USD';
       final rawFinalValue = rawFinal is num
           ? rawFinal.toDouble()
-          : double.tryParse('$rawFinal');
-      final rawOriginal = row['originalPrice'];
+          : double.tryParse('${row?['finalPrice']}');
+      final rawOriginal = row?['originalPrice'];
       final rawOriginalValue = rawOriginal is num
           ? rawOriginal.toDouble()
           : double.tryParse('$rawOriginal');
@@ -300,8 +320,11 @@ class GameBestPriceCard extends StatelessWidget {
       return Padding(
         padding: const EdgeInsets.only(bottom: 10),
         child: InkWell(
-          onTap:
-              onTapSource == null ? null : () => _guardedTap(context, l10n, source),
+          onTap: locked
+              ? () => _onSourceTap(context, l10n, source, locked: true)
+              : (onTapSource == null
+                  ? null
+                  : () => _onSourceTap(context, l10n, source, locked: false)),
           borderRadius: BorderRadius.circular(10),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -311,25 +334,41 @@ class GameBestPriceCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
-                children: [
-                  Text(
+                      children: [
+                        Text(
                           _sourceName[source] ?? source,
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: scheme.onSurface,
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            color: scheme.onSurface,
                           ),
                         ),
-                        if (source != 'steam') ...[
+                        if (locked) ...[
+                          const SizedBox(width: 6),
+                          Icon(Icons.lock_outline,
+                              size: 14, color: Colors.white54),
+                        ],
+                        if (onTapSource != null && !locked) ...[
                           const SizedBox(width: 6),
                           Icon(
-                            isPro ? Icons.lock_open : Icons.lock,
+                            Icons.open_in_new,
                             size: 12,
                             color: Colors.white54,
                           ),
                         ],
                       ],
                     ),
+                    if (locked)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          l10n.get('affiliate_prices_locked_hint'),
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: scheme.onSurfaceVariant.withValues(alpha: 0.8),
+                          ),
+                        ),
+                      ),
                     if (isGlobal)
                       Padding(
                         padding: const EdgeInsets.only(top: 4),
@@ -353,7 +392,8 @@ class GameBestPriceCard extends StatelessWidget {
                       padding: const EdgeInsets.only(bottom: 4),
                       child: _sourceLogo('steam'),
                     ),
-                  if (shownOriginal != null &&
+                  if (!locked &&
+                      shownOriginal != null &&
                       shownFinal != null &&
                       shownOriginal > shownFinal)
                   Text(
@@ -366,17 +406,23 @@ class GameBestPriceCard extends StatelessWidget {
                     ),
                   ),
                 Text(
-                    shownFinal == null
-                        ? '—'
-                        : formatRegionalPrice(
-                            amount: shownFinal, currency: currency),
-                  style: const TextStyle(
+                    locked
+                        ? l10n.get('affiliate_surprise_price_teaser')
+                        : (shownFinal == null
+                            ? '—'
+                            : formatRegionalPrice(
+                                amount: shownFinal, currency: currency)),
+                  style: TextStyle(
                     fontSize: 17,
                     fontWeight: FontWeight.bold,
-                    color: AppColors.itadOrange,
+                    color: locked
+                        ? AppColors.itadOrange.withValues(alpha: 0.85)
+                        : AppColors.itadOrange,
                   ),
                 ),
-                  if ((row['discountPercent'] is num) &&
+                  if (!locked &&
+                      row != null &&
+                      (row['discountPercent'] is num) &&
                       (row['discountPercent'] as num) > 0)
                   Container(
                     margin: const EdgeInsets.only(top: 4),
@@ -442,6 +488,43 @@ class GameBestPriceCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 12),
+            if (!canSeeThirdParty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Material(
+                  color: AppColors.cardElevated,
+                  borderRadius: BorderRadius.circular(12),
+                  child: InkWell(
+                    onTap: onRequestUnlock,
+                    borderRadius: BorderRadius.circular(12),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 10),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.card_giftcard,
+                              color: AppColors.itadOrange, size: 20),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              l10n.get('affiliate_surprise_deals_banner'),
+                              style: TextStyle(
+                                fontSize: 12,
+                                height: 1.35,
+                                color: scheme.onSurfaceVariant
+                                    .withValues(alpha: 0.95),
+                              ),
+                            ),
+                          ),
+                          Icon(Icons.chevron_right,
+                              color: scheme.onSurfaceVariant
+                                  .withValues(alpha: 0.7)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             if (!hasLocal)
               Text(
                 l10n
@@ -453,13 +536,13 @@ class GameBestPriceCard extends StatelessWidget {
                 ),
               )
             else ...[
-              for (final src in const ['steam', 'isthereanydeal', 'ggdeals', 'cheapshark'])
-                if (localBySource[src] != null)
-                  rowTile(
-                    source: src,
-                    row: localBySource[src],
-                    isGlobal: false,
-                  ),
+              for (final src in const ['steam', 'isthereanydeal', 'ggdeals'])
+                rowTile(
+                  source: src,
+                  row: localBySource[src],
+                  isGlobal: false,
+                  showWhenEmpty: true,
+                ),
               if (mockOfficialRegional && localBySource['steam'] == null)
                 rowTile(
                   source: 'steam',
@@ -497,7 +580,8 @@ class GameBestPriceCard extends StatelessWidget {
               runSpacing: 8,
               children: [
                 for (final src in otherSourceOrder)
-                  if (globalBySource[src] != null)
+                  if (globalBySource[src] != null &&
+                      (canSeeThirdParty || src == 'steam'))
                     priceChip(
                       source: src,
                       row: globalBySource[src],

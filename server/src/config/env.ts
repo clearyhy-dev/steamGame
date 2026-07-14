@@ -103,6 +103,20 @@ export type Env = {
   sqliteApiSecret?: string;
   /** false 时不写入 api_request_logs（省存储） */
   requestLogEnabled: boolean;
+  /** GCP Auth 服务 URL（Token 内省） */
+  authServiceUrl?: string;
+  authIntrospectSecret?: string;
+  /** true：Steam OpenID 由 GCP Auth 处理 */
+  authOnGcp: boolean;
+  jwtIssuer: string;
+
+  /** Pro wishlist email (SMTP) */
+  smtpHost?: string;
+  smtpPort: number;
+  smtpUser?: string;
+  smtpPass?: string;
+  mailFrom?: string;
+  mailFromName?: string;
 };
 
 export function loadEnv(): Env {
@@ -230,6 +244,17 @@ function buildEnv(jwtSecret: string, port: number): Env {
     appReceiveTimeoutSec: Number(process.env.APP_RECEIVE_TIMEOUT_SEC ?? 90),
 
     backgroundWorkersEnabled: process.env.BACKGROUND_WORKERS_ENABLED !== 'false',
+    authServiceUrl: process.env.AUTH_SERVICE_URL?.trim().replace(/\/+$/, '') || undefined,
+    authIntrospectSecret: process.env.AUTH_INTROSPECT_SECRET?.trim() || undefined,
+    authOnGcp: process.env.AUTH_ON_GCP !== 'false',
+    jwtIssuer: process.env.JWT_ISSUER?.trim() || 'steamgame-api',
+
+    smtpHost: process.env.SMTP_HOST?.trim() || undefined,
+    smtpPort: Number(process.env.SMTP_PORT ?? 587),
+    smtpUser: process.env.SMTP_USER?.trim() || undefined,
+    smtpPass: process.env.SMTP_PASS?.trim() || undefined,
+    mailFrom: process.env.MAIL_FROM?.trim() || undefined,
+    mailFromName: process.env.MAIL_FROM_NAME?.trim() || undefined,
   };
 }
 

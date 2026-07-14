@@ -19,6 +19,8 @@ export function mountAdminUiIfEnabled(app: express.Application, env: Env): void 
 
   logger.info(`Serving admin SPA from ${dir}`);
 
+  app.get('/', (_req, res) => res.redirect(302, '/admin/'));
+
   app.use('/admin', express.static(dir, { fallthrough: true, index: false }));
 
   app.use('/admin', (req: express.Request, res: express.Response, next: express.NextFunction) => {

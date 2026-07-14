@@ -28,12 +28,24 @@ export type MarketGamePriceSummary = {
   };
 };
 
+function legacyCentScaledJpy(amount: number): number | null {
+  if (amount <= 5000 || amount > 999999 || amount % 100 !== 0) return null;
+  const d = amount / 100;
+  if (d >= 500 && d <= 50000) return d;
+  return null;
+}
+
 function steamMinorToDisplay(amount: number | null | undefined, currency: string | null | undefined): number | null {
   if (amount == null || !Number.isFinite(amount)) return null;
   const c = String(currency ?? 'USD')
     .trim()
     .toUpperCase();
-  if (INT_LIKE_CURRENCIES.has(c)) return amount;
+  if (INT_LIKE_CURRENCIES.has(c)) {
+    if (c === 'JPY') {
+      return legacyCentScaledJpy(amount) ?? amount;
+    }
+    return amount;
+  }
   return amount / 100;
 }
 
@@ -47,11 +59,11 @@ const EMPTY_PLATFORM_CELL: MarketPlatformPriceCell = {
 
 function cellFromSnapshotOrEmpty(
   snap: RegionalSourcePriceSnapshot | undefined,
-  opts?: { priceSyncOk?: boolean },
+  opts?: { priceSyncOk?: boolean; steamMinorUnits?: boolean },
 ): MarketPlatformPriceCell {
   if (!snap || snap.error) return EMPTY_PLATFORM_CELL;
   if (opts?.priceSyncOk === false) return EMPTY_PLATFORM_CELL;
-  const cell = cellFromSnapshot(snap);
+  const cell = cellFromSnapshot(snap, { steamMinorUnits: opts?.steamMinorUnits });
   if (cell.finalPrice == null && cell.originalPrice == null) return EMPTY_PLATFORM_CELL;
   return cell;
 }
@@ -115,7 +127,7 @@ export function buildMarketGamePriceSummary(input: {
     bucket?.steam?.url ??
     buildRegionalSteamStoreAppUrl(appid, steamCc, resolved.steamLanguage);
 
-  const steam = cellFromSnapshot(bucket?.steam, { steamMinorUnits: true });
+  const steam = cellFromSnapshotOrEmpty(bucket?.steam, { steamMinorUnits: true });
   if (steam.finalPrice == null && detail) {
     const cur = resolved.defaultCurrency;
     steam.originalPrice =

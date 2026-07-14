@@ -12,8 +12,9 @@ class RewardedAffiliateAdService {
   RewardedAffiliateAdService._();
   static final RewardedAffiliateAdService instance = RewardedAffiliateAdService._();
 
-  /// Pro 或关闭广告策略时直接执行购买逻辑，不展示广告。
-  Future<void> runPurchaseAfterRewardedAd({
+  /// Pro 或关闭广告策略时直接执行 [onRewardGranted]，不展示广告。
+  Future<void> runWithRewardedAd({
+    required String placement,
     required Future<void> Function() onRewardGranted,
     required void Function(String l10nKey) onAdBlocked,
   }) async {
@@ -50,7 +51,7 @@ class RewardedAffiliateAdService {
                 AnalyticsService.instance.logAdImpression(
                   adUnitId: unitId,
                   adFormat: 'rewarded',
-                  placement: 'affiliate_buy_best_price',
+                  placement: placement,
                 ),
               );
             },
@@ -82,7 +83,7 @@ class RewardedAffiliateAdService {
             AnalyticsService.instance.logAdLoadFailed(
               adUnitId: unitId,
               adFormat: 'rewarded',
-              placement: 'affiliate_buy_best_price',
+              placement: placement,
               errorCode: err.code.toString(),
             ),
           );
@@ -93,5 +94,17 @@ class RewardedAffiliateAdService {
     );
 
     return completer.future;
+  }
+
+  /// 「以最优价购买」前展示激励视频；用户获得奖励后才执行 [onRewardGranted]。
+  Future<void> runPurchaseAfterRewardedAd({
+    required Future<void> Function() onRewardGranted,
+    required void Function(String l10nKey) onAdBlocked,
+  }) async {
+    return runWithRewardedAd(
+      placement: 'affiliate_buy_best_price',
+      onRewardGranted: onRewardGranted,
+      onAdBlocked: onAdBlocked,
+    );
   }
 }

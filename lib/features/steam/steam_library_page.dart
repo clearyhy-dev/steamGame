@@ -203,7 +203,7 @@ class _SteamLibraryPageState extends State<SteamLibraryPage> {
   Future<void> _openSteamLoginStart() async {
     // 这里跳转到后端，由后端发起 Steam OpenID。
     // 后续可复用 ProfilePage 的入口，这里提供最小可用兜底。
-    final apiRoot = AppRemoteConfig.instance.resolveApiBase(ApiConstants.baseUrl);
+    final apiRoot = AppRemoteConfig.instance.resolveAuthBase(ApiConstants.authBaseUrl);
     final start = Uri.parse('$apiRoot/auth/steam/start?mode=login');
     final withTs = start.replace(queryParameters: {
       ...start.queryParameters,

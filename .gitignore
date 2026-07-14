@@ -52,6 +52,7 @@ lib/generated_plugin_registrant.dart
 **/node_modules/
 admin/dist/
 server/dist/
+auth-service/dist/
 
 # Local workspace/runtime files
 *.code-workspace

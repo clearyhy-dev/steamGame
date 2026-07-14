@@ -274,6 +274,16 @@ class StorageService {
     await _prefs.setBool(AppConstants.keyHasSeenEnableAlertsPrompt, value);
   }
 
+  Future<bool> getFavoritesMigratedV1() async {
+    if (!_inited) return false;
+    return _prefs.getBool(AppConstants.keyFavoritesMigratedV1) ?? false;
+  }
+
+  Future<void> setFavoritesMigratedV1(bool value) async {
+    if (!_inited) return;
+    await _prefs.setBool(AppConstants.keyFavoritesMigratedV1, value);
+  }
+
   /// 插屏：应用打开次数
   Future<int> getAppOpenCount() async {
     if (!_inited) return 0;

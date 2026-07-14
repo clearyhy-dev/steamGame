@@ -91,6 +91,22 @@ py -3 server/scripts/migrate-config-rest.py
 .\scripts\deploy-cloud-run.ps1
 ```
 
+## 5b. 将 API + Admin 部署到同一台 Vultr（与数据层同机）
+
+数据层已在 `/opt/steamgame-data`（Redis + MinIO + data-api）时，在**本机**执行：
+
+```powershell
+.\scripts\deploy-vultr-api.ps1 -Password '你的root密码'
+# 或: $env:VULTR_SSH_PASSWORD='...'; .\scripts\deploy-vultr-api.ps1
+```
+
+- API 容器目录：`/opt/steamgame-api`
+- 对外：**http://YOUR_IP:8080/**（Admin）、**http://YOUR_IP:8080/health**
+- 容器内通过 Docker 网络访问 `data-api` / `minio` / `redis`（无需经公网回环）
+- 1GB 内存 VPS：API 容器限制约 480MB，`NODE_OPTIONS=--max-old-space-size=320`
+
+重新部署（改代码后）再次运行同一脚本即可。
+
 ## 6. 降本检查
 
 - GCP Console → Firestore：**无新读写的增长**（迁移后 API 不再连接）

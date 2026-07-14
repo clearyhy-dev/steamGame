@@ -15,6 +15,7 @@ import cron from 'node-cron';
 const TASK_KEYS = new Set<ScheduledTaskKey>([
   'steam_catalog_sync',
   'market_country_round_robin',
+  'market_daily_all_countries',
   'market_build_lists',
   'cleanup_invalid_deal_links',
   'build_public_cache',

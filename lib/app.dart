@@ -13,6 +13,7 @@ import 'core/services/review_service.dart';
 import 'features/home/home_page.dart';
 import 'features/explore/explore_page.dart';
 import 'features/wishlist/wishlist_page.dart';
+import 'features/video/video_feed_page.dart';
 import 'features/profile/profile_page.dart';
 import 'features/onboarding/onboarding_page.dart';
 import 'features/subscription/subscription_page.dart';
@@ -38,11 +39,20 @@ class _SteamDealAppState extends State<SteamDealApp> {
   @override
   void initState() {
     super.initState();
+    _locale = _resolveLocaleSync();
     _loadLocaleFromCountry();
     _countryChangedListener = () {
       _loadLocaleFromCountry();
     };
     AppCountryEvents.instance.changed.addListener(_countryChangedListener!);
+  }
+
+  Locale? _resolveLocaleSync() {
+    final ctx = AppCountryResolver.resolveSync();
+    final localeCode = RegionConfig.getLocaleCodeForApp(ctx.uiLanguageCode) ??
+        RegionConfig.getLocaleCodeForApp(ctx.countryCode);
+    if (localeCode == null || localeCode.isEmpty) return null;
+    return Locale(localeCode);
   }
 
   @override
@@ -56,7 +66,8 @@ class _SteamDealAppState extends State<SteamDealApp> {
 
   Future<void> _loadLocaleFromCountry() async {
     final ctx = await AppCountryResolver.resolveContext();
-    final localeCode = RegionConfig.getLocaleCodeForApp(ctx.uiLanguageCode);
+    final localeCode = RegionConfig.getLocaleCodeForApp(ctx.uiLanguageCode) ??
+        RegionConfig.getLocaleCodeForApp(ctx.countryCode);
     if (!mounted) return;
     setState(() => _locale = localeCode != null && localeCode.isNotEmpty ? Locale(localeCode) : null);
   }
@@ -105,6 +116,7 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
   List<Widget> get _pages => [
         HomePage(key: ValueKey<String>('home_$_tabCountryKey')),
         ExplorePage(key: ValueKey<String>('explore_$_tabCountryKey')),
+        VideoFeedPage(key: ValueKey<String>('video_$_tabCountryKey')),
         WishlistPage(
           key: ValueKey<String>('wishlist_$_tabCountryKey'),
           currentTabIndex: _index,
@@ -338,6 +350,7 @@ class _MainPageState extends State<MainPage> with WidgetsBindingObserver {
         items: [
           BottomNavigationBarItem(icon: const Icon(Icons.home), label: AppLocalizations.of(context).get('home_tab')),
           BottomNavigationBarItem(icon: const Icon(Icons.explore), label: AppLocalizations.of(context).get('explore_tab')),
+          BottomNavigationBarItem(icon: const Icon(Icons.play_circle_fill), label: AppLocalizations.of(context).get('video_tab')),
           BottomNavigationBarItem(icon: const Icon(Icons.favorite), label: AppLocalizations.of(context).get('wishlist_tab')),
           BottomNavigationBarItem(icon: const Icon(Icons.person), label: AppLocalizations.of(context).get('profile_tab')),
         ],

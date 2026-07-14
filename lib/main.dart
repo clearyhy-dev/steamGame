@@ -25,7 +25,8 @@ import 'core/storage_service.dart';
 import 'data/services/cache_service.dart';
 import 'core/notification_service.dart';
 import 'core/schedule_config.dart';
-import 'l10n/app_localizations.dart';
+import 'core/app_user_sync.dart';
+import 'features/splash/splash_bootstrap.dart';
 import 'services/steam_backend_service.dart';
 
 /// 后端 `deepLink()` 生成的是 `myapp://auth/steam/success`（`auth` 为 [Uri.host]，路径为 `/steam/success`），
@@ -98,6 +99,7 @@ Future<void> _handleSteamAuthDeepLink(Uri? uri) async {
       );
 
       await AppCountrySteamSync.applyFromSteamOverviewIfEligible(token);
+      await AppUserSync.afterAuthLogin();
 
       SteamAuthEvents.instance.emitSuccess(
         SteamAuthSuccessPayload(
@@ -157,6 +159,7 @@ Future<void> _syncTrialFromBackendIfLoggedIn() async {
     final token = await StorageService.instance.getSteamBackendToken();
     if (token == null || token.isEmpty) return;
     await AppCountrySteamSync.applyFromSteamOverviewIfEligible(token);
+    await AppUserSync.applyServerCountryIfPresent();
     final backend = SteamBackendService();
     final me = await backend.getMe(token);
     final trial = me['trial'];
@@ -226,64 +229,51 @@ void main() async {
       ),
     );
   };
-  runZonedGuarded(() async {
-    try {
-      await _init();
-    } catch (e, stack) {
-      debugPrint('_init error: $e\n$stack');
-    }
-    // 无论 _init 是否异常都启动 UI，避免白屏/闪退
-    runApp(const SteamDealApp());
+  runZonedGuarded(() {
+    // 立刻进入带文案的启动页；重初始化在首帧后并行完成，缩短卡住几秒的感觉。
+    runApp(SplashBootstrap(bootstrap: _bootstrapForFirstFrame));
   }, (error, stack) {
     debugPrint('Uncaught error: $error\n$stack');
   });
 }
 
-Future<void> _init() async {
-  // 优先初始化存储，首屏与延迟回调都依赖
+/// 首屏前只做关键路径：存储 / 缓存 / 国家与配置 / 冷启动 deep link。
+Future<void> _bootstrapForFirstFrame() async {
   try {
     await StorageService.instance.init();
   } catch (e) {
     debugPrint('StorageService.init: $e');
   }
 
-  try {
-    await AppRemoteConfig.instance.loadFromBackend(ApiConstants.baseUrl);
-  } catch (e) {
-    debugPrint('AppRemoteConfig.load: $e');
-  }
-  try {
-    await CountryCatalogService.instance.load(ApiConstants.baseUrl);
-  } catch (e) {
-    debugPrint('CountryCatalogService.load: $e');
-  }
+  await Future.wait<void>([
+    () async {
+      try {
+        await CacheService.init();
+      } catch (e) {
+        debugPrint('CacheService.init: $e');
+      }
+    }(),
+    () async {
+      try {
+        await AppRemoteConfig.instance.loadFromBackend(ApiConstants.baseUrl);
+      } catch (e) {
+        debugPrint('AppRemoteConfig.load: $e');
+      }
+    }(),
+    () async {
+      try {
+        await CountryCatalogService.instance.load(ApiConstants.baseUrl);
+      } catch (e) {
+        debugPrint('CountryCatalogService.load: $e');
+      }
+    }(),
+  ]);
+
   try {
     await AppCountryResolver.resolveContext();
   } catch (e) {
     debugPrint('AppCountryResolver.resolveContext: $e');
   }
-
-  try {
-    await CacheService.init();
-  } catch (e) {
-    debugPrint('CacheService.init: $e');
-  }
-
-  try {
-    await MobileAds.instance.initialize();
-  } catch (e) {
-    debugPrint('MobileAds.init: $e');
-  }
-
-  try {
-    await BillingService().init();
-    // 正式版：启动时静默恢复购买，重装/换机后 Pro 状态可恢复
-    SubscriptionService().restorePurchases().catchError((_) {});
-  } catch (e) {
-    debugPrint('BillingService.init: $e');
-  }
-
-  await _syncTrialFromBackendIfLoggedIn();
 
   try {
     final appLinks = AppLinks();
@@ -293,17 +283,34 @@ Future<void> _init() async {
       if (ref != null && ref.isNotEmpty) {
         await StorageService.instance.setReferrerId(ref);
       }
-      // 冷启动若由 Steam 回跳拉起，需处理 initial link（仅 uriLinkStream 会漏掉）
       await _handleSteamAuthDeepLink(initialUri);
     }
-
-    // 深链路监听：Steam OpenID 回跳（应用已在后台/前台时）
     appLinks.uriLinkStream.listen((uri) async {
       await _handleSteamAuthDeepLink(uri);
     });
   } catch (e) {
     debugPrint('AppLinks.getInitialLink: $e');
   }
+
+  // 非关键：广告 / 内购 / 通知 / FCM / 后台任务 → 不挡进首页
+  unawaited(_initDeferredServices());
+}
+
+Future<void> _initDeferredServices() async {
+  try {
+    await MobileAds.instance.initialize();
+  } catch (e) {
+    debugPrint('MobileAds.init: $e');
+  }
+
+  try {
+    await BillingService().init();
+    SubscriptionService().restorePurchases().catchError((_) {});
+  } catch (e) {
+    debugPrint('BillingService.init: $e');
+  }
+
+  unawaited(_syncTrialFromBackendIfLoggedIn());
 
   try {
     await NotificationService.instance.init();
@@ -321,33 +328,13 @@ Future<void> _init() async {
     if (Platform.isAndroid) {
       final status = await Permission.notification.status;
       if (status.isDenied) await Permission.notification.request();
-      await Permission.notification.isGranted;
     }
   } catch (e) {
     debugPrint('NotificationPermission: $e');
   }
 
-  // 打开应用约 3 秒后发一条通知（按当前语言），证明通知已开启
-  Future.delayed(const Duration(seconds: 3), () async {
-    try {
-      final storage = StorageService.instance;
-      await storage.init();
-      final locale = (await AppCountryResolver.resolveContext()).uiLanguageCode;
-      final title = AppLocalizations.getStringForLocale(
-          locale, 'notification_on_enabled_title');
-      final body = AppLocalizations.getStringForLocale(
-          locale, 'notification_on_enabled_body');
-      await NotificationService.instance.showNotification(
-        title,
-        body,
-        notificationId: 88881,
-      );
-    } catch (_) {}
-  });
-
   try {
     await Workmanager().initialize(callbackDispatcher);
-    // 避免每次启动都 replace 每日任务，否则任务会被不断推迟、永远不触发
     final storage = StorageService.instance;
     await storage.init();
     final lastScheduled = await storage.getLastDailyTaskScheduledAt();
@@ -369,7 +356,6 @@ Future<void> _init() async {
           DateTime.now().toUtc().toIso8601String());
     }
 
-    // Pro 愿望单：每天 11:00 / 17:00 / 20:00（按语言时区）
     final lastWishlist = await storage.getLastWishlistTaskScheduledAt();
     final shouldScheduleWishlist = lastWishlist == null ||
         DateTime.now()

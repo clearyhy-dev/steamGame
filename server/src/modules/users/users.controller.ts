@@ -26,6 +26,9 @@ export class UsersController {
       steamPersonaName: user.steamPersonaName ?? null,
       steamAvatar: user.steamAvatar ?? null,
       steamProfileUrl: user.steamProfileUrl ?? null,
+      countryCode: user.countryCode ?? null,
+      countrySource: user.countrySource ?? null,
+      favoritesCount: user.favoritesCount ?? 0,
       registeredAt: (user as any).registeredAtResolved
         ? (user as any).registeredAtResolved.toISOString()
         : null,
@@ -35,6 +38,43 @@ export class UsersController {
         endsAt: (user as any).trialEndsAt ? (user as any).trialEndsAt.toISOString() : null,
         remainingSeconds: (user as any).trialRemainingSeconds ?? 0,
       },
+      proUntilMs: user.proUntilMs ?? null,
+      isPro: !!(user.proUntilMs && user.proUntilMs > Date.now()),
+    });
+  };
+
+  syncSubscription = async (req: AuthedRequest, res: Response) => {
+    const userId = req.auth?.userId;
+    if (!userId) throw new ApiError(401, 'UNAUTHORIZED', 'Missing auth context');
+    const proUntilMs =
+      req.body?.proUntilMs != null
+        ? Number(req.body.proUntilMs)
+        : req.body?.pro_until_ms != null
+          ? Number(req.body.pro_until_ms)
+          : undefined;
+    const user = await this.svc.syncProSubscription(userId, {
+      proUntilMs: Number.isFinite(proUntilMs) ? proUntilMs : undefined,
+      isPro: req.body?.isPro === true || req.body?.is_pro === true,
+    });
+    return sendSuccess(res, {
+      proUntilMs: user.proUntilMs ?? null,
+      isPro: !!(user.proUntilMs && user.proUntilMs > Date.now()),
+    });
+  };
+
+  patchMe = async (req: AuthedRequest, res: Response) => {
+    const userId = req.auth?.userId;
+    if (!userId) throw new ApiError(401, 'UNAUTHORIZED', 'Missing auth context');
+    const countryCode = req.body?.countryCode ?? req.body?.country_code;
+    const countrySource = req.body?.countrySource ?? req.body?.country_source;
+    const user = await this.svc.updateMe(userId, {
+      countryCode: countryCode != null ? String(countryCode) : undefined,
+      countrySource: countrySource != null ? (String(countrySource) as any) : undefined,
+    });
+    return sendSuccess(res, {
+      id: user.id,
+      countryCode: user.countryCode ?? null,
+      countrySource: user.countrySource ?? null,
     });
   };
 

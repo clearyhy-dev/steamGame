@@ -5,9 +5,11 @@ import { PublicConfigController } from '../modules/config/public.config.controll
 import { PublicRegionCountriesController } from '../modules/config/public.region-countries.controller';
 
 import { authRouter } from '../modules/auth/auth.routes';
+import { appSessionRouter } from '../modules/auth/app-session.routes';
 import { usersRouter } from '../modules/users/users.routes';
 import { steamRouter } from '../modules/steam/steam.routes';
 import { favoritesRouter } from '../modules/favorites/favorites.routes';
+import { favoritesPricesRouter } from '../modules/favorites/favorites-prices.routes';
 import { recommendationsRouter } from '../modules/recommendations/recommendations.routes';
 import { wishlistRouter } from '../modules/wishlist/wishlist.routes';
 import { statsRouter } from '../modules/stats/stats.routes';
@@ -19,7 +21,6 @@ import { AdminGamesController } from '../modules/admin/admin.games.controller';
 import { createPublicVideosRouter } from '../modules/video/public.videos.routes';
 import { createPublicGamesRouter } from '../modules/game/public.games.routes';
 import { createPublicMarketRouter } from '../modules/market/public.market.routes';
-import { runCacheBuild } from '../jobs/cacheBuilder';
 import swaggerUi from 'swagger-ui-express';
 import { buildOpenApiSpec } from '../modules/meta/openapi';
 import { httpSafePublicCacheMiddleware } from '../middlewares/httpCache.middleware';
@@ -63,7 +64,10 @@ export function createRouter(env: Env) {
     }),
   );
 
-  r.use('/auth', authRouter(env));
+  if (!env.authOnGcp) {
+    r.use('/auth', authRouter(env));
+  }
+  r.use('/api/auth', appSessionRouter(env));
 
   r.post(
     '/api/internal/cron/daily-schedules',
@@ -84,49 +88,6 @@ export function createRouter(env: Env) {
       const { runAllEnabledScheduledTasks } = await import('../modules/admin/scheduled-tasks.runner');
       const results = await runAllEnabledScheduledTasks(env);
       res.json({ success: true, mode: 'cron_daily_schedules', results });
-    }),
-  );
-
-  r.post(
-    '/api/internal/cron/daily-deal-schedules',
-    asyncHandler(async (req, res) => {
-      if (!env.backgroundWorkersEnabled) {
-        res.status(503).json({ success: false, error: 'Background workers disabled' });
-        return;
-      }
-      const secret = env.cronSecret?.trim();
-      if (!secret) {
-        res.status(503).json({ success: false, error: 'CRON_SECRET not configured' });
-        return;
-      }
-      if (String(req.get('x-cron-secret') ?? '').trim() !== secret) {
-        res.status(401).json({ success: false, error: 'unauthorized' });
-        return;
-      }
-      const { runAllEnabledDealScheduledTasks } = await import('../modules/admin/scheduled-tasks.runner');
-      const results = await runAllEnabledDealScheduledTasks(env);
-      res.json({ success: true, mode: 'cron_daily_deal_schedules', results });
-    }),
-  );
-
-  r.post(
-    '/api/internal/cron/daily-deals',
-    asyncHandler(async (req, res) => {
-      if (!env.backgroundWorkersEnabled) {
-        res.status(503).json({ success: false, error: 'Background workers disabled' });
-        return;
-      }
-      const secret = env.cronSecret?.trim();
-      if (!secret) {
-        res.status(503).json({ success: false, error: 'CRON_SECRET not configured' });
-        return;
-      }
-      if (String(req.get('x-cron-secret') ?? '').trim() !== secret) {
-        res.status(401).json({ success: false, error: 'unauthorized' });
-        return;
-      }
-      const games = new AdminGamesController(env);
-      await games.runDailyDealsCron(req, res);
     }),
   );
 
@@ -172,32 +133,12 @@ export function createRouter(env: Env) {
     }),
   );
 
-  r.post(
-    '/api/internal/cron/build-cache',
-    asyncHandler(async (req, res) => {
-      if (!env.backgroundWorkersEnabled) {
-        res.status(503).json({ success: false, error: 'Background workers disabled' });
-        return;
-      }
-      const secret = env.cronSecret?.trim();
-      if (!secret) {
-        res.status(503).json({ success: false, error: 'CRON_SECRET not configured' });
-        return;
-      }
-      if (String(req.get('x-cron-secret') ?? '').trim() !== secret) {
-        res.status(401).json({ success: false, error: 'unauthorized' });
-        return;
-      }
-      const out = await runCacheBuild(env);
-      res.status(200).json({ success: true, data: out });
-    }),
-  );
-
   r.use('/api/admin', createAdminApiRouter(env));
   r.use('/api/videos', createPublicVideosRouter(env));
   r.use('/api/games', createPublicGamesRouter(env));
   r.use('/api/v2/markets', createPublicMarketRouter(env));
   r.use('/api', usersRouter(env));
+  r.use('/api/me/favorites', favoritesPricesRouter(env));
   r.use('/api/steam', steamRouter(env));
   r.use('/api/favorites', favoritesRouter(env));
 

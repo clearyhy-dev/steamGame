@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'app_remote_config.dart';
 import 'constants/api_constants.dart';
 import 'storage_service.dart';
+import 'utils/steam_ui_language.dart';
 
 /// Backend `/api/v1/config/countries` — enabled countries + default/fallback ISO codes.
 class CountryCatalogEntry {
@@ -40,9 +41,10 @@ class CountryCatalogEntry {
   factory CountryCatalogEntry.fromJson(Map<String, dynamic> m) {
     final steamLanguage = (m['steamLanguage'] ?? 'en').toString();
     final uiLanguageRaw = (m['uiLanguage'] ?? '').toString().trim();
-    final uiLanguage = uiLanguageRaw.isNotEmpty
-        ? uiLanguageRaw
-        : (steamLanguage.trim().isNotEmpty ? steamLanguage : 'en');
+    final uiLanguageFallback = steamLanguage.trim().isNotEmpty ? steamLanguage : 'en';
+    final uiLanguage = normalizeUiLanguageCode(
+      uiLanguageRaw.isNotEmpty ? uiLanguageRaw : uiLanguageFallback,
+    );
     final cc =
         (m['countryCode'] ?? '').toString().trim().toUpperCase();
     String iso2Upper(dynamic v) {

@@ -76,13 +76,22 @@ export function createAdminApiRouter(env: Env) {
   secured.patch('/sqlite/tables/:table/rows', asyncHandler(sqliteDb.updateRow));
 
   secured.get('/region-countries/provider-meta', asyncHandler(regionCountries.providerMeta));
+  secured.get('/region-countries/sync-tier-settings', asyncHandler(regionCountries.getSyncTierSettings));
+  secured.put('/region-countries/sync-tier-settings', asyncHandler(regionCountries.saveSyncTierSettings));
+  secured.post('/region-countries/sync-tier-reset-defaults', asyncHandler(regionCountries.resetSyncTiersToDefault));
   secured.get('/region-countries', asyncHandler(regionCountries.list));
   secured.post('/region-countries', asyncHandler(regionCountries.upsert));
   secured.post('/region-countries/sync-provider-codes', asyncHandler(regionCountries.syncProviderCodesFromSteam));
   secured.patch('/region-countries/:countryCode/enabled', asyncHandler(regionCountries.patchEnabled));
+  secured.patch('/region-countries/:countryCode/sync-tier', asyncHandler(regionCountries.patchSyncTier));
 
   secured.get('/markets/sync-status', asyncHandler(markets.syncStatus));
+  secured.get('/markets/shard-sync-status', asyncHandler(markets.shardSyncStatus));
+  secured.post('/markets/stale-discounts/cleanup', asyncHandler(markets.runStaleDiscountCleanup));
+  secured.post('/markets/daily-full-sync/run', asyncHandler(markets.runDailyFullSync));
+  secured.post('/markets/daily-sharded-sync/run', asyncHandler(markets.runDailyShardedFullSync));
   secured.post('/markets/round-robin/run', asyncHandler(markets.runRoundRobin));
+  secured.post('/markets/round-robin/run-shard', asyncHandler(markets.runRoundRobinShard));
   secured.get('/markets/:cc/stats', asyncHandler(markets.countryStats));
   secured.get('/markets/:cc/games', asyncHandler(markets.listGames));
   secured.get('/markets/:cc/games/:appid', asyncHandler(markets.getGame));
@@ -127,6 +136,7 @@ export function createAdminApiRouter(env: Env) {
   secured.patch('/games/:appid/deal-links/:dealId', asyncHandler(games.upsertDealLink));
 
   secured.get('/users', asyncHandler(users.list));
+  secured.get('/users/:userId/favorites', asyncHandler(users.getFavorites));
   secured.patch('/users/:userId', asyncHandler(users.patch));
 
   router.use(secured);

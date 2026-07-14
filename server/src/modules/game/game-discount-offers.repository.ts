@@ -124,11 +124,13 @@ function buildMergedDiscountCountryDoc(
   const mergeSrc = (field: MainSource, patch?: RegionalSourcePriceSnapshot) => {
     if (!patch) return;
     const old = prev[field];
-    next[field] = {
+    const merged: RegionalSourcePriceSnapshot = {
       ...old,
       ...patch,
       syncedAt: patch.syncedAt ?? now,
     };
+    if (!patch.error) delete merged.error;
+    next[field] = merged;
   };
   mergeSrc('steam', input.steam);
   mergeSrc('isthereanydeal', input.isthereanydeal);

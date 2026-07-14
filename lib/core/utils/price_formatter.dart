@@ -2,6 +2,31 @@ import '../../models/game_model.dart';
 import '../../l10n/app_localizations.dart';
 import '../app_country_resolver.dart';
 import '../country_catalog_service.dart';
+import 'steam_price_amount.dart' show isIntLikeCurrency;
+
+String _symbolForIntLike(String code) {
+  switch (code) {
+    case 'JPY':
+    case 'CNY':
+      return '¥';
+    case 'KRW':
+      return '₩';
+    case 'VND':
+      return '₫';
+    case 'IDR':
+      return 'Rp';
+    case 'HUF':
+      return 'Ft';
+    case 'CLP':
+      return 'CLP\$';
+    case 'ISK':
+      return 'kr';
+    case 'UGX':
+      return 'USh';
+    default:
+      return '$code ';
+  }
+}
 
 String _configuredSymbolForCurrency(String currencyCode) {
   final code = currencyCode.trim().toUpperCase();
@@ -29,7 +54,7 @@ String formatRegionalPrice({
   final code = currency.trim().toUpperCase();
   final configured = _configuredSymbolForCurrency(code);
   if (configured.isNotEmpty) {
-    if (code == 'JPY' || code == 'KRW' || code == 'VND') {
+    if (isIntLikeCurrency(code)) {
       return '$configured${amount.round()}';
     }
     return '$configured${amount.toStringAsFixed(2)}';
@@ -40,7 +65,14 @@ String formatRegionalPrice({
     case 'EUR':
       return '€${amount.toStringAsFixed(2)}';
     case 'JPY':
-      return '¥${amount.round()}';
+    case 'KRW':
+    case 'VND':
+    case 'CLP':
+    case 'IDR':
+    case 'HUF':
+    case 'ISK':
+    case 'UGX':
+      return '${_symbolForIntLike(code)}${amount.round()}';
     case 'CNY':
       return '¥${amount.toStringAsFixed(2)}';
     case 'INR':

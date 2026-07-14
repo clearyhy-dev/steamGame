@@ -4,6 +4,15 @@ import { logger } from './utils/logger';
 import { startVideoWorker } from './modules/video/video.worker';
 import { startScheduledTasksRunner } from './modules/admin/scheduled-tasks.runner';
 import { ensureMarketV2Tables } from './storage/sqlite/ensure-market-schema';
+import { ensureRelationalSchema } from './storage/sqlite/ensure-relational-schema';
+
+// DNS/MinIO 瞬时失败不应拖垮整进程（Vultr 1GB VPS 上同步负载高时偶发 EAI_AGAIN）
+process.on('unhandledRejection', (reason) => {
+  logger.error(`Unhandled rejection: ${reason instanceof Error ? reason.message : String(reason)}`);
+});
+process.on('uncaughtException', (err) => {
+  logger.error(`Uncaught exception: ${err instanceof Error ? err.message : String(err)}`);
+});
 
 async function main() {
   const env = loadEnv();
@@ -15,6 +24,7 @@ async function main() {
     logger.info(`Data store: vultr_sqlite @ ${env.sqliteApiUrl} (Firestore reads disabled)`);
     try {
       await ensureMarketV2Tables();
+      await ensureRelationalSchema();
     } catch (e) {
       logger.warn(`[market-schema] ensure failed: ${e instanceof Error ? e.message : String(e)}`);
     }

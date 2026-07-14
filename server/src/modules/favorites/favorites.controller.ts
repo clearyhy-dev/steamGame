@@ -33,5 +33,14 @@ export class FavoritesController {
     await this.svc.remove(userId, appid);
     return sendSuccess(res, { ok: true });
   };
+
+  migrate = async (req: AuthedRequest, res: Response) => {
+    const userId = req.auth?.userId;
+    if (!userId) throw new ApiError(401, 'UNAUTHORIZED', 'Missing auth context');
+    const raw = req.body?.items ?? req.body?.favorites ?? req.body;
+    const items = Array.isArray(raw) ? raw : [];
+    const out = await this.svc.migrateBatch(userId, items);
+    return sendSuccess(res, out);
+  };
 }
 

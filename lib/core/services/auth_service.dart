@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import '../constants.dart';
 import '../storage_service.dart';
+import '../../services/steam_backend_service.dart';
+import '../app_user_sync.dart';
 
 /// 登录服务：Google Sign-In，不强制登录；登录后可收藏愿望单
 class AuthService {
@@ -63,6 +65,21 @@ class AuthService {
         email: email,
         photoUrl: photoUrl,
       );
+      try {
+        final session = await SteamBackendService().createAppSession(
+          googleUserId: userId,
+          email: email,
+          displayName: account.displayName,
+          photoUrl: photoUrl,
+        );
+        final token = session['token']?.toString();
+        if (token != null && token.isNotEmpty) {
+          await _storage.setSteamBackendToken(token);
+          await AppUserSync.afterAuthLogin();
+        }
+      } catch (e) {
+        if (kDebugMode) debugPrint('App session bridge failed: $e');
+      }
       return await _storage.getAuthUser();
     } catch (e) {
       lastSignInError = _messageForSignInError(e);

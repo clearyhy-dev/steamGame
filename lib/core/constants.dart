@@ -9,6 +9,7 @@ class AppConstants {
   static const String keyWishlistLastDiscount = 'wishlist_last_discount';
   static const String keyHasAskedNotification = 'has_asked_notification';
   static const String keyHasSeenEnableAlertsPrompt = 'has_seen_enable_alerts_prompt';
+  static const String keyFavoritesMigratedV1 = 'favorites_migrated_v1';
 
   /// WorkManager 任务
   static const String taskCheckDeals = 'check_steam_deals';

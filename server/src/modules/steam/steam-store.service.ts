@@ -190,10 +190,17 @@ export class SteamStoreService {
     return /^[A-Z]{2}$/.test(s) ? s : 'US';
   }
 
-  /** Steam returns minor units (cents) for most currencies; JPY is whole yen. */
+  /** Steam returns minor units (cents) for decimal currencies; int-like currencies use whole units. */
   minorUnitsToDisplayAmount(amount: number, currency: string): number {
     const c = String(currency ?? 'USD').trim().toUpperCase();
-    if (c === 'JPY') return amount;
+    const intLike = new Set(['JPY', 'KRW', 'VND', 'CLP', 'IDR', 'HUF', 'ISK', 'UGX']);
+    if (intLike.has(c)) {
+      if (c === 'JPY' && amount > 5000 && amount <= 999999 && amount % 100 === 0) {
+        const d = amount / 100;
+        if (d >= 500 && d <= 50000) return d;
+      }
+      return amount;
+    }
     return amount / 100;
   }
 

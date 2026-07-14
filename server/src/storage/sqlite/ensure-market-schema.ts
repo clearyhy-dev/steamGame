@@ -36,6 +36,24 @@ CREATE TABLE IF NOT EXISTS market_sync_global_state (
   last_run_summary TEXT,
   updated_at_ms INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS market_sync_country_state (
+  country_code TEXT PRIMARY KEY,
+  appid_cursor TEXT NOT NULL DEFAULT '',
+  country_hot_appids_json TEXT NOT NULL DEFAULT '[]',
+  last_run_at_ms INTEGER,
+  last_run_summary TEXT,
+  updated_at_ms INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS market_sync_worker_state (
+  worker_id INTEGER NOT NULL,
+  worker_count INTEGER NOT NULL,
+  current_shard_index INTEGER NOT NULL DEFAULT 0,
+  shard_queue_json TEXT NOT NULL DEFAULT '[]',
+  last_run_at_ms INTEGER,
+  last_run_summary TEXT,
+  updated_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (worker_id, worker_count)
+);
 `;
 
 /** Cloud Run 启动时确保 market v2 表存在（无需单独 redeploy Vultr data-api） */
@@ -49,6 +67,7 @@ export async function ensureMarketV2Tables(): Promise<void> {
   }
   logger.info('[market-schema] market_games + market_sync_global_state ensured');
   await migrateMarketSyncStateHotColumns();
+  logger.info('[market-schema] market_sync_country_state + market_sync_worker_state ensured');
 }
 
 async function migrateMarketSyncStateHotColumns(): Promise<void> {

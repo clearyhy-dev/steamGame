@@ -4,6 +4,7 @@ import type { DealProviderCountryCodes, ResolvedCountryForSteam } from '../confi
 import { RegionCountryRepository } from '../config/region-country.repository';
 import { mapToSteamAppDetailsLang } from '../steam/steam-language.util';
 import { buildRegionalSteamStoreAppUrl } from '../steam/steam-store-url.util';
+import { fetchSteamAppDetailsOne, steamAppDetailsRowToDealOffer } from '../steam/steam-appdetails.client';
 import { SteamStoreService } from '../steam/steam-store.service';
 import { fetchDealGameInfo, fetchGameBySteamAppId } from '../recommendations/cheapshark.client';
 import type { DealSource, GameDealLinkDoc, GameDealLinkRepository } from './game-deal-link.repository';
@@ -12,7 +13,7 @@ import { GameDiscountOffersRepository } from './game-discount-offers.repository'
 import { GameWeeklyHeatRepository } from './game-weekly-heat.repository';
 import { fetchItadEnrichmentForCountry } from './itad-enrichment.service';
 import { resolveItadOfferUrl } from './itad-url.util';
-import { pickItadDealFromPricesV3Entry, itadDealToPriceFields } from './itad-deal-pick.util';
+import { pickItadDealFromPricesV3Entry, pickItadSteamDealFromPricesV3Entry, itadDealToPriceFields } from './itad-deal-pick.util';
 import { itadLookupBySteamAppId, itadFetchGamePricesV3, itadPricesV3EntryForGameId } from './itad-api.client';
 import { ggDealsFetchPricesBySteamAppId } from './gg-deals-api.client';
 import { isGgDealsOfficialRegion } from '../config/external-deal-api.catalog';
@@ -68,6 +69,16 @@ function num(v: unknown): number | undefined {
     if (Number.isFinite(n)) return n;
   }
   return undefined;
+}
+
+const INT_LIKE_CURRENCIES = new Set(['JPY', 'KRW', 'VND', 'CLP', 'IDR', 'HUF', 'ISK', 'UGX']);
+
+/** ITAD 价为展示单位；写入 steam 桶时需转为 Steam API 分/整数单位 */
+function displayToSteamMinorUnits(amount: number | undefined, currency: string): number | undefined {
+  if (amount == null || !Number.isFinite(amount)) return undefined;
+  const c = String(currency ?? 'USD').trim().toUpperCase();
+  if (INT_LIKE_CURRENCIES.has(c)) return Math.round(amount);
+  return Math.round(amount * 100);
 }
 
 /** 与 deal 扁平化 `dealId` 生成规则一致 */
@@ -193,42 +204,21 @@ export class GameDiscountSyncService {
    * 标价货币优先 Steam 返回，缺省时用国家配置 `defaultCurrency`。
    */
   private async fetchSteam(appid: string, pc: DealProviderCountryCodes, resolved: ResolvedCountryForSteam): Promise<DealOffer | null> {
-    const e = await getEffectiveEnv(this.env);
-    const cc = String(pc.steamStoreCc || 'us')
-      .trim()
-      .toLowerCase();
     const biz = String(resolved.countryCode || 'US')
       .trim()
       .toUpperCase()
       .slice(0, 2);
-    const l = mapToSteamAppDetailsLang(resolved.steamLanguage);
-    const cfgCurrency = String(resolved.defaultCurrency ?? '')
-      .trim()
-      .toUpperCase();
     try {
-      const { data } = await axios.get<Record<string, any>>('https://store.steampowered.com/api/appdetails', {
-        params: { appids: appid, cc, l },
-        timeout: Math.max(e.steamHttpTimeoutMs, 12000),
-        validateStatus: () => true,
+      const row = await fetchSteamAppDetailsOne(this.env, appid, {
+        cc: pc.steamStoreCc,
+        language: resolved.steamLanguage,
       });
-      const row = data?.[appid];
-      if (!row?.success || !row?.data) return null;
-      const d = row.data as Record<string, any>;
-      const price = (d.price_overview ?? {}) as Record<string, any>;
-      const apiCurrency = String(price.currency ?? '')
-        .trim()
-        .toUpperCase();
-      const currency = apiCurrency || cfgCurrency || 'USD';
-      const storeUrl = buildRegionalSteamStoreAppUrl(appid, pc.steamStoreCc, resolved.steamLanguage);
-      return {
-        source: 'steam',
-        url: storeUrl,
-        countryCode: /^[A-Z]{2}$/.test(biz) ? biz : 'US',
-        currency,
-        originalPrice: num(price.initial) ?? 0,
-        finalPrice: num(price.final) ?? 0,
-        discountPercent: num(price.discount_percent) ?? 0,
-      };
+      return steamAppDetailsRowToDealOffer(appid, row, {
+        steamStoreCc: pc.steamStoreCc,
+        steamLanguage: resolved.steamLanguage,
+        businessCountryCode: biz,
+        defaultCurrency: resolved.defaultCurrency,
+      });
     } catch {
       return null;
     }
@@ -304,7 +294,8 @@ export class GameDiscountSyncService {
     ggRegion: string,
     businessCountryCode: string,
   ): Promise<{ offer: DealOffer | null; rawNode: Record<string, unknown> | null }> {
-    if (!ggDealsApiKey) return { offer: null, rawNode: null };
+    const apiKey = String(ggDealsApiKey ?? '').trim();
+    if (!apiKey) return { offer: null, rawNode: null };
     const biz = String(businessCountryCode || 'US')
       .trim()
       .toUpperCase()
@@ -315,7 +306,7 @@ export class GameDiscountSyncService {
       const e = await getEffectiveEnv(this.env);
       const timeoutMs = Math.max(e.steamHttpTimeoutMs, 10000);
       const hit = await ggDealsFetchPricesBySteamAppId({
-        apiKey: ggDealsApiKey,
+        apiKey,
         baseUrl: ggDealsBaseUrl,
         appid,
         region: regionLc,
@@ -349,7 +340,8 @@ export class GameDiscountSyncService {
     itadCountry: string,
     businessCountryCode: string,
   ): Promise<{ offer: DealOffer | null; itadGameId?: string; pricesV3Payload?: unknown }> {
-    if (!itadApiKey) return { offer: null };
+    const apiKey = String(itadApiKey ?? '').trim();
+    if (!apiKey) return { offer: null };
     const biz = String(businessCountryCode || 'US')
       .trim()
       .toUpperCase()
@@ -358,7 +350,7 @@ export class GameDiscountSyncService {
       const e = await getEffectiveEnv(this.env);
       const timeoutMs = Math.max(e.steamHttpTimeoutMs, 10000);
       const lookup = await itadLookupBySteamAppId({
-        apiKey: itadApiKey,
+        apiKey,
         baseUrl: itadBaseUrl,
         appid,
         timeoutMs,
@@ -371,7 +363,7 @@ export class GameDiscountSyncService {
         .slice(0, 2);
       const priceTimeout = Math.max(e.steamHttpTimeoutMs, 12000);
       const pricesData = await itadFetchGamePricesV3({
-        apiKey: itadApiKey,
+        apiKey,
         baseUrl: itadBaseUrl,
         itadGameIds: [itadGameId],
         country: itadC,
@@ -426,6 +418,7 @@ export class GameDiscountSyncService {
         itad?: {
           lookup: { itadGameId: string; lookupData: Record<string, unknown> };
           pricesV3Payload: unknown[];
+          pricesEntry: Record<string, unknown> | null;
           offer: DealOffer | null;
         };
         gg?: {
@@ -506,9 +499,8 @@ export class GameDiscountSyncService {
         let offer: DealOffer | null = null;
         let reason: string | undefined;
         const pfSteam = opts?.pricePrefetch?.steamOffer;
-        if (pfSteam !== undefined) {
+        if (pfSteam != null && pfSteam.url) {
           offer = pfSteam;
-          if (!offer?.url) reason = 'empty_response';
         } else {
           try {
             offer = await this.fetchSteam(id, pc, resolved);
@@ -540,11 +532,12 @@ export class GameDiscountSyncService {
           if (!offer?.url) {
             reason = !isGgDealsOfficialRegion(pc.ggDealsRegion) ? 'region_not_supported' : 'empty_response';
           }
-        } else if (!opts?.ggDealsApiKey) {
+        } else if (!String(opts?.ggDealsApiKey ?? '').trim()) {
           reason = 'missing_api_key';
         } else {
+          const ggKey = String(opts!.ggDealsApiKey).trim();
           try {
-            const gg = await this.fetchGgDeals(id, opts.ggDealsApiKey, opts.ggDealsBaseUrl, pc.ggDealsRegion, businessCc);
+            const gg = await this.fetchGgDeals(id, ggKey, opts!.ggDealsBaseUrl, pc.ggDealsRegion, businessCc);
             offer = gg.offer;
             rawGg = gg.rawNode;
             if (!offer?.url) {
@@ -586,11 +579,12 @@ export class GameDiscountSyncService {
           itadGameId = pfItad.lookup.itadGameId;
           pricesV3Payload = pfItad.pricesV3Payload;
           if (!offer?.url) reason = 'empty_response';
-        } else if (!opts?.itadApiKey) {
+        } else if (!String(opts?.itadApiKey ?? '').trim()) {
           reason = 'missing_api_key';
         } else {
+          const itadKey = String(opts!.itadApiKey).trim();
           try {
-            const itad = await this.fetchItad(id, opts.itadApiKey, opts.itadBaseUrl, pc.itadCountry, businessCc);
+            const itad = await this.fetchItad(id, itadKey, opts!.itadBaseUrl, pc.itadCountry, businessCc);
             offer = itad.offer;
             itadGameId = itad.itadGameId;
             pricesV3Payload = itad.pricesV3Payload;
@@ -610,7 +604,47 @@ export class GameDiscountSyncService {
         await this.writeCountrySourceSnapshot(id, businessCc, pc, 'isthereanydeal', { ok, offer, reason }, now);
       };
 
-      await Promise.all([runSteam(), runGg(), runItad()]);
+      // 串行写入 bucket，避免并行 read-merge-write 互相覆盖（典型症状：ITAD/GG 已更新但 Steam 仍为旧 error）
+      await runSteam();
+      await runGg();
+      await runItad();
+
+      // Steam Store API 被 CDN 403/限流时：用 ITAD prices/v3 的 Steam 店 (shop 61) 补 Steam 官方零售价
+      if (allowSources.has('steam')) {
+        const steamIdx = providers.findIndex((p) => p.source === 'steam');
+        const steamP = steamIdx >= 0 ? providers[steamIdx] : null;
+        const needSteam =
+          !steamP?.ok ||
+          !steamP.offer?.url ||
+          (steamP.offer.finalPrice == null && (steamP.offer.originalPrice == null || steamP.offer.originalPrice === 0));
+        if (needSteam) {
+          const itadRow = itadPerCountryOk.find((x) => x.cc === businessCc);
+          const pfItad = opts?.pricePrefetch?.itad;
+          const entry =
+            pfItad?.pricesEntry ??
+            (itadRow?.pricesV3Payload && itadRow.itadGameId
+              ? itadPricesV3EntryForGameId(itadRow.pricesV3Payload as unknown[], itadRow.itadGameId)
+              : null);
+          const steamDeal = pickItadSteamDealFromPricesV3Entry(entry);
+          if (steamDeal) {
+            const parsed = itadDealToPriceFields(steamDeal);
+            const cur = parsed.currency || resolved.defaultCurrency;
+            const offer: DealOffer = {
+              source: 'steam',
+              url: buildRegionalSteamStoreAppUrl(id, pc.steamStoreCc, resolved.steamLanguage),
+              countryCode: businessCc,
+              currency: cur,
+              originalPrice: displayToSteamMinorUnits(parsed.originalPrice, cur),
+              finalPrice: displayToSteamMinorUnits(parsed.finalPrice, cur),
+              discountPercent: parsed.discountPercent,
+            };
+            const rec = { source: 'steam' as const, ok: true, offer, reason: 'itad_steam_shop_fallback' };
+            if (steamIdx >= 0) providers[steamIdx] = rec;
+            else providers.push(rec);
+            await this.writeCountrySourceSnapshot(id, businessCc, pc, 'steam', { ok: true, offer }, now);
+          }
+        }
+      }
     }
 
     const steamOffers = providers

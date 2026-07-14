@@ -35,6 +35,7 @@ class _WishlistScreenState extends State<WishlistScreen> {
 
   /// 后端 `/v1/wishlist/decisions`，key = appid
   Map<String, Map<String, dynamic>> _decisionsByAppId = {};
+  Map<String, Map<String, dynamic>> _pricesByAppId = {};
   bool _loading = true;
 
   /// 0 默认顺序 1 折扣 2 名称 3 决策优先级
@@ -79,7 +80,7 @@ class _WishlistScreenState extends State<WishlistScreen> {
   @override
   void didUpdateWidget(WishlistScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.currentTabIndex == 2 && oldWidget.currentTabIndex != 2) {
+    if (widget.currentTabIndex == 3 && oldWidget.currentTabIndex != 3) {
       _checkAuthAndLoad();
     }
   }
@@ -166,6 +167,21 @@ class _WishlistScreenState extends State<WishlistScreen> {
         }
 
         items = await _storage.getWishlistItems();
+        try {
+          final pricesData = await _backend.getFavoritePrices(
+            steamToken,
+            country: region.countryCode,
+          );
+          final priceItems = pricesData['items'] as List<dynamic>? ?? [];
+          final m = <String, Map<String, dynamic>>{};
+          for (final p in priceItems) {
+            if (p is Map) {
+              final id = p['appid']?.toString().trim() ?? '';
+              if (id.isNotEmpty) m[id] = Map<String, dynamic>.from(p);
+            }
+          }
+          if (mounted) setState(() => _pricesByAppId = m);
+        } catch (_) {}
       } catch (_) {
         // 远程同步失败则回退本地 wishlist
       }
@@ -267,6 +283,42 @@ class _WishlistScreenState extends State<WishlistScreen> {
   }
 
   GameModel? _gameFor(WishlistItem item) {
+    final priceRow = _pricesByAppId[item.appId];
+    if (priceRow != null) {
+      final ps = priceRow['priceSummary'];
+      Map<String, dynamic>? steamCell;
+      if (ps is Map) {
+        final platforms = ps['platforms'];
+        if (platforms is Map && platforms['steam'] is Map) {
+          steamCell = Map<String, dynamic>.from(platforms['steam'] as Map);
+        }
+      }
+      final discount = priceRow['discountPercent'] is num
+          ? (priceRow['discountPercent'] as num).round()
+          : (steamCell?['discountPercent'] is num
+              ? (steamCell!['discountPercent'] as num).round()
+              : 0);
+      final finalPrice = priceRow['finalPrice'] is num
+          ? (priceRow['finalPrice'] as num).toDouble()
+          : (steamCell?['finalPrice'] is num
+              ? (steamCell!['finalPrice'] as num).toDouble()
+              : 0.0);
+      final original = steamCell?['originalPrice'] is num
+          ? (steamCell!['originalPrice'] as num).toDouble()
+          : finalPrice;
+      return GameModel(
+        appId: item.appId,
+        name: priceRow['name']?.toString() ?? item.name,
+        image: item.image,
+        price: finalPrice,
+        originalPrice: original,
+        discount: discount,
+        steamAppID: item.appId,
+        steamRatingText: '',
+        metacriticScore: '',
+        dealID: item.appId,
+      );
+    }
     try {
       return _deals.firstWhere((g) => g.appId == item.appId);
     } catch (_) {

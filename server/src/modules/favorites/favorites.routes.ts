@@ -10,6 +10,7 @@ export function favoritesRouter(_env: Env) {
 
   router.get('/', authMiddleware(_env), controller.list);
   router.post('/', authMiddleware(_env), controller.add);
+  router.post('/migrate', authMiddleware(_env), controller.migrate);
   router.delete('/:appid', authMiddleware(_env), controller.remove);
 
   return router;
