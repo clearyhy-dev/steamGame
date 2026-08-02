@@ -317,8 +317,9 @@ class _GameDetailPageState extends State<GameDetailPage> {
       _dealsUsingCache = true;
       _allDealsLoaded = true;
     });
+    final l10n = AppLocalizations.of(context);
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('网络波动，已展示最近一次价格缓存')),
+      SnackBar(content: Text(l10n.get('affiliate_cached_price'))),
     );
   }
 
@@ -442,8 +443,9 @@ class _GameDetailPageState extends State<GameDetailPage> {
       } catch (_) {}
     }
     if (!mounted) return;
+    final l10n = AppLocalizations.of(context);
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('暂时无法打开 Steam 商店，请安装 Steam App 或使用浏览器')),
+      SnackBar(content: Text(l10n.get('steam_store_open_failed'))),
     );
   }
 
@@ -541,8 +543,9 @@ class _GameDetailPageState extends State<GameDetailPage> {
     final pro = await StorageService.instance.isPro();
     if (!pro) {
       if (!mounted) return;
+      final l10n = AppLocalizations.of(context);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('愿望单功能仅会员可用，请先开通会员')),
+        SnackBar(content: Text(l10n.get('wishlist_pro_only'))),
       );
       await Navigator.push(
         context,

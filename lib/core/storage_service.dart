@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'constants.dart';
+import 'session/session_store.dart';
 import 'services/review_service.dart';
 import '../models/game_model.dart';
 import '../models/wishlist_model.dart';
@@ -498,10 +499,15 @@ class StorageService {
   }
 
   // --- 登录（Google）：user_id / email / photo_url ---
+  // 权威读写见 SessionStore；此处保持兼容并同步双写。
   Future<bool> isLoggedIn() async {
     if (!_inited) return false;
     final id = _prefs.getString(AppConstants.keyAuthUserId);
-    return id != null && id.isNotEmpty;
+    if (id != null && id.isNotEmpty) return true;
+    if (SessionStore.instance.isInitialized) {
+      return SessionStore.instance.hasIdentity();
+    }
+    return false;
   }
 
   Future<void> setAuthUser(
@@ -514,8 +520,21 @@ class StorageService {
 
   Future<Map<String, String>> getAuthUser() async {
     if (!_inited) return {};
-    final id = _prefs.getString(AppConstants.keyAuthUserId);
-    if (id == null || id.isEmpty) return {};
+    var id = _prefs.getString(AppConstants.keyAuthUserId);
+    if (id == null || id.isEmpty) {
+      if (SessionStore.instance.isInitialized) {
+        final healed = await SessionStore.instance.getIdentity();
+        if (healed.isNotEmpty) {
+          await setAuthUser(
+            userId: healed['userId'] ?? '',
+            email: healed['email'],
+            photoUrl: healed['photoUrl'],
+          );
+          return healed;
+        }
+      }
+      return {};
+    }
     return {
       'userId': id,
       'email': _prefs.getString(AppConstants.keyAuthEmail) ?? '',
@@ -531,7 +550,7 @@ class StorageService {
     await _prefs.remove(AppConstants.keyBackendTrialUntil);
   }
 
-  // --- 后端（Steam OpenID）JWT 登录态 ---
+  // --- 平台 JWT（Google app-session 与 Steam OpenID 共用）---
   Future<void> setSteamBackendToken(String token) async {
     if (!_inited) return;
     await _prefs.setString(AppConstants.keySteamBackendToken, token);
@@ -540,17 +559,38 @@ class StorageService {
   Future<String?> getSteamBackendToken() async {
     if (!_inited) return null;
     final token = _prefs.getString(AppConstants.keySteamBackendToken);
-    if (token == null || token.isEmpty) return null;
-    return token;
+    if (token != null && token.isNotEmpty) return token;
+    // prefs 丢失时从 SessionStore / Hive 备份回填
+    if (SessionStore.instance.isInitialized) {
+      final backup = await SessionStore.instance.getJwt();
+      if (backup != null && backup.isNotEmpty) {
+        await _prefs.setString(AppConstants.keySteamBackendToken, backup);
+        return backup;
+      }
+    }
+    return null;
   }
 
-  Future<void> clearSteamBackendToken() async {
+  /// 仅清除平台 JWT，保留 Google 身份与 Steam 资料缓存。
+  Future<void> clearPlatformJwt() async {
     if (!_inited) return;
     await _prefs.remove(AppConstants.keySteamBackendToken);
+  }
+
+  /// 仅清除本地 Steam 资料展示缓存（不解绑 Google / 不必然清 JWT）。
+  Future<void> clearSteamProfileCache() async {
+    if (!_inited) return;
     await _prefs.remove(AppConstants.keySteamId);
     await _prefs.remove(AppConstants.keySteamPersonaName);
     await _prefs.remove(AppConstants.keySteamAvatar);
     await _prefs.remove(AppConstants.keySteamProfileUrl);
+  }
+
+  /// 兼容旧调用：清 JWT + Steam 资料。401 恢复路径请用 [clearPlatformJwt]。
+  Future<void> clearSteamBackendToken() async {
+    if (!_inited) return;
+    await clearPlatformJwt();
+    await clearSteamProfileCache();
     await _prefs.remove(AppConstants.keyBackendTrialUntil);
   }
 

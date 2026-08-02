@@ -108,3 +108,87 @@ String normalizeUiLanguageCode(String? storedOrDevice) {
       return primary;
   }
 }
+
+/// App `supportedLocales` — uiLanguage 只能落在这些码上。
+const kAppSupportedUiLanguages = <String>{
+  'en', 'zh', 'ja', 'ko', 'fr', 'ru', 'de', 'es',
+  'ur', 'id', 'tr', 'vi', 'th', 'hi', 'pt', 'ar',
+  'pl', 'it', 'nl', 'sv', 'he', 'el',
+};
+
+/// 空值时的建议默认（不会覆盖 Admin 已存的合法 App 语言，含 en）。
+const Map<String, String> kPreferredUiLanguageByCountry = {
+  'US': 'en',
+  'GB': 'en',
+  'AU': 'en',
+  'NZ': 'en',
+  'IE': 'en',
+  'CA': 'en',
+  'CN': 'zh',
+  'TW': 'zh',
+  'HK': 'zh',
+  'SG': 'zh',
+  'JP': 'ja',
+  'KR': 'ko',
+  'FR': 'fr',
+  'BE': 'fr',
+  'DE': 'de',
+  'AT': 'de',
+  'CH': 'de',
+  'BR': 'pt',
+  'PT': 'pt',
+  'PL': 'pl',
+  'ES': 'es',
+  'MX': 'es',
+  'AR': 'es',
+  'CL': 'es',
+  'CO': 'es',
+  'PE': 'es',
+  'IT': 'it',
+  'RU': 'ru',
+  'UA': 'ru',
+  'TR': 'tr',
+  'VN': 'vi',
+  'TH': 'th',
+  'ID': 'id',
+  'IN': 'hi',
+  'PK': 'ur',
+  'SA': 'ar',
+  'AE': 'ar',
+  'EG': 'ar',
+  'IL': 'he',
+  'GR': 'el',
+  'NL': 'nl',
+  'SE': 'sv',
+};
+
+/// 只匹配 App 已有多语言。
+/// FR/JP 等有专属语言：空或历史 en → 专属语言；显式其它 App 语言保留。
+/// US 等英文区 / 无映射：保留合法值，否则 en。
+String resolveCatalogUiLanguage({
+  required String countryCode,
+  required String apiUiLanguage,
+  String? steamLanguage,
+}) {
+  final cc = countryCode.trim().toUpperCase();
+  final mapped = kPreferredUiLanguageByCountry[cc];
+  final mappedOk =
+      (mapped != null && kAppSupportedUiLanguages.contains(mapped)) ? mapped : '';
+  final apiRaw = apiUiLanguage.trim();
+  final api = apiRaw.isEmpty ? '' : normalizeUiLanguageCode(apiRaw);
+  final apiOk =
+      (api.isNotEmpty && kAppSupportedUiLanguages.contains(api)) ? api : '';
+
+  if (mappedOk.isNotEmpty && mappedOk != 'en') {
+    if (apiOk.isEmpty || apiOk == 'en') return mappedOk;
+    return apiOk;
+  }
+  if (apiOk.isNotEmpty) return apiOk;
+  if (mappedOk.isNotEmpty) return mappedOk;
+
+  final steam = normalizeUiLanguageCode(steamLanguage ?? '');
+  if (steam.isNotEmpty && kAppSupportedUiLanguages.contains(steam)) {
+    return steam;
+  }
+  return 'en';
+}

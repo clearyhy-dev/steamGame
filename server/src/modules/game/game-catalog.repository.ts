@@ -69,7 +69,12 @@ export type GgOfficialPricesSnapshot = {
 
 /** GG.deals 扩展：官方 prices 块写入 `game_discount_offers` 分桶的 `ggDetail`（热度类标签不在 prices 接口，勿用 Steam 推导冒充） */
 export type GgDetailSnapshot = {
+  /** 实际请求官方 API 的 region（代理后可能与配置不同，如 jp→us） */
   ggApiRegion?: string;
+  /** 配置/业务侧期望的 GG region（如 jp、kr） */
+  requestedGgRegion?: string;
+  /** 因官方不支持而代理到 `ggApiRegion` */
+  regionProxied?: boolean;
   syncedAt: admin.firestore.Timestamp;
   error?: string;
   /** 本次是否成功拉到 GG 价格接口 */

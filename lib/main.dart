@@ -26,8 +26,11 @@ import 'data/services/cache_service.dart';
 import 'core/notification_service.dart';
 import 'core/schedule_config.dart';
 import 'core/app_user_sync.dart';
+import 'core/services/auth_service.dart';
+import 'core/session/session_store.dart';
 import 'features/splash/splash_bootstrap.dart';
 import 'services/steam_backend_service.dart';
+import 'l10n/app_localizations.dart';
 
 /// 后端 `deepLink()` 生成的是 `myapp://auth/steam/success`（`auth` 为 [Uri.host]，路径为 `/steam/success`），
 /// 此时 [Uri.pathSegments] 为 `steam,success`，不能按 `/auth/steam/...` 三段路径解析。
@@ -116,8 +119,9 @@ Future<void> _handleSteamAuthDeepLink(Uri? uri) async {
         final ctx = navigatorKey.currentContext;
         if (ctx == null) return;
         steamSnackShown = true;
+        final l10n = AppLocalizations.of(ctx);
         ScaffoldMessenger.of(ctx).showSnackBar(
-          const SnackBar(content: Text('Steam account linked successfully')),
+          SnackBar(content: Text(l10n.get('steam_linked_success'))),
         );
       }
 
@@ -140,9 +144,10 @@ Future<void> _handleSteamAuthDeepLink(Uri? uri) async {
         final ctx = navigatorKey.currentContext;
         if (ctx == null) return;
         failSnackShown = true;
+        final l10n = AppLocalizations.of(ctx);
         ScaffoldMessenger.of(ctx).showSnackBar(
           SnackBar(
-              content: Text('Steam 登录失败：$reason'),
+              content: Text('${l10n.get('steam_login_start_failed')}$reason'),
               duration: const Duration(seconds: 5)),
         );
       }
@@ -158,8 +163,9 @@ Future<void> _syncTrialFromBackendIfLoggedIn() async {
   try {
     final token = await StorageService.instance.getSteamBackendToken();
     if (token == null || token.isEmpty) return;
+    // 服务端/手动选区已在 bootstrap 对齐；此处仅补 Steam 初检（manualPick 时会跳过）
     await AppCountrySteamSync.applyFromSteamOverviewIfEligible(token);
-    await AppUserSync.applyServerCountryIfPresent();
+    await AppUserSync.applyServerCountryIfPresent(notifyUi: true);
     final backend = SteamBackendService();
     final me = await backend.getMe(token);
     final trial = me['trial'];
@@ -237,12 +243,28 @@ void main() async {
   });
 }
 
-/// 首屏前只做关键路径：存储 / 缓存 / 国家与配置 / 冷启动 deep link。
+/// 首屏前关键路径：存储 + 本地登录身份（无网络）必须完成；网络项可超时。
 Future<void> _bootstrapForFirstFrame() async {
+  // —— 关键：不可被 splash 超时截断语义上「跳过」——
   try {
     await StorageService.instance.init();
   } catch (e) {
     debugPrint('StorageService.init: $e');
+  }
+  try {
+    await SessionStore.instance.init(
+      prefs: StorageService.instance.isInitialized
+          ? StorageService.instance.prefs
+          : null,
+    );
+  } catch (e) {
+    debugPrint('SessionStore.init: $e');
+  }
+  try {
+    // 仅本地：prefs/Hive 回填身份，保证进主页时已登录态可见
+    await AuthService().restoreLocalSession();
+  } catch (e) {
+    debugPrint('AuthService.restoreLocalSession: $e');
   }
 
   await Future.wait<void>([
@@ -268,6 +290,20 @@ Future<void> _bootstrapForFirstFrame() async {
       }
     }(),
   ]);
+
+  // 网络：补 JWT / Google 静默（失败不踢本地身份）
+  try {
+    await AuthService().restoreSession();
+  } catch (e) {
+    debugPrint('AuthService.restoreSession: $e');
+  }
+
+  // 已登录：首帧前先用账号上的国家（如 FR），避免先落 US 再异步覆盖却不刷新 UI
+  try {
+    await AppUserSync.applyServerCountryIfPresent(notifyUi: false);
+  } catch (e) {
+    debugPrint('AppUserSync.applyServerCountry: $e');
+  }
 
   try {
     await AppCountryResolver.resolveContext();

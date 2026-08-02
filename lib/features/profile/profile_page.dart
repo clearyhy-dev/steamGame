@@ -1,8 +1,5 @@
 import 'dart:async';
-import 'dart:io' show exit;
 
-import 'package:flutter/foundation.dart'
-    show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../core/theme/colors.dart';
@@ -13,6 +10,7 @@ import '../../core/storage_service.dart';
 import '../../data/services/cache_service.dart';
 import '../../core/notification_service.dart';
 import '../../core/services/auth_service.dart';
+import '../../core/session/session_store.dart';
 import '../../core/services/review_service.dart';
 import '../../l10n/app_localizations.dart';
 import '../subscription/subscription_page.dart';
@@ -51,6 +49,7 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   void initState() {
     super.initState();
+    AuthService().addListener(_onAuthChanged);
     _load();
 
     _steamAuthSub = SteamAuthEvents.instance.stream.listen((payload) {
@@ -63,8 +62,14 @@ class _ProfilePageState extends State<ProfilePage> {
     });
   }
 
+  void _onAuthChanged() {
+    if (!mounted) return;
+    _load();
+  }
+
   @override
   void dispose() {
+    AuthService().removeListener(_onAuthChanged);
     _steamAuthSub?.cancel();
     super.dispose();
   }
@@ -201,10 +206,8 @@ class _ProfilePageState extends State<ProfilePage> {
         ),
       );
     }
-    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-      await Future<void>.delayed(const Duration(milliseconds: 500));
-      exit(0);
-    }
+    // 不再 exit(0)：强杀会导致 SharedPreferences 未落盘，Google 登录态丢失。
+    // 语言 / Tab 已由 AppCountryEvents + onAppCountryChanged 就地刷新。
   }
 
   String _appCountrySubtitle(AppLocalizations l10n) {
@@ -366,15 +369,26 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Future<void> _logoutSteam() async {
     final token = await StorageService.instance.getSteamBackendToken();
-    if (token == null || token.isEmpty) return;
+    if (token == null || token.isEmpty) {
+      await StorageService.instance.clearSteamProfileCache();
+      if (mounted) _load();
+      return;
+    }
     try {
       final backend = SteamBackendService();
       await backend.logout(token);
     } catch (_) {
       // ignore
     }
-    await StorageService.instance.clearSteamBackendToken();
-    if (mounted) setState(() {});
+    // 只清 Steam 资料展示；若仍有 Google 身份则重签平台 JWT，避免「退出 Steam」误踢 Google 登录
+    await StorageService.instance.clearSteamProfileCache();
+    if (await AuthService().isLoggedIn()) {
+      await AuthService().refreshJwtIfPossible();
+    } else {
+      await StorageService.instance.clearPlatformJwt();
+      await SessionStore.instance.clearJwtOnly();
+    }
+    if (mounted) _load();
   }
 
   @override

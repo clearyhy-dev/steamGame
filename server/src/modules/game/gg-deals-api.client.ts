@@ -62,9 +62,9 @@ function parseGgBatchDataMap(body: unknown): Record<string, Record<string, unkno
 
 /**
 
- * `GET /v1/prices/by-steam-app-id/`（文档：https://gg.deals/api/prices/）
+ * `GET /v1/prices/by-steam-app-id/`（文档：https://gg.deals/api/prices/�?
 
- * 仅对官方 region 列表发起请求；非支持 region 直接返回 null（不做 US 回退）。
+ * 仅对官方 region 列表发起请求；非支持 region 直接返回 null（不�?US 回退）�?
 
  */
 
@@ -108,7 +108,7 @@ export async function ggDealsFetchPricesBySteamAppId(opts: {
 
 
 
-/** 批量拉价（官方上限 100 ids/请求） */
+/** 批量拉价（官方上�?100 ids/请求�?*/
 
 export async function ggDealsFetchPricesBySteamAppIds(opts: {
 

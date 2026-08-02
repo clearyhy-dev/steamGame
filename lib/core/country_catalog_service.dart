@@ -41,12 +41,13 @@ class CountryCatalogEntry {
   factory CountryCatalogEntry.fromJson(Map<String, dynamic> m) {
     final steamLanguage = (m['steamLanguage'] ?? 'en').toString();
     final uiLanguageRaw = (m['uiLanguage'] ?? '').toString().trim();
-    final uiLanguageFallback = steamLanguage.trim().isNotEmpty ? steamLanguage : 'en';
-    final uiLanguage = normalizeUiLanguageCode(
-      uiLanguageRaw.isNotEmpty ? uiLanguageRaw : uiLanguageFallback,
-    );
     final cc =
         (m['countryCode'] ?? '').toString().trim().toUpperCase();
+    final uiLanguage = resolveCatalogUiLanguage(
+      countryCode: cc,
+      apiUiLanguage: uiLanguageRaw,
+      steamLanguage: steamLanguage,
+    );
     String iso2Upper(dynamic v) {
       final s = (v ?? cc).toString().trim().toUpperCase();
       return s.length == 2 ? s : cc;

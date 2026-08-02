@@ -136,6 +136,70 @@ export function CountryRegionMappingPage() {
     }
   };
 
+  /** 与 App supportedLocales 一致：下拉只能选这些 */
+  const APP_UI_LANG_OPTIONS = [
+    { value: 'en', label: 'en · English' },
+    { value: 'zh', label: 'zh · 中文' },
+    { value: 'ja', label: 'ja · 日本語' },
+    { value: 'ko', label: 'ko · 한국어' },
+    { value: 'fr', label: 'fr · Français' },
+    { value: 'de', label: 'de · Deutsch' },
+    { value: 'es', label: 'es · Español' },
+    { value: 'pt', label: 'pt · Português' },
+    { value: 'ru', label: 'ru · Русский' },
+    { value: 'pl', label: 'pl · Polski' },
+    { value: 'it', label: 'it · Italiano' },
+    { value: 'tr', label: 'tr · Türkçe' },
+    { value: 'vi', label: 'vi · Tiếng Việt' },
+    { value: 'th', label: 'th · ไทย' },
+    { value: 'id', label: 'id · Indonesia' },
+    { value: 'hi', label: 'hi · हिन्दी' },
+    { value: 'ur', label: 'ur · اردو' },
+    { value: 'ar', label: 'ar · العربية' },
+    { value: 'he', label: 'he · עברית' },
+    { value: 'el', label: 'el · Ελληνικά' },
+    { value: 'nl', label: 'nl · Nederlands' },
+    { value: 'sv', label: 'sv · Svenska' },
+  ];
+  const APP_UI_LANG_SET = new Set(APP_UI_LANG_OPTIONS.map((x) => x.value));
+
+  /** 空值建议默认；不会把已设的合法 App 语言（含 en）按国家强改 */
+  const UI_LANG_BY_COUNTRY: Record<string, string> = {
+    US: 'en', GB: 'en', AU: 'en', NZ: 'en', IE: 'en', CA: 'en',
+    CN: 'zh', TW: 'zh', HK: 'zh', SG: 'zh',
+    JP: 'ja', KR: 'ko', FR: 'fr', BE: 'fr',
+    DE: 'de', AT: 'de', CH: 'de',
+    BR: 'pt', PT: 'pt', PL: 'pl',
+    ES: 'es', MX: 'es', AR: 'es', CL: 'es', CO: 'es', PE: 'es',
+    IT: 'it', RU: 'ru', UA: 'ru', TR: 'tr',
+    VN: 'vi', TH: 'th', ID: 'id', IN: 'hi', PK: 'ur',
+    SA: 'ar', AE: 'ar', EG: 'ar', IL: 'he', GR: 'el', NL: 'nl', SE: 'sv',
+  };
+
+  const clampAppUiLang = (code?: string) => {
+    const cur = String(code || '').trim().toLowerCase().split(/[-_]/)[0] || '';
+    if (cur && APP_UI_LANG_SET.has(cur)) return cur;
+    return '';
+  };
+
+  /**
+   * 与后端 inferUiLanguage 一致：
+   * - FR/JP/DE 等有 App 专属语言：空或历史 en → 用专属语言
+   * - US 等英文区 / 无映射：保留已存合法值，否则 en
+   */
+  const preferredUiLang = (countryCode: string, current?: string) => {
+    const cc = String(countryCode || '').trim().toUpperCase();
+    const mapped = UI_LANG_BY_COUNTRY[cc];
+    const mappedOk = mapped && APP_UI_LANG_SET.has(mapped) ? mapped : '';
+    const kept = clampAppUiLang(current);
+    if (mappedOk && mappedOk !== 'en') {
+      if (!kept || kept === 'en') return mappedOk;
+      return kept;
+    }
+    if (kept) return kept;
+    return mappedOk || 'en';
+  };
+
   const columns: ColumnsType<Row> = [
     { title: 'countryCode', dataIndex: 'countryCode', width: 90 },
     { title: 'countryName', dataIndex: 'countryName' },
@@ -145,7 +209,12 @@ export function CountryRegionMappingPage() {
     { title: 'GG', dataIndex: 'ggDealsRegion', width: 72, render: (v: string) => v || '—' },
     { title: 'CS', dataIndex: 'cheapsharkCountry', width: 72, render: (v: string) => v || '—' },
     { title: 'steamLanguage', dataIndex: 'steamLanguage', width: 110 },
-    { title: 'uiLanguage', dataIndex: 'uiLanguage', width: 100 },
+    {
+      title: 'uiLanguage',
+      dataIndex: 'uiLanguage',
+      width: 120,
+      render: (v: string, r: Row) => preferredUiLang(r.countryCode, v),
+    },
     { title: 'currency', dataIndex: 'defaultCurrency', width: 90 },
     {
       title: 'symbol',
@@ -210,6 +279,7 @@ export function CountryRegionMappingPage() {
             setEditing(r);
             form.setFieldsValue({
               ...r,
+              uiLanguage: preferredUiLang(r.countryCode, r.uiLanguage),
               cheapsharkCountry: providerMeta?.cheapsharkListCountry ?? 'US',
             });
             setOpen(true);
@@ -326,6 +396,29 @@ export function CountryRegionMappingPage() {
           强制按规则覆盖全部
         </Button>
         <Button
+          onClick={async () => {
+            try {
+              let n = 0;
+              for (const r of rows) {
+                const next = preferredUiLang(r.countryCode, r.uiLanguage);
+                if (next === String(r.uiLanguage || '').trim().toLowerCase()) continue;
+                await adminApi.regionCountriesUpsert({
+                  ...r,
+                  uiLanguage: next,
+                  cheapsharkCountry: providerMeta?.cheapsharkListCountry ?? r.cheapsharkCountry ?? 'US',
+                });
+                n += 1;
+              }
+              message.success(n > 0 ? `已写回 App 对应语言：${n} 条（如 FR→fr）` : '已与 App 语言对齐，无需更新');
+              await reload();
+            } catch (e) {
+              message.error(e instanceof Error ? e.message : '匹配失败');
+            }
+          }}
+        >
+          写回 App 对应 uiLanguage
+        </Button>
+        <Button
           type="primary"
           onClick={() => {
             setEditing(null);
@@ -359,7 +452,19 @@ export function CountryRegionMappingPage() {
       >
         <Form form={form} layout="vertical">
           <Form.Item name="countryCode" label="countryCode (ISO2)" rules={[{ required: true }]}>
-            <Input disabled={!!editing} maxLength={2} />
+            <Input
+              disabled={!!editing}
+              maxLength={2}
+              onChange={(e) => {
+                const code = e.target.value.trim().toUpperCase();
+                if (/^[A-Z]{2}$/.test(code)) {
+                  form.setFieldValue('uiLanguage', preferredUiLang(code));
+                  if (!form.getFieldValue('steamCc')) {
+                    form.setFieldValue('steamCc', code);
+                  }
+                }
+              }}
+            />
           </Form.Item>
           <Form.Item name="countryName" label="countryName" rules={[{ required: true }]}>
             <Input />
@@ -383,7 +488,7 @@ export function CountryRegionMappingPage() {
           <Form.Item
             name="ggDealsRegion"
             label="GG.deals region"
-            extra="小写两位（或 eu）。可从建议中选，也可手输如 jp、mx"
+            extra="小写两位（或 eu）。官方仅支持文档列表中的 region；jp/kr/cn 等非官方码会在同步时显式代理到 us/br/eu（币种为代理区货币）"
           >
             <AutoComplete
               maxLength={8}
@@ -407,10 +512,15 @@ export function CountryRegionMappingPage() {
             </Typography.Paragraph>
           </Form.Item>
           <Form.Item name="steamLanguage" label="steamLanguage" rules={[{ required: true }]}>
-            <Input placeholder="en, ja, zh, schinese…" />
+            <Input placeholder="en, japanese, schinese…" />
           </Form.Item>
-          <Form.Item name="uiLanguage" label="uiLanguage" rules={[{ required: true }]}>
-            <Input placeholder="en, zh, ja, ko..." />
+          <Form.Item
+            name="uiLanguage"
+            label="uiLanguage（App 界面语言）"
+            rules={[{ required: true }]}
+            extra="只能选 App 已有多语言。FR/JP/DE 等有本国语言时会从历史 en 纠正为对应语言；无映射国保持 en"
+          >
+            <Select showSearch options={APP_UI_LANG_OPTIONS} optionFilterProp="label" />
           </Form.Item>
           <Form.Item name="defaultCurrency" label="defaultCurrency (fallback)" rules={[{ required: true }]}>
             <Input

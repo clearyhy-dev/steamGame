@@ -158,15 +158,17 @@ print('tar ok', out, os.path.getsize(out))
 "@
 
 $pyDeploy = @"
-import os, sys, tarfile, io, time
+import os, sys, time
 import paramiko
 
 host = sys.argv[1]
 user = sys.argv[2]
-password = sys.argv[3]
+password = os.environ.get('VULTR_SSH_PASSWORD') or (sys.argv[3] if len(sys.argv) > 3 else '')
 remote_dir = sys.argv[4]
 tar_path = sys.argv[5]
 api_port = int(sys.argv[6])
+if not password:
+    raise SystemExit('VULTR_SSH_PASSWORD missing')
 
 c = paramiko.SSHClient()
 c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -205,11 +207,16 @@ print('DEPLOY_OK')
 $pyFile = Join-Path $env:TEMP "deploy-vultr-api-upload.py"
 Set-Content -Path $pyFile -Value $pyDeploy -Encoding UTF8
 
-Write-Host "=== 3/4 上传并在服务器构建 Docker 镜像 ===" -ForegroundColor Cyan
-py -3 $pyFile $VultrHost $User $Password $RemoteDir $tarPath $ApiPort
+Write-Host "=== 3/4 upload + docker build on server ===" -ForegroundColor Cyan
+$env:VULTR_SSH_PASSWORD = $Password
+# Pass password via env so PowerShell does not mangle special chars like { }
+py -3 $pyFile $VultrHost $User "__via_env__" $RemoteDir $tarPath $ApiPort
+if ($LASTEXITCODE -ne 0) {
+  throw "upload/build failed (exit=$LASTEXITCODE)"
+}
 
 Write-Host ""
-Write-Host "=== 4/4 部署完成 ===" -ForegroundColor Green
+Write-Host "=== 4/4 deploy done ===" -ForegroundColor Green
 Write-Host "Admin:  http://${VultrHost}:${ApiPort}/"
 Write-Host "API:    http://${VultrHost}:${ApiPort}/health"
-Write-Host "登录:   admin / (见 server\.env ADMIN_PASSWORD)"
+Write-Host "Login:  admin / (see server/.env ADMIN_PASSWORD)"

@@ -56,24 +56,61 @@ export type ResolvedCountryForSteam = {
   uiLanguage: string;
 };
 
+/** App `supportedLocales` — uiLanguage 只能是这些之一，否则回退 en。 */
+export const APP_SUPPORTED_UI_LANGUAGES = new Set([
+  'en', 'zh', 'ja', 'ko', 'fr', 'ru', 'de', 'es',
+  'ur', 'id', 'tr', 'vi', 'th', 'hi', 'pt', 'ar',
+  'pl', 'it', 'nl', 'sv', 'he', 'el',
+]);
+
+/**
+ * App 有对应语言的国家 → 默认用该语言（如 FR→fr）。
+ * 仅英文区 / 未列出的国家 → en。
+ * Admin 显式写成其它「非 en」App 语言时保留；历史种子全表 en 会对「有本国语言」的国家自动纠正。
+ */
 const UI_LANGUAGE_BY_COUNTRY: Record<string, string> = {
   US: 'en',
   GB: 'en',
   AU: 'en',
+  NZ: 'en',
+  IE: 'en',
   CA: 'en',
   CN: 'zh',
   TW: 'zh',
   HK: 'zh',
+  SG: 'zh',
   JP: 'ja',
   KR: 'ko',
   FR: 'fr',
+  BE: 'fr',
   DE: 'de',
+  AT: 'de',
+  CH: 'de',
   BR: 'pt',
   PT: 'pt',
   PL: 'pl',
   ES: 'es',
+  MX: 'es',
+  AR: 'es',
+  CL: 'es',
+  CO: 'es',
+  PE: 'es',
   IT: 'it',
   RU: 'ru',
+  UA: 'ru',
+  TR: 'tr',
+  VN: 'vi',
+  TH: 'th',
+  ID: 'id',
+  IN: 'hi',
+  PK: 'ur',
+  SA: 'ar',
+  AE: 'ar',
+  EG: 'ar',
+  IL: 'he',
+  GR: 'el',
+  NL: 'nl',
+  SE: 'sv',
 };
 
 function normalizeUiLanguage(value: string): string {
@@ -85,15 +122,7 @@ function normalizeUiLanguage(value: string): string {
 }
 
 /**
- * 默认：用 Steam 商店 `cc`（steamCc）推导三平台参数，仅作**起点**，不保证与各服务商文档完全一致。
- *
- * - **Steam**：`cc` 为 ISO 3166-1 alpha-2（大写），是区域价的基准。
- * - **IsThereAnyDeal**：`country` 一般为 **ISO2 大写**，与 Steam 区域价体系通常最接近；边缘区仍建议用真实 API 抽测。
- * - **GG.deals**：`region` 多为小写两位码，但公开文档对取值列表说明较少，可能与 Steam 不一致（如 `uk`/`gb` 等）；**以接口为准**，可在 Admin 列单独覆盖。
- * - **CheapShark**：列表 API 的 `country` 实测不改变 deal；统一 **`US`**，勿与 Steam 区价混为一谈。
- *
- * 「按国家取折扣价」：ITAD/GG 用本表；CheapShark 仅作全球 deal 参考。勿把 UI 国家名直传 API。
- *
+ * 默认：用 Steam 商店 `cc`（steamCc）推导三平台参数，仅作**起点**。
  * 平台侧说明见：`deal-provider-region.catalog.ts`。
  */
 export function dealProviderCodesFromSteamCc(steamCc: string): DealProviderCountryCodes {
@@ -110,18 +139,33 @@ export function dealProviderCodesFromSteamCc(steamCc: string): DealProviderCount
   };
 }
 
+/** 供 Admin/公开列表展示与写入：最终一定是 App supportedLocales 之一。 */
 export function inferUiLanguage(input: {
   countryCode?: string;
   steamLanguage?: string;
   uiLanguage?: string;
 }): string {
-  const explicit = normalizeUiLanguage(input.uiLanguage ?? '');
-  if (explicit) return explicit;
   const country = String(input.countryCode ?? '').trim().toUpperCase();
-  const fromCountry = normalizeUiLanguage(UI_LANGUAGE_BY_COUNTRY[country] ?? '');
-  if (fromCountry) return fromCountry;
+  const mappedRaw = normalizeUiLanguage(UI_LANGUAGE_BY_COUNTRY[country] ?? '');
+  const mapped =
+    mappedRaw && APP_SUPPORTED_UI_LANGUAGES.has(mappedRaw) ? mappedRaw : '';
+  const explicitRaw = normalizeUiLanguage(input.uiLanguage ?? '');
+  const explicit =
+    explicitRaw && APP_SUPPORTED_UI_LANGUAGES.has(explicitRaw) ? explicitRaw : '';
+
+  // 该国在 App 里有专属语言（非纯 en 区）：空值或历史默认 en → 用专属语言
+  if (mapped && mapped !== 'en') {
+    if (!explicit || explicit === 'en') return mapped;
+    return explicit;
+  }
+
+  // 英文区 / 未映射国家：尊重已存 App 语言，否则 en
+  if (explicit) return explicit;
+  if (mapped) return mapped;
+
   const fromSteam = normalizeUiLanguage(input.steamLanguage ?? '');
-  return fromSteam || 'en';
+  if (fromSteam && APP_SUPPORTED_UI_LANGUAGES.has(fromSteam)) return fromSteam;
+  return 'en';
 }
 
 export class RegionCountryRepository {

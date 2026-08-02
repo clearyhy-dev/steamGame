@@ -80,8 +80,8 @@ class ApiClient {
 
   void _handleMaybeInvalidJwt(BackendException e) {
     if (e.statusCode == 401) {
-      // token 失效自动清理
-      unawaited(TokenStorage.instance.clearJwt());
+      // 先静默重签 JWT；失败才清 token。绝不清除 Google 身份。
+      unawaited(TokenStorage.instance.recoverFromUnauthorized());
     }
   }
 }

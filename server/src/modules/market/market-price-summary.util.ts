@@ -1,6 +1,9 @@
 import type { GameCountryPriceBucket, RegionalSourcePriceSnapshot } from '../game/game-catalog.repository';
 import type { ResolvedCountryForSteam } from '../config/region-country.repository';
-import { ggDealsRegionFromSteamCc } from '../config/deal-provider-region.catalog';
+import {
+  ggDealsRegionFromSteamCc,
+  resolveGgDealsApiRegion,
+} from '../config/deal-provider-region.catalog';
 import { buildRegionalSteamStoreAppUrl } from '../steam/steam-store-url.util';
 import { buildItadGamePageUrl, isSteamStoreUrl } from '../game/itad-url.util';
 import type { SteamStoreGameDetail } from '../steam/steam-store.service';
@@ -68,8 +71,16 @@ function cellFromSnapshotOrEmpty(
   return cell;
 }
 
-/** 旧版 GG 在美国区静默回退写入的价格；非 US 区应视为无效 */
-function isLegacyGgUsFallback(cell: MarketPlatformPriceCell, expectedGgRegion: string): boolean {
+/**
+ * 旧版 GG 在美国区静默回退写入的价格；非 US 区应视为无效。
+ * 显式代理（`regionProxied`）的 JP/KR→us 等不属于 legacy，应保留。
+ */
+function isLegacyGgUsFallback(
+  cell: MarketPlatformPriceCell,
+  expectedGgRegion: string,
+  opts?: { regionProxied?: boolean },
+): boolean {
+  if (opts?.regionProxied) return false;
   const region = String(expectedGgRegion || 'us')
     .trim()
     .toLowerCase();
@@ -140,11 +151,21 @@ export function buildMarketGamePriceSummary(input: {
     steam.url = steam.url ?? steamStoreUrl;
   }
 
-  const ggExpectedRegion = String(bucket?.ggDetail?.ggApiRegion ?? ggDealsRegionFromSteamCc(resolved.steamCc))
+  const ggConfigured = String(
+    bucket?.ggDetail?.requestedGgRegion ?? bucket?.ggDealsRegion ?? ggDealsRegionFromSteamCc(resolved.steamCc),
+  )
+    .trim()
+    .toLowerCase();
+  const ggResolved = resolveGgDealsApiRegion(ggConfigured);
+  const ggExpectedRegion = String(bucket?.ggDetail?.ggApiRegion ?? ggResolved.apiRegion)
     .trim()
     .toLowerCase();
   let ggdeals = cellFromSnapshotOrEmpty(bucket?.ggdeals, { priceSyncOk: bucket?.ggDetail?.priceSyncOk });
-  if (isLegacyGgUsFallback(ggdeals, ggExpectedRegion)) {
+  if (
+    isLegacyGgUsFallback(ggdeals, ggExpectedRegion, {
+      regionProxied: Boolean(bucket?.ggDetail?.regionProxied) || ggResolved.proxied,
+    })
+  ) {
     ggdeals = EMPTY_PLATFORM_CELL;
   }
 

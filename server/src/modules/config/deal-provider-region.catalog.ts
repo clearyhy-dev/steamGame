@@ -13,7 +13,8 @@
  * ## GG.deals（`region` query，小写）
  * - 文档：https://gg.deals/api/prices/
  * - 官方 region 列表见 `GG_DEALS_OFFICIAL_REGION_CODES`（`external-deal-api.catalog.ts`）
- * - 非列表国家不做 US 静默回退
+ * - 非官方 region（如 jp/kr）经 `resolveGgDealsApiRegion` **显式代理**到最近官方区再请求；
+ *   写入 `ggDetail.regionProxied`，避免当成静默伪成本区价。
  */
 import {
   GG_DEALS_OFFICIAL_REGION_CODES,
@@ -54,10 +55,76 @@ export const GG_DEALS_EU_BUCKET_STEAM_COUNTRIES = new Set<string>([
 ]);
 
 /**
+ * 官方 Prices API 未覆盖的 region → 最近官方区（显式代理）。
+ * JP/KR/CN 等亚太 → `us`（与常见聚合站一致；币种为代理区货币，非本区 Steam 价）。
+ * 拉丁美洲未覆盖 → `br`。
+ */
+export const GG_DEALS_UNSUPPORTED_REGION_PROXY: Record<string, string> = {
+  jp: 'us',
+  kr: 'us',
+  cn: 'us',
+  tw: 'us',
+  hk: 'us',
+  mo: 'us',
+  sg: 'us',
+  my: 'us',
+  th: 'us',
+  vn: 'us',
+  ph: 'us',
+  id: 'us',
+  in: 'us',
+  nz: 'us',
+  mx: 'br',
+  ar: 'br',
+  cl: 'br',
+  co: 'br',
+  pe: 'br',
+  uy: 'br',
+  za: 'us',
+  sa: 'us',
+  ae: 'us',
+  ua: 'eu',
+  il: 'eu',
+  cz: 'eu',
+  hu: 'eu',
+  ro: 'eu',
+};
+
+export type GgDealsResolvedApiRegion = {
+  /** 实际请求 GG API 的 region */
+  apiRegion: string;
+  /** 配置/推导的原 region */
+  requestedRegion: string;
+  /** 是否走了官方外代理 */
+  proxied: boolean;
+};
+
+/**
+ * 将配置中的 GG region 解析为可请求的官方 API region。
+ * 官方列表内原样返回；否则按亚太/拉美/欧元邻近表代理，缺省 `us`。
+ */
+export function resolveGgDealsApiRegion(requested: string): GgDealsResolvedApiRegion {
+  const requestedRegion = String(requested || 'us')
+    .trim()
+    .toLowerCase()
+    .slice(0, 2);
+  const safeReq = /^[a-z]{2}$/.test(requestedRegion) ? requestedRegion : 'us';
+  if (isGgDealsOfficialRegion(safeReq)) {
+    return { apiRegion: safeReq, requestedRegion: safeReq, proxied: false };
+  }
+  if (GG_DEALS_EU_BUCKET_STEAM_COUNTRIES.has(safeReq.toUpperCase())) {
+    return { apiRegion: 'eu', requestedRegion: safeReq, proxied: true };
+  }
+  const proxy = GG_DEALS_UNSUPPORTED_REGION_PROXY[safeReq] ?? 'us';
+  const apiRegion = isGgDealsOfficialRegion(proxy) ? proxy : 'us';
+  return { apiRegion, requestedRegion: safeReq, proxied: true };
+}
+
+/**
  * 由 Steam 商店 `cc`（ISO2 大写）推导 GG.deals `region`（小写）。
  * - 在官方 region 列表中 → 直接用该码（含 `gb` 非 `uk`）。
  * - 在欧元 bucket 表中 → `eu`。
- * - 其余 → 小写 ISO2（多数不在官方列表，同步时会 region_not_supported）。
+ * - 其余 → 小写 ISO2（同步时经 `resolveGgDealsApiRegion` 代理到官方区）。
  */
 export function ggDealsRegionFromSteamCc(steamCcUpper: string): string {
   const cc = String(steamCcUpper ?? '')
@@ -71,7 +138,7 @@ export function ggDealsRegionFromSteamCc(steamCcUpper: string): string {
   return low;
 }
 
-/** Admin 自动完成：官方 region + 常见 Steam 国别（后者可能 API 不支持） */
+/** Admin 自动完成：官方 region + 常见 Steam 国别（非官方者同步时会代理） */
 export function ggDealsRegionSuggestOptions(): string[] {
   const fromDefaults = [
     'jp',

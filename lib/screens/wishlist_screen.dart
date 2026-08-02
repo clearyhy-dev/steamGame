@@ -48,6 +48,7 @@ class _WishlistScreenState extends State<WishlistScreen> {
   void initState() {
     super.initState();
     AppCountryEvents.instance.changed.addListener(_onPriceRegionChanged);
+    AuthService().addListener(_onAuthChanged);
     _checkAuthAndLoad();
     _searchController.addListener(() {
       setState(() => _searchQuery = _searchController.text.trim());
@@ -56,6 +57,10 @@ class _WishlistScreenState extends State<WishlistScreen> {
 
   void _onPriceRegionChanged() {
     _load();
+  }
+
+  void _onAuthChanged() {
+    _checkAuthAndLoad();
   }
 
   Future<void> _checkAuthAndLoad() async {
@@ -72,6 +77,7 @@ class _WishlistScreenState extends State<WishlistScreen> {
 
   @override
   void dispose() {
+    AuthService().removeListener(_onAuthChanged);
     AppCountryEvents.instance.changed.removeListener(_onPriceRegionChanged);
     _searchController.dispose();
     super.dispose();

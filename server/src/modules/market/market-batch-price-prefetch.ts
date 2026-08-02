@@ -12,7 +12,7 @@ import { ggDealsFetchPricesBySteamAppIds } from '../game/gg-deals-api.client';
 import { pickItadDealFromPricesV3Entry, itadDealToPriceFields } from '../game/itad-deal-pick.util';
 import { resolveItadOfferUrl } from '../game/itad-url.util';
 import { buildGgDealOfferFromGameNode } from '../game/gg-deals-detail.util';
-import { isGgDealsOfficialRegion } from '../config/external-deal-api.catalog';
+import { resolveGgDealsApiRegion } from '../config/deal-provider-region.catalog';
 import { mapPool } from '../../utils/map-pool';
 import type { DealSource } from '../game/game-deal-link.repository';
 import {
@@ -40,6 +40,9 @@ export type ItadAppPrefetch = {
 export type GgAppPrefetch = {
   rawNode: Record<string, unknown>;
   offer: DealOffer | null;
+  apiRegion: string;
+  requestedRegion: string;
+  proxied: boolean;
 };
 
 export type MarketBatchPricePrefetch = {
@@ -189,8 +192,7 @@ async function prefetchGgBatch(
   const out = new Map<string, GgAppPrefetch>();
   if (!ggDealsApiKey || !appids.length) return out;
 
-  const regionLc = String(ggRegion || 'us').trim().toLowerCase();
-  if (!isGgDealsOfficialRegion(regionLc)) return out;
+  const resolvedGg = resolveGgDealsApiRegion(ggRegion);
 
   const e = await getEffectiveEnv(env);
   const timeoutMs = Math.max(e.steamHttpTimeoutMs, 12000);
@@ -203,7 +205,7 @@ async function prefetchGgBatch(
     apiKey: ggDealsApiKey,
     baseUrl: ggDealsBaseUrl,
     appids,
-    region: regionLc,
+    region: resolvedGg.apiRegion,
     timeoutMs,
   });
   if (!batch) return out;
@@ -211,9 +213,16 @@ async function prefetchGgBatch(
   for (const appid of appids) {
     const rawNode = batch.byAppid.get(appid) ?? batch.byAppid.get(String(Number(appid)));
     if (!rawNode) continue;
-    const mapped = buildGgDealOfferFromGameNode({ rawNode, appid, regionLower: regionLc });
+    const mapped = buildGgDealOfferFromGameNode({
+      rawNode,
+      appid,
+      regionLower: resolvedGg.apiRegion,
+    });
     out.set(appid, {
       rawNode,
+      apiRegion: resolvedGg.apiRegion,
+      requestedRegion: resolvedGg.requestedRegion,
+      proxied: resolvedGg.proxied,
       offer: mapped
         ? {
             source: 'ggdeals',

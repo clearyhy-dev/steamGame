@@ -5,6 +5,8 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 
 import '../app.dart';
+import '../l10n/app_localizations.dart';
+import 'app_country_resolver.dart';
 import 'navigation/game_detail_navigation.dart';
 import 'notification_service.dart';
 import 'storage_service.dart';
@@ -77,20 +79,28 @@ class FcmService {
   }
 
   void _onForeground(RemoteMessage message) {
+    unawaited(_showForegroundNotification(message));
+  }
+
+  Future<void> _showForegroundNotification(RemoteMessage message) async {
+    String fallbackTitle = 'Steam AI Deal Alert';
+    try {
+      final locale = (await AppCountryResolver.resolveContext()).uiLanguageCode;
+      fallbackTitle =
+          AppLocalizations.getStringForLocale(locale, 'notification_on_enabled_title');
+    } catch (_) {}
     final title = message.notification?.title ??
         (message.data['title'] is String ? message.data['title'] as String : null) ??
-        'Steam Deal';
+        fallbackTitle;
     final body = message.notification?.body ??
         (message.data['body'] is String ? message.data['body'] as String : null) ??
         '';
     final raw = message.data['dealId'] ?? message.data['appId'] ?? message.data['payload'];
     final payload = raw == null ? null : raw.toString();
-    unawaited(
-      NotificationService.instance.showFcmNotification(
-        title: title,
-        body: body,
-        payload: payload,
-      ),
+    await NotificationService.instance.showFcmNotification(
+      title: title,
+      body: body,
+      payload: payload,
     );
   }
 

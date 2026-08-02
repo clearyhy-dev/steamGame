@@ -136,25 +136,39 @@ export function appendGgDealsRegionToUrl(url: string, regionLower: string): stri
  */
 export function buildGgDetailSnapshot(input: {
   rawNode: Record<string, unknown> | null;
+  /** 实际请求官方 API 的 region */
   ggRegionLower: string;
   priceSyncOk: boolean;
+  requestedGgRegion?: string;
+  regionProxied?: boolean;
 }): GgDetailSnapshot {
   const now = admin.firestore.Timestamp.now();
   const region = String(input.ggRegionLower || 'us')
     .trim()
     .toLowerCase();
+  const requested = String(input.requestedGgRegion || region)
+    .trim()
+    .toLowerCase();
+  const proxied = Boolean(input.regionProxied);
   const node = input.rawNode;
   const prices = parseOfficialGgPricesFromGameNode(node);
 
+  const noteBase = `${GG_DEALS_API.docUrl} — GET ${GG_DEALS_API.endpoints.pricesBySteamAppId.path} region=${region}`;
   return {
     ggApiRegion: region,
+    ...(requested && requested !== region ? { requestedGgRegion: requested } : {}),
+    ...(proxied ? { regionProxied: true, requestedGgRegion: requested || region } : {}),
     syncedAt: now,
     priceSyncOk: input.priceSyncOk,
     ...(prices ? { prices } : {}),
     chartNote: node
-      ? `${GG_DEALS_API.docUrl} — GET ${GG_DEALS_API.endpoints.pricesBySteamAppId.path} region=${region}`
-      : region === 'us'
-        ? 'no_gg_api_payload'
-        : `gg_region_${region}_not_supported`,
+      ? proxied
+        ? `${noteBase} (proxy for ${requested})`
+        : noteBase
+      : proxied
+        ? `gg_region_${requested}_proxied_empty`
+        : region === 'us'
+          ? 'no_gg_api_payload'
+          : `gg_region_${region}_not_supported`,
   };
 }

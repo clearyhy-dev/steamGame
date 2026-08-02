@@ -201,7 +201,11 @@ export async function sqliteUpsertRegion(
         input.currencySymbol ?? prev?.currencySymbol,
       ),
       input.steamLanguage ?? prev?.steamLanguage ?? 'en',
-      input.uiLanguage ?? prev?.uiLanguage ?? inferUiLanguage({ countryCode: code, steamLanguage: 'en' }),
+      inferUiLanguage({
+        countryCode: code,
+        steamLanguage: String(input.steamLanguage ?? prev?.steamLanguage ?? 'en'),
+        uiLanguage: String(input.uiLanguage ?? prev?.uiLanguage ?? ''),
+      }),
       (input.enabled ?? prev?.enabled ?? true) ? 1 : 0,
       input.sortOrder ?? prev?.sortOrder ?? 0,
       syncTier,

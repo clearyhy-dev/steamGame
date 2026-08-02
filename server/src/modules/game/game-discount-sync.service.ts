@@ -16,7 +16,7 @@ import { resolveItadOfferUrl } from './itad-url.util';
 import { pickItadDealFromPricesV3Entry, pickItadSteamDealFromPricesV3Entry, itadDealToPriceFields } from './itad-deal-pick.util';
 import { itadLookupBySteamAppId, itadFetchGamePricesV3, itadPricesV3EntryForGameId } from './itad-api.client';
 import { ggDealsFetchPricesBySteamAppId } from './gg-deals-api.client';
-import { isGgDealsOfficialRegion } from '../config/external-deal-api.catalog';
+import { resolveGgDealsApiRegion } from '../config/deal-provider-region.catalog';
 import { computeWorthBuy } from './worth-buy.util';
 import {
   buildGgDetailSnapshot,
@@ -293,15 +293,28 @@ export class GameDiscountSyncService {
     ggDealsBaseUrl: string | undefined,
     ggRegion: string,
     businessCountryCode: string,
-  ): Promise<{ offer: DealOffer | null; rawNode: Record<string, unknown> | null }> {
+  ): Promise<{
+    offer: DealOffer | null;
+    rawNode: Record<string, unknown> | null;
+    apiRegion: string;
+    requestedRegion: string;
+    proxied: boolean;
+  }> {
     const apiKey = String(ggDealsApiKey ?? '').trim();
-    if (!apiKey) return { offer: null, rawNode: null };
+    const resolvedGg = resolveGgDealsApiRegion(ggRegion);
+    if (!apiKey) {
+      return {
+        offer: null,
+        rawNode: null,
+        apiRegion: resolvedGg.apiRegion,
+        requestedRegion: resolvedGg.requestedRegion,
+        proxied: resolvedGg.proxied,
+      };
+    }
     const biz = String(businessCountryCode || 'US')
       .trim()
       .toUpperCase()
       .slice(0, 2);
-    const regionLc = String(ggRegion || 'us').trim().toLowerCase();
-    if (!isGgDealsOfficialRegion(regionLc)) return { offer: null, rawNode: null };
     try {
       const e = await getEffectiveEnv(this.env);
       const timeoutMs = Math.max(e.steamHttpTimeoutMs, 10000);
@@ -309,13 +322,33 @@ export class GameDiscountSyncService {
         apiKey,
         baseUrl: ggDealsBaseUrl,
         appid,
-        region: regionLc,
+        region: resolvedGg.apiRegion,
         timeoutMs,
       });
       const rawNode = hit?.rawNode ?? null;
-      if (!rawNode) return { offer: null, rawNode: null };
-      const mapped = buildGgDealOfferFromGameNode({ rawNode, appid, regionLower: regionLc });
-      if (!mapped) return { offer: null, rawNode };
+      if (!rawNode) {
+        return {
+          offer: null,
+          rawNode: null,
+          apiRegion: resolvedGg.apiRegion,
+          requestedRegion: resolvedGg.requestedRegion,
+          proxied: resolvedGg.proxied,
+        };
+      }
+      const mapped = buildGgDealOfferFromGameNode({
+        rawNode,
+        appid,
+        regionLower: resolvedGg.apiRegion,
+      });
+      if (!mapped) {
+        return {
+          offer: null,
+          rawNode,
+          apiRegion: resolvedGg.apiRegion,
+          requestedRegion: resolvedGg.requestedRegion,
+          proxied: resolvedGg.proxied,
+        };
+      }
       return {
         offer: {
           source: 'ggdeals',
@@ -327,9 +360,18 @@ export class GameDiscountSyncService {
           discountPercent: undefined,
         },
         rawNode,
+        apiRegion: resolvedGg.apiRegion,
+        requestedRegion: resolvedGg.requestedRegion,
+        proxied: resolvedGg.proxied,
       };
     } catch {
-      return { offer: null, rawNode: null };
+      return {
+        offer: null,
+        rawNode: null,
+        apiRegion: resolvedGg.apiRegion,
+        requestedRegion: resolvedGg.requestedRegion,
+        proxied: resolvedGg.proxied,
+      };
     }
   }
 
@@ -424,6 +466,9 @@ export class GameDiscountSyncService {
         gg?: {
           rawNode: Record<string, unknown>;
           offer: DealOffer | null;
+          apiRegion?: string;
+          requestedRegion?: string;
+          proxied?: boolean;
         };
       };
     },
@@ -525,13 +570,18 @@ export class GameDiscountSyncService {
         let offer: DealOffer | null = null;
         let reason: string | undefined;
         let rawGg: Record<string, unknown> | null = null;
+        const resolvedGg = resolveGgDealsApiRegion(pc.ggDealsRegion);
+        let ggApiRegion = resolvedGg.apiRegion;
+        let ggRequestedRegion = resolvedGg.requestedRegion;
+        let ggProxied = resolvedGg.proxied;
         const pfGg = opts?.pricePrefetch?.gg;
         if (pfGg !== undefined) {
           offer = pfGg.offer;
           rawGg = pfGg.rawNode ?? null;
-          if (!offer?.url) {
-            reason = !isGgDealsOfficialRegion(pc.ggDealsRegion) ? 'region_not_supported' : 'empty_response';
-          }
+          if (pfGg.apiRegion) ggApiRegion = pfGg.apiRegion;
+          if (pfGg.requestedRegion) ggRequestedRegion = pfGg.requestedRegion;
+          if (typeof pfGg.proxied === 'boolean') ggProxied = pfGg.proxied;
+          if (!offer?.url) reason = 'empty_response';
         } else if (!String(opts?.ggDealsApiKey ?? '').trim()) {
           reason = 'missing_api_key';
         } else {
@@ -540,9 +590,10 @@ export class GameDiscountSyncService {
             const gg = await this.fetchGgDeals(id, ggKey, opts!.ggDealsBaseUrl, pc.ggDealsRegion, businessCc);
             offer = gg.offer;
             rawGg = gg.rawNode;
-            if (!offer?.url) {
-              reason = !isGgDealsOfficialRegion(pc.ggDealsRegion) ? 'region_not_supported' : 'empty_response';
-            }
+            ggApiRegion = gg.apiRegion;
+            ggRequestedRegion = gg.requestedRegion;
+            ggProxied = gg.proxied;
+            if (!offer?.url) reason = 'empty_response';
           } catch (e) {
             reason = e instanceof Error ? e.message : String(e);
           }
@@ -550,14 +601,15 @@ export class GameDiscountSyncService {
         const ok = !!(offer && offer.url);
         record('ggdeals', ok, offer, ok ? undefined : reason);
         await this.writeCountrySourceSnapshot(id, businessCc, pc, 'ggdeals', { ok, offer, reason }, now);
-        if (!bulk) {
-          const ggDetail = buildGgDetailSnapshot({
-            rawNode: rawGg,
-            ggRegionLower: pc.ggDealsRegion,
-            priceSyncOk: ok,
-          });
-          await this.offers.mergeCountryPriceBucket(id, businessCc, { ggDetail });
-        }
+        // 批量刷价也要写 ggDetail：jp/kr 等代理到 us 时靠 regionProxied 避免 summary 误清
+        const ggDetail = buildGgDetailSnapshot({
+          rawNode: rawGg,
+          ggRegionLower: ggApiRegion,
+          requestedGgRegion: ggRequestedRegion,
+          regionProxied: ggProxied,
+          priceSyncOk: ok,
+        });
+        await this.offers.mergeCountryPriceBucket(id, businessCc, { ggDetail });
       };
 
       const runItad = async (): Promise<void> => {
